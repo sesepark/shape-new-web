@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { BellRing, CalendarClock, Camera, Check, ChevronRight, ClipboardCheck, Clock3, ShieldCheck, X } from "lucide-react";
+import { BellRing, CalendarClock, Check, ChevronRight, ClipboardCheck, Clock3, ShieldCheck, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { AutoTextarea } from "@/components/auto-textarea";
 import { useAsk } from "@/components/ask-dialog";
 import { PageShell } from "@/components/page-shell";
 import { ImageUploadField } from "@/components/image-upload-field";
+import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL, isPreview } from "@/lib/api";
 import { media } from "@/lib/media";
@@ -48,49 +49,6 @@ const span = new Intl.DateTimeFormat("ko-KR", { year: "2-digit", month: "short",
 
 async function call(path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}${path}`, { credentials: "include", cache: "no-store", ...init });
-}
-
-function ReservationPhotoStep({ reservation, onDone }: { reservation: ReservationItem; onDone: (next: ReservationItem) => void }) {
-  const [photo, setPhoto] = useState("");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const step = reservation.status === "APPROVED" ? "before" : "after";
-  const before = step === "before";
-  async function submit() {
-    if (!photo) { setMessage("사진을 먼저 올려 주세요."); return; }
-    setBusy(true);
-    const response = await call(`/reservations/${reservation.id}/${step}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photoUrl: photo }),
-    }).catch(() => null);
-    setBusy(false);
-    if (!response?.ok) { setMessage("기록하지 못했습니다. 잠시 후 다시 시도해 주세요."); return; }
-    onDone((await response.json()) as ReservationItem);
-    setPhoto("");
-    setMessage("");
-  }
-  return (
-    <div className={`reservation-photo-step${before ? "" : " after"}`}>
-      <header>
-        <span className="step-badge">{before ? "STEP 1" : "STEP 2"}</span>
-        <div>
-          <strong>{before ? "사용 전 사진을 올리고 시작하기" : "사용 후 사진을 올리고 완료하기"}</strong>
-          <p>
-            {before
-              ? "장비를 만지기 전 상태를 한 장 찍어 올려 주세요. 다음 사용자가 이전 상태를 확인할 수 있고, 이상이 있을 때 원인을 빠르게 좁힐 수 있습니다."
-              : "정리를 마친 상태를 찍어 올리면 사용이 완료 처리됩니다. 파손이나 이상 동작을 발견했다면 정리 전에 사진과 함께 운영진에게 알려 주세요."}
-          </p>
-        </div>
-      </header>
-      <ImageUploadField purpose="reservation" label={before ? "사용 전 상태 사진" : "사용 후 상태 사진"} value={photo} onChange={setPhoto} />
-      <button className="button small" type="button" disabled={busy || !photo} onClick={submit}>
-        <Camera size={15} />
-        {busy ? "기록 중" : before ? "사용 시작하기" : "사용 완료하기"}
-      </button>
-      {message && <p className="form-note">{message}</p>}
-    </div>
-  );
 }
 
 /** 아직 차례가 아닌 예약에도 다음에 무엇을 해야 하는지 알려 준다. */

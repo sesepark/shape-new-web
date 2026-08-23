@@ -821,6 +821,11 @@
   --event: #356f6b;
 }
 
+/* 세 트랙 어디에도 들어가지 않는 로드맵 일정. */
+.other {
+  --event: #6f6350;
+}
+
 .roadmap-dialog {
   width: min(560px, calc(100% - 32px));
   /* Tailwind preflight 의 `dialog { margin: 0 }` 이 브라우저 기본 중앙 정렬

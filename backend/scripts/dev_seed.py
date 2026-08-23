@@ -13,8 +13,9 @@ opened without configuring Google OAuth. The long-form copy lives in
 
 import asyncio
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -50,6 +51,19 @@ from app.security import create_session_token  # noqa: E402
 from app.services.link_preview import build as build_preview  # noqa: E402
 
 NOW = datetime.now(UTC)
+SEOUL = ZoneInfo("Asia/Seoul")
+# 예약 시각은 화면에 서울 시각으로 표시되므로, 데모 데이터도 서울 기준 낮 시간에
+# 놓아야 자연스럽게 읽힌다. 시드를 돌린 시각의 UTC 시(hour)를 그대로 쓰면
+# 저녁 7시 같은 엉뚱한 시간표가 만들어진다.
+def seoul_at(days: int, hour: int) -> datetime:
+    day = (NOW.astimezone(SEOUL) + timedelta(days=days)).date()
+    return datetime.combine(day, time(hour), tzinfo=SEOUL).astimezone(UTC)
+
+
+def next_half_hour(offset_minutes: int = 0) -> datetime:
+    """지금 이후 가장 가까운 30분 경계. 사용 시작 화면을 바로 눌러 볼 수 있게 한다."""
+    now = (NOW + timedelta(minutes=offset_minutes)).replace(second=0, microsecond=0)
+    return now + timedelta(minutes=(30 - now.minute % 30) % 30)
 PHOTO = "https://res.cloudinary.com/demo/image/upload/sample.jpg"
 
 # 계정을 가진 부원만 로그인 사용자로 만든다. 이름 → (이메일, owner, 권한)
@@ -268,8 +282,8 @@ async def main() -> None:
         ])
 
         # -------------------------------------------------------------- 예약
-        def book(unit_label: str, who: str, days: int, hours: int, purpose: str, status: ReservationStatus, **extra):
-            starts = (NOW + timedelta(days=days)).replace(minute=0, second=0, microsecond=0)
+        def book(unit_label: str, who: str, days: int, hours: int, purpose: str, status: ReservationStatus, hour: int = 10, starts: datetime | None = None, **extra):
+            starts = starts or seoul_at(days, hour)
             ends = starts + timedelta(hours=hours)
             reservation = Reservation(
                 equipment_unit_id=units[unit_label].id, user_id=people[who].id,
@@ -282,26 +296,26 @@ async def main() -> None:
                              "그리퍼 파지 정책 데이터 수집. 물체 12종을 각 20회씩 반복 수집할 예정입니다.",
                              ReservationStatus.PENDING)
         # 오유하 계정으로 사용 전/후 사진 등록 화면을 바로 볼 수 있게 둔다.
-        ready, ready_start, ready_end = book("OMY 2호기", "오유하", 1, 2,
+        ready, ready_start, ready_end = book("OMY 2호기", "오유하", 0, 2,
                                              "파지 실패 감지 실험. 손목 각도를 바꿔 가며 재현 데이터를 모읍니다.",
-                                             ReservationStatus.APPROVED)
+                                             ReservationStatus.APPROVED, starts=next_half_hour())
         running, running_start, running_end = book("Tesollo Hand", "오유하", 0, 3,
                                                    "다관절 손 파지 실험. 사용 전 사진을 올려 시작한 상태입니다.",
-                                                   ReservationStatus.IN_USE, before_photo_url=PHOTO)
+                                                   ReservationStatus.IN_USE, starts=next_half_hour(-90), before_photo_url=PHOTO)
         book("GPU 워크스테이션 1호기", "류이든", 3, 4,
              "Isaac Lab에서 보행 정책 학습. 야간까지 이어질 수 있어 넉넉히 잡았습니다.",
-             ReservationStatus.PENDING)
+             ReservationStatus.PENDING, hour=13)
         approved_one, starts, ends = book("AI Worker 1호기", "조나윤", 1, 3,
                                           "양팔 teleoperation 데이터 수집 세션. 안전 담당 1명 동행합니다.",
-                                          ReservationStatus.APPROVED)
+                                          ReservationStatus.APPROVED, hour=14)
         in_use, _, _ = book("SO-ARM 1호기", "전한별", 0, 2,
                             "모방학습 실습 준비. 조별 실습 전 동작 확인용입니다.",
-                            ReservationStatus.IN_USE, before_photo_url=PHOTO)
+                            ReservationStatus.IN_USE, starts=next_half_hour(-60), before_photo_url=PHOTO)
         book("OMY 2호기", "강채아", -4, 2,
              "리더-팔로워 연동 테스트. 두 대를 동시에 사용했습니다.",
-             ReservationStatus.COMPLETED, before_photo_url=PHOTO, after_photo_url=PHOTO)
+             ReservationStatus.COMPLETED, hour=15, before_photo_url=PHOTO, after_photo_url=PHOTO)
         book("GPU 워크스테이션 2호기", "전한별", -2, 3,
-             "비전 모델 파인튜닝.", ReservationStatus.REJECTED,
+             "비전 모델 파인튜닝.", ReservationStatus.REJECTED, hour=11,
              rejection_reason="같은 시간에 교육 트랙 실습이 예정되어 있어 다른 시간대로 부탁드립니다.")
         await db.flush()
         for reservation, first, last in (

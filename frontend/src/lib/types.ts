@@ -249,6 +249,7 @@ export interface CommentItem {
 
 export interface ReservationCalendarItem {
   id: string;
+  userId: string;
   equipmentName: string;
   unitLabel: string;
   userName: string;

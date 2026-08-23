@@ -23,7 +23,7 @@ const groups = [
   { label: "SHAPE", tabs: ["인사말", "동아리 소개", "조직도", "부원"] },
   { label: "장비 예약", tabs: ["보유 장비", "라이선스", "장비 예약"] },
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
-  { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육"] },
+  { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"] },
   { label: "바로가기", tabs: ["관련 링크"] },
   { label: "시스템", tabs: ["회원 및 권한"] },
 ] as const;
@@ -45,6 +45,7 @@ const tabPermission: Record<Section, string> = {
   "SHAPE-UP": "roadmap:manage",
   "대회": "roadmap:manage",
   "교육": "roadmap:manage",
+  "기타": "roadmap:manage",
   "관련 링크": "links:manage",
   "회원 및 권한": "owner",
 };
@@ -96,6 +97,7 @@ const sectionGuide: Record<Section, { what: string; where: string; href?: string
   "SHAPE-UP": { what: "SHAPE-UP 일정만 따로 등록합니다.", where: "공개 페이지 로드맵 › SHAPE-UP", href: "/roadmap/shape-up" },
   "대회": { what: "대회 일정만 따로 등록합니다.", where: "공개 페이지 로드맵 › 대회", href: "/roadmap/competition" },
   "교육": { what: "교육 일정만 따로 등록합니다.", where: "공개 페이지 로드맵 › 교육", href: "/roadmap/education" },
+  "기타": { what: "세 트랙에 들어가지 않는 일정을 등록합니다.", where: "공개 페이지 로드맵 › 전체 로드맵", href: "/roadmap" },
   "관련 링크": { what: "Drive·Notion 같은 외부 링크를 카드로 등록합니다.", where: "공개 페이지 바로가기 › 관련 링크", href: "/links" },
   "회원 및 권한": { what: "가입 신청을 승인하고 운영진 권한과 장비 라이선스를 부여합니다.", where: "회원 로그인과 마이페이지" },
 };
@@ -253,7 +255,7 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
   if (tab === "보유 장비") return <EquipmentForm />;
   if (tab === "라이선스") return <LicenseManager />;
   if (tab === "장비 예약") return <ReservationsPanel />;
-  if (["전체 로드맵", "SHAPE-UP", "대회", "교육"].includes(tab))
+  if (["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"].includes(tab))
     return (
       <RoadmapForm fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
     );
@@ -1438,6 +1440,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
           <option>SHAPE-UP</option>
           <option>대회</option>
           <option>교육</option>
+          <option>기타</option>
         </select>
       </label>
       <div className="admin-form-row">

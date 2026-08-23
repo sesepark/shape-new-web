@@ -24,15 +24,40 @@ describe("roadmap lanes", () => {
     expect(isPoint(item("본선", "대회", at(11, 13), at(11, 14)))).toBe(false);
   });
 
-  it("puts every point event in one lane on the left", () => {
+  it("keeps single-day schedules inside their own category lane", () => {
     const lanes = buildLanes(
       [item("OT", "SHAPE-UP", at(9, 17)), item("미팅", "SHAPE-UP", at(9, 29)), item("Demo Day", "대회", at(1, 30, 9, 2027))],
       start,
       end,
     );
-    expect(lanes[0].category).toBe("point");
-    expect(lanes[0].placements).toHaveLength(3);
-    expect(lanes).toHaveLength(1);
+    expect(lanes.map((lane) => lane.category)).toEqual(["SHAPE-UP", "대회"]);
+    expect(lanes[0].placements.map((p) => p.item.title)).toEqual(["OT", "미팅"]);
+    expect(lanes[1].placements.map((p) => p.item.title)).toEqual(["Demo Day"]);
+  });
+
+  it("splits a lane when two single-day schedules would draw over each other", () => {
+    // 닷새 안에 붙어 있으면 막대 최소 높이 때문에 화면에서 서로를 덮습니다.
+    const lanes = buildLanes(
+      [item("전체 OT", "SHAPE-UP", at(9, 17)), item("팀 편성", "SHAPE-UP", at(9, 22))],
+      start,
+      end,
+    );
+    expect(lanes).toHaveLength(2);
+    expect(lanes.every((lane) => lane.category === "SHAPE-UP")).toBe(true);
+  });
+
+  it("keeps 기타 after the three tracks", () => {
+    const lanes = buildLanes(
+      [
+        item("워크숍", "기타", at(10, 5), at(10, 8)),
+        item("교육", "교육", at(10, 5), at(10, 8)),
+        item("대회", "대회", at(10, 5), at(10, 8)),
+        item("SHAPE-UP", "SHAPE-UP", at(10, 5), at(10, 8)),
+      ],
+      start,
+      end,
+    );
+    expect(lanes.map((lane) => lane.category)).toEqual(["SHAPE-UP", "대회", "교육", "기타"]);
   });
 
   it("reuses one lane for schedules that do not overlap", () => {
@@ -60,7 +85,9 @@ describe("roadmap lanes", () => {
       end,
     );
     expect(lanes.map((lane) => lane.label)).toEqual(["교육", "교육"]);
-    expect(laneGroups(lanes)).toEqual([{ category: "교육", label: "교육", span: 2 }]);
+    expect(laneGroups(lanes).map(({ category, label, span }) => ({ category, label, span }))).toEqual([
+      { category: "교육", label: "교육", span: 2 },
+    ]);
   });
 
   it("measures a bar against the semester and marks what runs past it", () => {
@@ -99,12 +126,15 @@ describe("lane groups", () => {
       start,
       end,
     );
-    expect(lanes.map((lane) => lane.label)).toEqual(["단일 일정", "대회", "교육", "교육"]);
-    expect(laneGroups(lanes)).toEqual([
-      { category: "point", label: "단일 일정", span: 1 },
+    expect(lanes.map((lane) => lane.label)).toEqual(["SHAPE-UP", "대회", "교육", "교육"]);
+    expect(laneGroups(lanes).map(({ category, label, span }) => ({ category, label, span }))).toEqual([
+      { category: "SHAPE-UP", label: "SHAPE-UP", span: 1 },
       { category: "대회", label: "대회", span: 1 },
       { category: "교육", label: "교육", span: 2 },
     ]);
+    // 묶음이 자기 레인을 그대로 들고 있어야 한 덩어리로 그릴 수 있다.
+    expect(laneGroups(lanes).map((group) => group.lanes.length)).toEqual([1, 1, 2]);
+    expect(laneGroups(lanes).flatMap((group) => group.lanes)).toEqual(lanes);
     // 머리글 칸 폭의 합은 레인 수와 같아야 자리가 어긋나지 않는다.
     expect(laneGroups(lanes).reduce((total, group) => total + group.span, 0)).toBe(lanes.length);
   });

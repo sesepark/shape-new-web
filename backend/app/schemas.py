@@ -314,6 +314,8 @@ class CommentRead(ORMModel):
 
 class ReservationCalendarItem(ORMModel):
     id: UUID
+    # 예약 현황 화면에서 "내 예약"을 알아보고 사용 전후 사진을 바로 올리게 합니다.
+    user_id: UUID
     equipment_name: str
     unit_label: str
     user_name: str

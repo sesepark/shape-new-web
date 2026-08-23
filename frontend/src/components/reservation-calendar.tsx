@@ -5,6 +5,8 @@ import Image from "next/image";
 import { media } from "@/lib/media";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { board } from "@/lib/board";
+import { ReservationPhotoStep } from "@/components/reservation-photo-step";
+import { useSession } from "@/lib/session";
 import type { ReservationCalendarItem, ReservationStatus } from "@/lib/types";
 
 const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
@@ -34,6 +36,7 @@ function daysCovered(item: ReservationCalendarItem) {
 }
 
 export function ReservationCalendarView() {
+  const { session } = useSession();
   const [month, setMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [items, setItems] = useState<ReservationCalendarItem[] | null>(null);
   const [message, setMessage] = useState("");
@@ -99,7 +102,7 @@ export function ReservationCalendarView() {
           <ChevronRight size={18} />
         </button>
         <span className="calendar-legend-inline">
-          <i className="approved" /> 확정 <i className="pending" /> 대기 <i className="completed" /> 완료
+          <i className="approved" /> 확정 <i className="in-use" /> 사용 중 <i className="pending" /> 대기 <i className="completed" /> 완료
         </span>
       </div>
       {message && <p className="save-notice">{message}</p>}
@@ -166,6 +169,20 @@ export function ReservationCalendarView() {
               <h4>사용 목적</h4>
               <p>{active.purpose || "신청 시 입력한 사용 목적이 없습니다."}</p>
             </section>
+            {session?.id === active.userId && (active.status === "APPROVED" || active.status === "IN_USE") && (
+              <section className="reservation-mine">
+                {/* 장비 앞에서 예약 현황을 열어 본 사람이 마이페이지까지 가지
+                    않고 그 자리에서 사진을 올릴 수 있게 합니다. */}
+                <ReservationPhotoStep
+                  reservation={active}
+                  compact
+                  onDone={(next) => {
+                    setActive({ ...active, status: next.status, beforePhotoUrl: next.beforePhotoUrl ?? null, afterPhotoUrl: next.afterPhotoUrl ?? null });
+                    void load();
+                  }}
+                />
+              </section>
+            )}
             <section className="reservation-shots">
               <h4><Camera size={15} /> 사용 전후 사진</h4>
               {active.beforePhotoUrl || active.afterPhotoUrl ? (

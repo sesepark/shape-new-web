@@ -22,13 +22,21 @@ export type LaneGroup = {
   label: string;
   /** 자리가 모자라 갈라진 레인 수. 머리글은 이만큼을 한 칸으로 덮습니다. */
   span: number;
+  /** 이 분류에 속한 레인들. 한 덩어리로 묶어 그리기 위해 함께 넘깁니다. */
+  lanes: Lane[];
 };
 
 /** 색과 순서를 고정하기 위한 분류 목록. 목록에 없는 분류는 뒤에 붙습니다. */
-export const CATEGORY_ORDER = ["SHAPE-UP", "대회", "교육"];
+export const CATEGORY_ORDER = ["SHAPE-UP", "대회", "교육", "기타"];
 const DAY = 24 * 60 * 60 * 1000;
 /** 두 일정을 같은 레인에 이어 붙일 때 남기는 시각적 여유. */
-const LANE_GAP = 2 * DAY;
+const LANE_GAP = 1 * DAY;
+/**
+ * 막대가 화면에서 실제로 차지하는 최소 길이. 하루짜리 일정도 최소 높이 32px 을
+ * 차지하는데, 여섯 달을 1160px 에 그리면 그만큼이 약 닷새입니다. 날짜만 보고
+ * 겹치는지 판단하면 하루짜리 둘이 서로를 덮으므로, 눈에 보이는 크기로 잽니다.
+ */
+const MIN_VISUAL_SPAN = 5 * DAY;
 
 export function semesterWindow(year: number, semester: 1 | 2) {
   const startMonth = semester === 1 ? 1 : 7;
@@ -63,12 +71,14 @@ function pack(items: RoadmapItem[]): RoadmapItem[][] {
   });
   for (const item of ordered) {
     const { start, end } = bounds(item);
+    // 짧은 일정은 날짜보다 막대가 길게 보이므로 그 길이만큼 자리를 잡아 둡니다.
+    const occupied = Math.max(end, start + MIN_VISUAL_SPAN);
     const lane = lanes.find((candidate) => candidate.until + LANE_GAP < start);
     if (lane) {
       lane.items.push(item);
-      lane.until = Math.max(lane.until, end);
+      lane.until = Math.max(lane.until, occupied);
     } else {
-      lanes.push({ items: [item], until: end });
+      lanes.push({ items: [item], until: occupied });
     }
   }
   return lanes.map((lane) => lane.items);
@@ -90,8 +100,8 @@ function place(item: RoadmapItem, from: number, to: number): LanePlacement {
 }
 
 /**
- * 학기 창에 걸치는 일정을 세로 레인으로 나눕니다. 하루짜리는 맨 왼쪽 한 레인에
- * 모으고, 기간 일정은 분류별로 묶되 겹치면 같은 분류 안에서 레인을 늘립니다.
+ * 학기 창에 걸치는 일정을 분류별 세로 레인으로 나눕니다. 하루짜리 일정도 자기
+ * 분류 안에 함께 넣고, 한 레인에 더 들어갈 자리가 없을 때만 레인을 늘립니다.
  */
 export function buildLanes(items: RoadmapItem[], from: Date, to: Date): Lane[] {
   const start = from.getTime();
@@ -101,27 +111,15 @@ export function buildLanes(items: RoadmapItem[], from: Date, to: Date): Lane[] {
     return range.start < end && range.end >= start;
   });
 
-  const points = visible.filter(isPoint);
-  const spans = visible.filter((item) => !isPoint(item));
   const lanes: Lane[] = [];
-
-  if (points.length) {
-    lanes.push({
-      key: "point",
-      label: "단일 일정",
-      category: "point",
-      placements: points
-        .sort((a, b) => bounds(a).start - bounds(b).start)
-        .map((item) => place(item, start, end)),
-    });
-  }
-
   const categories = [
-    ...CATEGORY_ORDER.filter((name) => spans.some((item) => item.category === name)),
-    ...[...new Set(spans.map((item) => item.category))].filter((name) => !CATEGORY_ORDER.includes(name)),
+    ...CATEGORY_ORDER.filter((name) => visible.some((item) => item.category === name)),
+    ...[...new Set(visible.map((item) => item.category))].filter((name) => !CATEGORY_ORDER.includes(name)),
   ];
   for (const category of categories) {
-    const packed = pack(spans.filter((item) => item.category === category));
+    // 하루짜리든 기간이든 같은 분류 안에서 first-fit 으로 채우고, 더 넣을
+    // 자리가 없을 때만 레인을 하나 늘립니다.
+    const packed = pack(visible.filter((item) => item.category === category));
     packed.forEach((laneItems, index) => {
       lanes.push({
         key: `${category}-${index}`,
@@ -144,8 +142,12 @@ export function laneGroups(lanes: Lane[]): LaneGroup[] {
   const groups: LaneGroup[] = [];
   for (const lane of lanes) {
     const last = groups.at(-1);
-    if (last && last.category === lane.category) last.span += 1;
-    else groups.push({ category: lane.category, label: lane.label, span: 1 });
+    if (last && last.category === lane.category) {
+      last.span += 1;
+      last.lanes.push(lane);
+    } else {
+      groups.push({ category: lane.category, label: lane.label, span: 1, lanes: [lane] });
+    }
   }
   return groups;
 }

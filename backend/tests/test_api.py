@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 
@@ -11,6 +12,7 @@ from app.models import (
     EquipmentUnit,
     License,
     Notice,
+    Reservation,
     ReservationStatus,
     UserLicense,
     UserStatus,
@@ -123,6 +125,12 @@ async def test_member_without_licence_cannot_reserve(client, session):
     assert created.json()["unitLabel"] == "OMY 1호기"
 
 
+def next_half_hour() -> datetime:
+    """지금 이후 가장 가까운 정각 또는 30분. 예약 시작 시각의 제약을 모두 만족한다."""
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    return (now + timedelta(minutes=30 - now.minute % 30))
+
+
 async def test_reservation_lifecycle(client, session):
     officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
     member = await make_user(session, "member@example.com")
@@ -132,7 +140,8 @@ async def test_reservation_lifecycle(client, session):
     unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
     session.add(unit)
     await session.commit()
-    starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+    # 사용 시작은 예약 시각 직전부터만 가능하므로, 다음 30분 경계로 잡는다.
+    starts = next_half_hour()
     payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "부품 출력"}
     http = login(client, member)
     reservation = (await http.post("/api/v1/reservations", json=payload)).json()
@@ -141,6 +150,10 @@ async def test_reservation_lifecycle(client, session):
     listed = (await http.get("/api/v1/admin/reservations?status=PENDING")).json()
     assert listed[0]["userEmail"] == "member@example.com"
     assert (await http.post(f"/api/v1/admin/reservations/{reservation['id']}/decision", json={"approve": True})).status_code == 200
+    # 사용 시작은 예약 시각 10분 전부터만 되므로, 승인된 예약을 지금으로 당긴다.
+    row = await session.get(Reservation, UUID(reservation["id"]))
+    row.starts_at = datetime.now(UTC)
+    await session.commit()
     http = login(client, member)
     started = await http.post(f"/api/v1/reservations/{reservation['id']}/before", json={"photoUrl": "https://res.cloudinary.com/demo/before.jpg"})
     assert started.status_code == 200, started.text
@@ -653,3 +666,52 @@ async def test_shape_up_results_are_public_but_member_written(client, session):
     assert (await login(client, other).delete(f"/api/v1/shape-up/{post['id']}")).status_code == 403
     assert (await login(client, member).delete(f"/api/v1/shape-up/{post['id']}")).status_code == 204
     assert (await logout(client).get("/api/v1/shape-up")).json() == []
+
+
+async def test_a_future_reservation_cannot_be_started_early(client, session):
+    """내일 예약을 오늘 "사용 중"으로 바꿔 예약 현황을 어지럽히지 못하게 한다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    equipment = Equipment(name="레이저 커터", category="제작", reservation_unit_minutes=30)
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    await session.commit()
+    starts = (datetime.now(UTC) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "아크릴 절단"}
+    http = login(client, member)
+    reservation = (await http.post("/api/v1/reservations", json=payload)).json()
+    http = login(client, officer)
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation['id']}/decision", json={"approve": True})).status_code == 200
+    http = login(client, member)
+    early = await http.post(f"/api/v1/reservations/{reservation['id']}/before", json={"photoUrl": "https://res.cloudinary.com/demo/before.jpg"})
+    assert early.status_code == 409
+    assert (await http.get("/api/v1/reservations/me")).json()[0]["status"] == "APPROVED"
+
+
+async def test_reservation_times_carry_a_timezone(client, session):
+    """시간대가 빠진 값이 나가면 브라우저가 9시간 이른 시각으로 읽는다."""
+    member = await make_user(session, "member@example.com")
+    equipment = Equipment(name="밴드쏘", category="제작", reservation_unit_minutes=30)
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    await session.commit()
+    starts = (datetime.now(UTC) + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "목재 절단"}
+    http = login(client, member)
+    created = (await http.post("/api/v1/reservations", json=payload)).json()
+    assert datetime.fromisoformat(created["startsAt"]).tzinfo is not None
+    assert datetime.fromisoformat(created["startsAt"]) == starts
+
+
+async def test_a_visitor_gets_an_empty_session_rather_than_an_error(client, session):
+    """공개 페이지마다 401 이 찍히면 콘솔이 지저분해지고 읽기 한도만 축냅니다."""
+    response = await logout(client).get("/api/v1/auth/me")
+    assert response.status_code == 200
+    assert response.json() is None
+    member = await make_user(session, "member@example.com")
+    signed_in = await login(client, member).get("/api/v1/auth/me")
+    assert signed_in.json()["email"] == "member@example.com"

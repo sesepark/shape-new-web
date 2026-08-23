@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -15,6 +15,31 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
+
+
+class UtcDateTime(TypeDecorator):
+    """UTC 로만 저장하고 UTC 로만 돌려주는 시각 컬럼.
+
+    Postgres 의 TIMESTAMPTZ 는 시간대를 알아서 맞춰 주지만, 로컬 개발용 SQLite 는
+    시간대를 떼어 내고 벽시계 시각만 남긴다. 그래서 서울 시각으로 넣은 시드
+    데이터와 UTC 로 들어오는 API 요청이 같은 컬럼에 서로 다른 기준으로 섞이고,
+    화면에서 아홉 시간씩 어긋난 시각이 나온다. 저장과 조회 양쪽에서 한 번씩
+    UTC 로 맞춰 두면 어느 데이터베이스에서도 같은 값을 읽는다.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, _dialect) -> datetime | None:
+        if value is None:
+            return None
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
+
+    def process_result_value(self, value: datetime | None, _dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 class Base(DeclarativeBase):
@@ -44,8 +69,8 @@ class ReservationStatus(str, enum.Enum):
 
 
 class Timestamped:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), server_default=func.now(), onupdate=func.now())
 
 
 class User(Base, Timestamped):
@@ -59,7 +84,7 @@ class User(Base, Timestamped):
     introduction: Mapped[str | None] = mapped_column(Text)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.PENDING)
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
 class PermissionGrant(Base, Timestamped):
@@ -106,7 +131,7 @@ class NewsPost(Base, Timestamped):
     category: Mapped[str] = mapped_column(String(60), default="활동")
     cover_image: Mapped[str | None] = mapped_column(String(1000))
     external_url: Mapped[str | None] = mapped_column(String(1000))
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -145,8 +170,8 @@ class Reservation(Base, Timestamped):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     equipment_unit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("equipment_units.id"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UtcDateTime())
+    ends_at: Mapped[datetime] = mapped_column(UtcDateTime())
     purpose: Mapped[str] = mapped_column(Text)
     status: Mapped[ReservationStatus] = mapped_column(Enum(ReservationStatus), default=ReservationStatus.PENDING)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
@@ -160,7 +185,7 @@ class ReservationSlot(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     equipment_unit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("equipment_units.id", ondelete="CASCADE"))
     reservation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reservations.id", ondelete="CASCADE"))
-    slot_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    slot_start: Mapped[datetime] = mapped_column(UtcDateTime())
 
 
 class RoadmapItem(Base, Timestamped):
@@ -169,8 +194,8 @@ class RoadmapItem(Base, Timestamped):
     title: Mapped[str] = mapped_column(String(200))
     category: Mapped[str] = mapped_column(String(80))
     description: Mapped[str] = mapped_column(Text, default="")
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UtcDateTime())
+    ends_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -204,7 +229,7 @@ class Notice(Base, Timestamped):
     content_html: Mapped[str] = mapped_column(Text, default="")
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
 class Comment(Base, Timestamped):
@@ -217,7 +242,7 @@ class Comment(Base, Timestamped):
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     body: Mapped[str] = mapped_column(Text)
     # 지워도 행은 남긴다. 대댓글이 달린 자리의 맥락이 사라지지 않도록.
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
 class ShapeUpPost(Base, Timestamped):

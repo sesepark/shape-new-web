@@ -1,12 +1,13 @@
 "use client";
 
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, X } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildLanes, laneGroups, semesterWindow } from "@/lib/roadmap-lanes";
 import type { RoadmapItem } from "@/lib/types";
 
 const categoryClass = (category: string) =>
-  category === "대회" ? "competition" : category === "교육" ? "education" : category === "point" ? "point" : "shape-up";
+  category === "대회" ? "competition" : category === "교육" ? "education" : category === "기타" ? "other" : "shape-up";
 const monthLabel = new Intl.DateTimeFormat("ko-KR", { month: "long" });
 const dayLabel = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric" });
 const fullDate = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -19,8 +20,21 @@ const TRACK_HEIGHT = 1180;
 const LINE_HEIGHT = 17;
 /** 제목을 여러 줄로 쌓으려면 이만큼은 되어야 날짜 줄까지 들어갑니다. */
 const STACK_MINIMUM = 54;
+/** .roadmap-bar 의 min-height. 짧은 막대도 이만큼은 자리를 차지합니다. */
+const BAR_MINIMUM = 32;
 function barPixels(heightPercent: number) {
   return (heightPercent / 100) * TRACK_HEIGHT;
+}
+
+/**
+ * 학기 마지막 날에 놓인 일정(예: 1월 30일 Demo Day)은 남은 높이가 막대 최소
+ * 높이보다 작아 트랙 밖으로 밀려나고, 그대로 두면 아래가 잘려 읽을 수 없습니다.
+ * 이런 막대만 위에서 내려오는 대신 트랙 바닥에 붙여 세웁니다.
+ */
+function barPosition(top: number, height: number): CSSProperties {
+  const rendered = Math.max(barPixels(height), BAR_MINIMUM);
+  if (rendered <= barPixels(100 - top)) return { top: `${top}%`, height: `${height}%` };
+  return { bottom: 0, height: `${height}%` };
 }
 function labelLines(heightPercent: number) {
   return Math.max(1, Math.min(8, Math.floor((barPixels(heightPercent) - 36) / LINE_HEIGHT)));
@@ -52,6 +66,8 @@ export function ContinuousCalendar({ items, category }: { items: RoadmapItem[]; 
   const { start, end, months } = useMemo(() => semesterWindow(semester.year, semester.semester), [semester.year, semester.semester]);
   const lanes = useMemo(() => buildLanes(items, start, end), [items, start, end]);
   const groups = useMemo(() => laneGroups(lanes), [lanes]);
+  // 묶음 하나가 격자 한 칸이고, 폭은 그 안의 레인 수에 비례합니다.
+  const groupTemplate = groups.map((group) => `${group.span}fr`).join(" ");
 
   // 오늘 위치는 서버에서 계산하면 하이드레이션이 어긋나므로 화면에서만 잰다.
   const [now, setNow] = useState<number | null>(null);
@@ -85,15 +101,11 @@ export function ContinuousCalendar({ items, category }: { items: RoadmapItem[]; 
         {lanes.length === 0 ? (
           <p className="calendar-empty-semester">이 학기에는 등록된 일정이 없습니다.</p>
         ) : (
-          <div className="roadmap-track" style={{ "--lanes": lanes.length } as React.CSSProperties}>
-            <div className="roadmap-track-head">
+          <div className="roadmap-track">
+            <div className="roadmap-track-head" style={{ "--groups": groupTemplate } as CSSProperties}>
               <span aria-hidden="true" />
               {groups.map((group) => (
-                <span
-                  className={`lane-name ${categoryClass(group.category)}`}
-                  style={{ gridColumn: `span ${group.span}` }}
-                  key={group.category}
-                >
+                <span className={`lane-name ${categoryClass(group.category)}`} key={group.category}>
                   {group.label}
                 </span>
               ))}
@@ -107,25 +119,33 @@ export function ContinuousCalendar({ items, category }: { items: RoadmapItem[]; 
                   </div>
                 ))}
               </div>
-              <div className="roadmap-lanes">
-                {lanes.map((lane) => (
-                  <div className="roadmap-lane" key={lane.key}>
-                    {lane.placements.map(({ item, top, height, clippedTop, clippedBottom, point }) => (
-                      <button
-                        type="button"
-                        key={item.id}
-                        className={`roadmap-bar ${categoryClass(lane.category === "point" ? item.category : lane.category)}${point ? " is-point" : ""}${point || barPixels(height) < STACK_MINIMUM ? " is-compact" : ""}`}
-                        style={{ top: `${top}%`, height: `${height}%`, "--lines": labelLines(height) } as React.CSSProperties}
-                        onClick={() => setActive(item)}
-                        aria-label={`${item.title}, ${period(item)}, ${item.category}`}
-                      >
-                        {clippedTop && <ChevronUp className="bar-clip" size={13} aria-hidden="true" />}
-                        <span className="bar-label">
-                          <b title={item.title}>{item.title}</b>
-                          <i>{period(item)}</i>
-                        </span>
-                        {clippedBottom && <ChevronDown className="bar-clip" size={13} aria-hidden="true" />}
-                      </button>
+              <div className="roadmap-lanes" style={{ "--groups": groupTemplate } as CSSProperties}>
+                {groups.map((group) => (
+                  <div
+                    className={`roadmap-group ${categoryClass(group.category)}`}
+                    style={{ "--lanes": group.span } as CSSProperties}
+                    key={group.category}
+                  >
+                    {group.lanes.map((lane) => (
+                      <div className="roadmap-lane" key={lane.key}>
+                        {lane.placements.map(({ item, top, height, clippedTop, clippedBottom, point }) => (
+                          <button
+                            type="button"
+                            key={item.id}
+                            className={`roadmap-bar ${categoryClass(lane.category)}${point ? " is-point" : ""}${point || barPixels(height) < STACK_MINIMUM ? " is-compact" : ""}`}
+                            style={{ ...barPosition(top, height), "--lines": labelLines(height) } as CSSProperties}
+                            onClick={() => setActive(item)}
+                            aria-label={`${item.title}, ${period(item)}, ${item.category}`}
+                          >
+                            {clippedTop && <ChevronUp className="bar-clip" size={13} aria-hidden="true" />}
+                            <span className="bar-label">
+                              <b title={item.title}>{item.title}</b>
+                              <i>{period(item)}</i>
+                            </span>
+                            {clippedBottom && <ChevronDown className="bar-clip" size={13} aria-hidden="true" />}
+                          </button>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 ))}

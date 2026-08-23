@@ -447,6 +447,8 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 .calendar-legend-inline i.approved { background:#2855f3; }
 .calendar-legend-inline i.pending { background:#b6bcc7; }
 .calendar-legend-inline i.completed { background:#3c8f63; }
+/* 지금 실제로 돌고 있는 장비는 확정 예약과 눈으로 갈라져야 합니다. */
+.calendar-legend-inline i.in-use { background:#c8862f; }
 .reservation-grid { overflow:hidden; border:1px solid #dfe3ea; border-radius:14px; }
 .reservation-grid-head { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); background:#f5f7fa; }
 .reservation-grid-head span { padding:11px 0; text-align:center; font-size:12px; font-weight:900; color:#5f6875; }
@@ -464,7 +466,8 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 /* 예약이 여섯 건이든 열 건이든 전부 보이도록 잘라내지 않습니다. 대신 한 건을
    두 줄로 압축해 하루가 길어져도 주 전체가 과하게 늘어나지 않게 합니다. */
 .reservation-day li { padding:5px 7px; border-left:3px solid #b6bcc7; border-radius:5px; background:#f4f5f7; font-size:11px; line-height:1.4; }
-.reservation-day li.approved, .reservation-day li.in_use { border-left-color:#2855f3; background:#eef3ff; }
+.reservation-day li.approved { border-left-color:#2855f3; background:#eef3ff; }
+.reservation-day li.in_use { border-left-color:#c8862f; background:#fdf4e7; }
 .reservation-day li.completed { border-left-color:#3c8f63; background:#eef7f1; }
 .reservation-day li b { color:#39404d; font-size:10px; }
 .reservation-day li span { overflow:hidden; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
@@ -657,7 +660,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 .roadmap-track { margin-top:4px; }
 
 /* 분류 머리글 — 자리 때문에 갈라진 레인은 한 칸으로 덮습니다. */
-.roadmap-track-head { display:grid; grid-template-columns:var(--ruler) repeat(var(--lanes),minmax(0,1fr)); gap:0 var(--lane-gap); padding-bottom:14px; }
+.roadmap-track-head { display:grid; grid-template-columns:var(--ruler) var(--groups); gap:0 var(--lane-gap); padding-bottom:14px; }
 .lane-name {
   padding:0 2px 9px; display:flex; align-items:center; gap:7px;
   border-bottom:2px solid var(--event,#c8cdd6); color:#1c2533;
@@ -665,7 +668,8 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .lane-name::before { content:""; flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:var(--event,#c8cdd6); }
-.lane-name.point { --event:#aab1bd; color:#606875; }
+/* 세 트랙에 들어가지 않는 일정. 색으로 앞의 셋과 구분되게 둡니다. */
+.lane-name.other { --event:#6f6350; }
 
 .roadmap-track-body { display:grid; grid-template-columns:var(--ruler) minmax(0,1fr); gap:0 var(--lane-gap); }
 .roadmap-months { display:grid; grid-template-rows:repeat(6,1fr); height:var(--track-height); }
@@ -676,11 +680,22 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 
 .roadmap-lanes {
   position:relative; height:var(--track-height);
-  display:grid; grid-template-columns:repeat(var(--lanes),minmax(0,1fr)); gap:0 var(--lane-gap);
+  display:grid; grid-template-columns:var(--groups); gap:0 var(--lane-gap);
   /* 달 경계선만 남기고 배경은 흰색 그대로 둡니다. */
   background-image:linear-gradient(to bottom,var(--line) 1px,transparent 1px);
   background-size:100% calc(100% / 6);
 }
+
+/* 한 분류가 자리 때문에 여러 레인으로 갈라져도 배경은 한 덩어리로 둡니다.
+   레인마다 띠를 따로 깔면 "SHAPE-UP" 하나가 서로 다른 트랙 셋으로 읽힙니다. */
+.roadmap-group {
+  position:relative; min-width:0; border-radius:10px;
+  display:grid; grid-template-columns:repeat(var(--lanes),minmax(0,1fr)); gap:0 var(--inner-gap,6px);
+  background:color-mix(in srgb, var(--event, #5b6472) 6%, transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--event, #5b6472) 12%, transparent);
+}
+.roadmap-group.other { --event:#6f6350; }
+
 .roadmap-lane { position:relative; min-width:0; }
 
 .roadmap-bar {
@@ -726,7 +741,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 .calendar-empty-semester { padding:80px 0; color:#8a9099; text-align:center; }
 
 @media (max-width:900px) {
-  .roadmap-timeline { --track-height:930px; --lane-gap:6px; --ruler:52px; }
+  .roadmap-timeline { --track-height:930px; --lane-gap:6px; --ruler:52px; --inner-gap:4px; }
   .roadmap-months > div { padding:8px 9px 0 0; }
   .roadmap-months small { display:none; }
   .roadmap-months strong { font-size:15px; }
@@ -742,11 +757,13 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 
 @media (max-width:620px) {
   /* 좁은 화면에서는 막대만 보여 주고, 자세한 내용은 눌러서 팝업으로 봅니다. */
-  .roadmap-timeline { --track-height:860px; --lane-gap:4px; --ruler:44px; }
+  .roadmap-timeline { --track-height:860px; --lane-gap:4px; --ruler:44px; --inner-gap:3px; }
   /* 막대가 아주 얇아지므로 색을 조금 더 진하게 깔아야 눈에 들어옵니다. */
   .roadmap-bar { min-height:22px; padding:0; align-items:center; justify-content:center; border-radius:3px; background:color-mix(in srgb, var(--event, #5b6472) 46%, transparent); }
   .roadmap-bar.is-compact { min-height:22px; padding:0; }
-  .bar-label { display:none; }
+  /* 900px 규칙이 더 구체적이라 여기의 display:none 을 이겨 버립니다. 같은
+     구체성으로 한 번 더 적어야 47px 짜리 막대에 잘린 날짜가 남지 않습니다. */
+  .bar-label, .roadmap-bar.is-compact .bar-label, .roadmap-bar.is-compact .bar-label i { display:none; }
   .roadmap-bar.is-point { min-height:16px; }
   .roadmap-bar.is-point::after { content:""; width:6px; height:6px; border-radius:50%; background:var(--event); }
   .roadmap-today span { font-size:9px; padding:2px 6px; }
@@ -792,4 +809,110 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
   .shape-up-grid { grid-template-columns:1fr; gap:18px; }
   .shape-up-head { align-items:stretch; flex-direction:column; }
   .shape-up-head .button.small { justify-content:center; }
+}
+
+/* Google 로그인 버튼
+   아이콘이 버튼 배경과 같은 파란색이라 보이지 않던 문제를 고치고,
+   글자·아이콘 간격과 위아래 여백을 넓힌 뒤 반투명 유리 느낌으로 바꿉니다. */
+.button.google-login {
+  gap:11px;
+  margin-top:26px;
+  padding:15px 28px;
+  color:#16234a;
+  background:rgba(40,85,243,.14);
+  border-color:rgba(40,85,243,.34);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:0 10px 28px rgba(40,85,243,.14);
+  transition:background .22s ease,border-color .22s ease,box-shadow .22s ease,transform .22s ease;
+}
+
+.button.google-login svg { color:var(--blue); }
+
+.button.google-login:hover {
+  background:rgba(40,85,243,.22);
+  border-color:rgba(40,85,243,.52);
+  box-shadow:0 14px 34px rgba(40,85,243,.2);
+  transform:translateY(-1px);
+}
+
+.empty-state .button:not(.google-login) { margin-top:22px; }
+
+/* 장비 예약 화면
+   신청 버튼을 눌러서야 자격 부족을 알게 되지 않도록, 장비 카드와 안내문에서
+   미리 알려 줍니다. */
+.booking-signin {
+  margin:14px 0 0;
+  padding:13px 16px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  flex-wrap:wrap;
+  color:#16234a;
+  background:rgba(40,85,243,.09);
+  border:1px solid rgba(40,85,243,.24);
+  border-radius:14px;
+  font-size:14px;
+  font-weight:700;
+}
+
+.booking-signin svg { flex:none; color:var(--blue); }
+.booking-signin a { color:var(--blue); font-weight:800; text-decoration:underline; }
+
+.booking-equipment-card .booking-card-lock {
+  margin-top:6px;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  color:#8e5900;
+  font-size:11px;
+  font-weight:800;
+  line-height:1.4;
+}
+
+.booking-equipment-card .booking-card-lock svg { flex:none; }
+
+/* ── 예약 사용 전·후 사진 ──────────────────────────────────── */
+
+/* 사용 중인 예약은 확정 예약과 다른 색으로 둡니다. globals.css 에서 둘을 같은
+   파란색으로 묶어 두어, 지금 돌고 있는 장비를 구별할 수 없었습니다. */
+.reservation-status.in_use { color:#8a5a12; background:#fdf4e7; }
+
+/* 장비 예약 현황 팝업에서 본인 예약일 때만 나오는 사진 등록 자리. */
+.reservation-mine {
+  margin:18px 0 4px;
+  padding:16px;
+  background:#f7f8fb;
+  border:1px solid var(--line);
+  border-radius:14px;
+}
+
+.reservation-photo-step.compact header p { display:none; }
+.reservation-photo-step.compact .image-upload-dropzone { min-height:96px; }
+
+/* 진행 중인 예약을 어느 화면에서든 알려 주는 띠. 장비 앞에 선 부원이
+   마이페이지를 찾아 들어가지 않아도 사진 등록으로 바로 갈 수 있게 합니다. */
+.reservation-now {
+  position:fixed; z-index:70; left:16px; bottom:16px;
+  max-width:min(420px, calc(100vw - 32px));
+  padding:12px 16px;
+  display:flex; align-items:center; gap:12px;
+  color:#16234a;
+  background:rgba(255,255,255,.92);
+  border:1px solid rgba(40,85,243,.28);
+  border-radius:16px;
+  box-shadow:0 14px 34px rgba(16,29,63,.16);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  font-size:13px;
+}
+
+.reservation-now svg { flex:none; color:#c8862f; }
+.reservation-now b { display:block; font-size:13px; font-weight:900; letter-spacing:-.02em; }
+.reservation-now small { display:block; color:#5c6370; font-size:11.5px; font-weight:700; }
+.reservation-now a { flex:none; padding:8px 13px; color:#fff; background:var(--blue); border-radius:999px; font-size:12px; font-weight:800; white-space:nowrap; }
+.reservation-now button { flex:none; padding:4px; color:#8a9099; background:none; border:0; cursor:pointer; }
+
+@media (max-width:620px) {
+  .reservation-now { left:12px; right:12px; bottom:12px; max-width:none; padding:11px 13px; gap:9px; }
 }

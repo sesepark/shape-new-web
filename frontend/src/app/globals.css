@@ -257,7 +257,7 @@ button { color:inherit; }
 
 .empty-state { padding:80px 24px; text-align:center; color:#777; border-top:1px solid #222; border-bottom:1px solid #ddd; }
 
-.empty-state svg { color:var(--blue); }
+.empty-state > svg { color:var(--blue); }
 
 .empty-state h2 { margin:18px 0 8px;color:#111;font-size:22px; }
 
@@ -861,7 +861,7 @@ button { color:inherit; }
 
 .image-upload-preview button { position:absolute; top:9px; right:9px; width:32px; height:32px; display:grid; place-items:center; color:#fff; background:rgba(10,18,36,.7); border:0; border-radius:50%; cursor:pointer; }
 
-.image-url-field { font-size:12px!important; color:#697383; }
+.image-url-field { display:grid; gap:6px; font-size:12px!important; color:#697383; }
 
 .spin { animation:spin 1s linear infinite; }
 
@@ -933,38 +933,6 @@ button { color:inherit; }
 
 .roadmap-lead { margin:0 auto 58px;text-align:center; }
 
-.roadmap-board { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start; }
-
-.roadmap-board.single { grid-template-columns:minmax(0,820px);justify-content:center; }
-
-.roadmap-lane { --lane:#2855f3;--lane-soft:#eef2ff;border-radius:24px;overflow:hidden;background:var(--lane-soft); }
-
-.roadmap-lane.competition { --lane:#e24b72;--lane-soft:#fff0f4; }
-
-.roadmap-lane.education { --lane:#11a884;--lane-soft:#eafaf6; }
-
-.roadmap-lane>header { min-height:92px;padding:24px 26px;display:flex;align-items:baseline;gap:14px;color:#fff;background:var(--lane); }
-
-.roadmap-lane>header span { font-size:12px;font-weight:900;opacity:.68; }
-
-.roadmap-lane>header h3 { margin:0;font-size:26px;letter-spacing:-.05em; }
-
-.roadmap-lane-body { position:relative;min-height:380px;padding:28px 24px 34px; }
-
-.roadmap-lane-body::before { content:"";position:absolute;top:30px;bottom:34px;left:31px;width:2px;background:color-mix(in srgb,var(--lane) 28%,transparent); }
-
-.roadmap-lane .empty-state { position:relative;padding:78px 14px;border:0;background:transparent; }
-
-.roadmap-event { position:relative;margin:0 0 18px;padding:20px 20px 20px 30px;background:#fff;border-radius:16px;box-shadow:0 8px 28px rgba(21,35,70,.06); }
-
-.roadmap-event::before { content:"";position:absolute;left:-1px;top:25px;width:10px;height:10px;background:#fff;border:3px solid var(--lane);border-radius:50%;transform:translateX(-50%); }
-
-.roadmap-event time { color:var(--lane);font-size:11px;font-weight:900; }
-
-.roadmap-event h4 { margin:9px 0 10px;font-size:20px; }
-
-.roadmap-event p { margin:0;color:#636b77;font-size:14px;line-height:1.65; }
-
 .booking-app { display:grid;gap:24px; }
 
 .booking-controls { padding:24px;display:grid;grid-template-columns:1.5fr 1fr;gap:18px;background:#f2f4f8;border-radius:18px; }
@@ -1022,10 +990,6 @@ button { color:inherit; }
 .editor-button { min-width:34px;padding:7px 9px;border-radius:7px;cursor:pointer; }
 
 @media (max-width:1100px) {
-.roadmap-board { grid-template-columns:1fr; }
-
-.roadmap-lane-body { min-height:220px; }
-
 }
 
 @media (max-width:680px) {
@@ -1038,10 +1002,6 @@ button { color:inherit; }
 .rich-content h2 { font-size:27px; }
 
 .roadmap-lead { margin-bottom:38px; }
-
-.roadmap-lane>header { min-height:76px;padding:19px 21px; }
-
-.roadmap-lane-body { padding:22px 18px; }
 
 .booking-controls, .booking-request { grid-template-columns:1fr;padding:18px; }
 

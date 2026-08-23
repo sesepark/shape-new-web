@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -50,9 +50,15 @@ from app.security import approved_user, current_user, has_permission, optional_u
 from app.services.content import sanitize_html
 from app.services.notifications import publish_notice_notifications
 from app.services.reservations import cancel, create_pending, read_models
+from app.services.revalidate import refresh
 
 router = APIRouter(tags=["member"])
 SEOUL = ZoneInfo("Asia/Seoul")
+
+
+def as_utc(value: datetime) -> datetime:
+    """저장된 시각을 항상 UTC 기준으로 비교한다(로컬 SQLite 는 시간대를 잃는다)."""
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 @router.get("/equipment-permissions")
@@ -290,6 +296,7 @@ async def reservation_calendar(
     return [
         ReservationCalendarItem(
             id=item.id,
+            user_id=item.user_id,
             equipment_name=units.get(item.equipment_unit_id, ("", ""))[1],
             unit_label=units.get(item.equipment_unit_id, ("", ""))[0],
             user_name=people.get(item.user_id, "회원"), purpose=item.purpose,
@@ -313,11 +320,18 @@ async def owned_reservation(db: AsyncSession, reservation_id: UUID, user: User) 
     return reservation
 
 
+# 예약 시각보다 한참 앞서 "사용 중"으로 바꿔 버리면 예약 현황이 실제 장비 상태와
+# 어긋나므로, 시작 직전부터만 사용을 시작할 수 있게 한다. 늦게 온 경우는 막지 않는다.
+START_GRACE = timedelta(minutes=10)
+
+
 @router.post("/reservations/{reservation_id}/before", response_model=ReservationRead)
 async def start_reservation(reservation_id: UUID, payload: ReservationPhotoWrite, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     reservation = await owned_reservation(db, reservation_id, user)
     if reservation.status != ReservationStatus.APPROVED:
         raise HTTPException(409, "승인된 예약만 시작할 수 있습니다.")
+    if as_utc(reservation.starts_at) - START_GRACE > datetime.now(UTC):
+        raise HTTPException(409, "예약 시작 10분 전부터 사용을 시작할 수 있습니다.")
     reservation.before_photo_url, reservation.status = payload.photo_url, ReservationStatus.IN_USE
     await db.commit(); await db.refresh(reservation)
     return (await read_models(db, [reservation]))[0]
@@ -489,6 +503,8 @@ async def write_shape_up(payload: ShapeUpWrite, user: User = Depends(approved_us
     item = ShapeUpPost(author_id=user.id, is_published=True, **shape_up_payload(payload))
     db.add(item)
     await db.commit(); await db.refresh(item)
+    # 공개 목록은 캐시되므로, 새로 올린 글이 바로 보이도록 새로 고쳐 준다.
+    refresh("shape-up", [f"/shape-up/{item.id}"])
     return (await shape_up_reads(db, [item], user, True, model=ShapeUpDetailRead))[0]
 
 
@@ -507,6 +523,7 @@ async def edit_shape_up(post_id: UUID, payload: ShapeUpWrite, user: User = Depen
     for key, value in shape_up_payload(payload).items():
         setattr(item, key, value)
     await db.commit(); await db.refresh(item)
+    refresh("shape-up", [f"/shape-up/{item.id}"])
     return (await shape_up_reads(db, [item], user, True, model=ShapeUpDetailRead))[0]
 
 
@@ -515,3 +532,4 @@ async def remove_shape_up(post_id: UUID, user: User = Depends(approved_user), db
     item = await own_shape_up(db, post_id, user)
     await db.delete(item)
     await db.commit()
+    refresh("shape-up", [f"/shape-up/{post_id}"])

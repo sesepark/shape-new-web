@@ -127,7 +127,7 @@ async def update_news(item_id: UUID, payload: NewsWrite, _: User = Depends(requi
     if payload.is_published and not item.published_at:
         item.published_at = datetime.now(UTC)
     await db.commit()
-    refresh("news")
+    refresh("news", [f"/news/{item_id}"])
     return {"ok": True}
 
 
@@ -148,7 +148,7 @@ async def refresh_news_preview(item_id: UUID, _: User = Depends(require_permissi
 @router.delete("/news/{item_id}", status_code=204)
 async def delete_news(item_id: UUID, _: User = Depends(require_permission("news:manage")), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(NewsPost).where(NewsPost.id == item_id)); await db.commit()
-    refresh("news")
+    refresh("news", [f"/news/{item_id}"])
 
 
 # --------------------------------------------------------------------- notices
@@ -242,7 +242,7 @@ async def update_equipment(equipment_id: UUID, payload: EquipmentWrite, _: User 
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(409, "같은 이름의 장비가 이미 있습니다.") from exc
-    refresh("equipment")
+    refresh("equipment", [f"/equipment/{equipment_id}"])
     return {"ok": True}
 
 
@@ -250,7 +250,7 @@ async def update_equipment(equipment_id: UUID, payload: EquipmentWrite, _: User 
 async def delete_equipment(equipment_id: UUID, _: User = Depends(require_permission("equipment:manage")), db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(delete(Equipment).where(Equipment.id == equipment_id)); await db.commit()
-        refresh("equipment")
+        refresh("equipment", [f"/equipment/{equipment_id}"])
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(409, "예약 이력이 있는 장비는 삭제할 수 없습니다. 운영 중지 상태로 변경해 주세요.") from exc

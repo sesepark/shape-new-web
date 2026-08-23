@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import License, PermissionGrant, User, UserLicense, UserStatus
 from app.schemas import ProfileWrite, SessionUser
-from app.security import COOKIE_NAME, create_session_token, current_user
+from app.security import COOKIE_NAME, create_session_token, current_user, optional_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth = OAuth()
@@ -63,9 +63,15 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
     return response
 
 
-@router.get("/me", response_model=SessionUser)
-async def me(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    return await session_for(db, user)
+@router.get("/me", response_model=SessionUser | None)
+async def me(user: User | None = Depends(optional_user), db: AsyncSession = Depends(get_db)):
+    """A visitor is not an error, so this answers with an empty session.
+
+    Every page asks who is signed in. Answering 401 filled the browser console
+    with red lines on every public page view and spent a request from the
+    shared read budget for nothing.
+    """
+    return await session_for(db, user) if user else None
 
 
 @router.patch("/me", response_model=SessionUser)

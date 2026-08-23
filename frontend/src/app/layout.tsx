@@ -3,6 +3,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { TopButton } from "@/components/top-button";
 import { PwaRegister } from "@/components/pwa-register";
+import { ReservationNow } from "@/components/reservation-now";
 import "./globals.css";
 import "./responsive-additions.css";
 import "./feature-additions.css";
@@ -54,6 +55,7 @@ export default function RootLayout({
         {children}
         <SiteFooter />
         <TopButton />
+        <ReservationNow />
         <PwaRegister />
       </body>
     </html>
