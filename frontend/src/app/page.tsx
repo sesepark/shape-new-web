@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { HomeRobotStage } from "@/components/home-robot-stage";
 import { HomeScrollSnap } from "@/components/home-scroll-snap";
+import { ShapeWordmark } from "@/components/shape-wordmark";
 
 export const metadata = { title: "SNU Physical AI Club", description: "서울대학교에서 Physical AI를 탐구하고 만드는 학생 커뮤니티, SHAPE입니다." };
 
@@ -10,7 +11,7 @@ export default function HomePage() {
     <main className="shape-home">
       <HomeScrollSnap />
       <section className="home-hero" id="hero">
-        <div className="home-intro"><p>SNU Humanoid And Physical Embodied AI</p><h1>SHAPE<br /><em>the real world.</em></h1><span>AI가 현실을 이해하고 움직이는 순간을<br />함께 연구하고 만들어 갑니다.</span><Link href="/about">SHAPE 알아보기 <ArrowUpRight size={17} /></Link></div>
+        <div className="home-intro"><ShapeWordmark text="SNU Humanoid And Physical Embodied AI" /><h1>SHAPE<br /><em>the real world.</em></h1><span>AI가 현실을 이해하고 움직이는 순간을<br />함께 연구하고 만들어 갑니다.</span><Link href="/about">SHAPE 알아보기 <ArrowUpRight size={17} /></Link></div>
         <HomeRobotStage />
         <a className="home-scroll" href="#shape-intro">SCROLL TO EXPLORE <ArrowDownRight size={18} /></a>
       </section>

@@ -916,3 +916,24 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 @media (max-width:620px) {
   .reservation-now { left:12px; right:12px; bottom:12px; max-width:none; padding:11px 13px; gap:9px; }
 }
+
+/* SHAPE 이름의 유래를 드러내는 표기.
+   낱말의 첫 글자만 파랗게 남기고 나머지는 본문 색으로 둡니다. 줄 전체가
+   파란색이면 S·H·A·P·E 가 어디에 있는지 보이지 않습니다. */
+.page-title p.shape-wordmark,
+.home-intro > p.shape-wordmark {
+  color:var(--ink);
+}
+
+.shape-wordmark b { color:var(--blue); font-weight:inherit; }
+
+/* 전체 메뉴의 심볼.
+   흰색으로 눌러 칠하면 두 원과 기둥이 한 덩어리가 되어 S 자가 사라집니다.
+   원래 로고를 그대로 두고 흰 원판 위에 올려 파란 배경에서도 읽히게 합니다. */
+.all-menu-symbol {
+  padding:8px;
+  background:#fff;
+  border-radius:50%;
+  filter:none;
+  box-shadow:0 6px 18px rgba(9,22,58,.22);
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { ShapeWordmark } from "@/components/shape-wordmark";
 
 export function HeroTitle({
   eyebrow,
@@ -28,7 +29,7 @@ export function HeroTitle({
   }, []);
   return (
     <div className="page-title" ref={ref}>
-      <p>{eyebrow}</p>
+      <ShapeWordmark text={eyebrow} />
       <h1>{title}</h1>
     </div>
   );
