@@ -59,3 +59,38 @@
 - Render Start Command: `fastapi run app/main.py --host 0.0.0.0 --port $PORT`
 - Render Build Command: `pip install .`
 - `www.snu-shape.com`은 Vercel, `api.snu-shape.com`은 Render로 연결합니다.
+
+런타임 버전은 저장소에 고정되어 있습니다. Vercel은 `.nvmrc`(Node 20),
+Render는 `backend/.python-version`(Python 3.12)을 읽습니다. 두 버전에서
+빌드와 테스트를 확인했으므로, 대시보드에서 따로 바꾸지 않는 편이 좋습니다.
+
+### 첫 배포에서 데이터베이스 채우기
+
+Neon은 바깥에서도 접속할 수 있으므로 **로컬에서** Neon URL을 가리켜 실행합니다.
+Render 무료 티어에는 Shell이 없을 수 있고, 옛 사이트에서 받아 둔 `legacy-data/`
+폴더는 저장소 밖에 있어 Render에서는 보이지 않습니다.
+
+```bash
+cd backend
+export DATABASE_URL="<Neon pooled URL>" SESSION_SECRET="<Render에 넣은 값과 동일>"
+
+# 1) 옛 사이트 사진을 Cloudinary로 옮기고 주소 대응표를 만든다
+CLOUDINARY_CLOUD_NAME=... CLOUDINARY_API_KEY=... CLOUDINARY_API_SECRET=... \
+    .venv/bin/python scripts/migrate_legacy.py --upload
+
+# 2) 스키마 → 공개 페이지 → 옛 소식 순서로 채운다
+.venv/bin/alembic upgrade head
+.venv/bin/python scripts/seed_content.py
+.venv/bin/python scripts/migrate_legacy.py
+```
+
+세 스크립트 모두 이미 있는 내용은 건너뛰므로, 중간에 실패해서 다시 돌려도
+중복되지 않고 편집한 내용을 덮지도 않습니다.
+
+### 도메인 전환
+
+옛 사이트도 Vercel에 있습니다. 한 도메인을 두 프로젝트가 동시에 가질 수 없으므로,
+옛 프로젝트의 Domains에서 `snu-shape.com`과 `www.snu-shape.com`을 먼저 제거한 뒤
+새 프로젝트에 추가합니다. 같은 Vercel 계정 안에서 옮기면 Cloudflare의 `www`·apex
+레코드는 그대로 두어도 됩니다. 새로 추가할 레코드는 Render를 가리키는 `api`
+하나이고, Cloudflare 프록시(주황 구름)는 인증서 발급이 막히므로 꺼 둡니다.
