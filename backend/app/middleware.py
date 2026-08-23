@@ -75,7 +75,12 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         path = request.url.path
-        if request.method == "GET" and public_read(path):
+        # 로그인한 사람의 요청은 공개 읽기라도 공유 캐시에 넣지 않는다.
+        # /shape-up 처럼 같은 주소인데 보는 사람에 따라 canEdit 이 달라지는 응답이
+        # 있어서, 공유 캐시가 앞에 붙는 순간 남의 화면에 수정 버튼이 뜬다.
+        # 쿠키가 없는 요청(공개 페이지를 그리는 서버 쪽 호출)만 공유 캐시를 쓴다.
+        signed_in = COOKIE_NAME in request.cookies
+        if request.method == "GET" and not signed_in and public_read(path):
             if any(part in path for part in VOLATILE_READS):
                 response.headers.setdefault("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=60")
             else:

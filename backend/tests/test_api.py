@@ -739,3 +739,27 @@ async def test_members_get_their_own_flood_budget(client, session):
         for guard in CostGuardMiddleware.instances:
             guard.settings.rate_limit_read_per_minute = 5000
             guard.buckets.clear()
+
+
+async def test_a_signed_in_read_never_goes_into_a_shared_cache(client, session):
+    """같은 주소인데 보는 사람에 따라 달라지는 응답이 있어서 공유 캐시를 막는다."""
+    logout(client)
+    visitor = await client.get("/api/v1/shape-up")
+    assert visitor.headers["cache-control"].startswith("public")
+    member = await make_user(session, "member@example.com")
+    signed_in = await login(client, member).get("/api/v1/shape-up")
+    assert signed_in.headers["cache-control"] == "private, no-store"
+
+
+async def test_responses_are_compressed(client, session):
+    editor = await make_user(session, "editor@example.com", permissions=["news:manage"])
+    http = login(client, editor)
+    for index in range(6):
+        body = {"title": f"소식 {index}", "summary": "가" * 200, "contentHtml": "<p>" + "나" * 400 + "</p>",
+                "contentJson": {}, "category": "활동", "coverImage": None, "externalUrl": None, "isPublished": True}
+        assert (await http.post("/api/v1/admin/news", json=body)).status_code == 201
+    logout(client)
+    plain = await client.get("/api/v1/news?limit=50", headers={"accept-encoding": "identity"})
+    packed = await client.get("/api/v1/news?limit=50", headers={"accept-encoding": "gzip"})
+    assert packed.headers.get("content-encoding") == "gzip"
+    assert int(packed.headers["content-length"]) < len(plain.content) / 2
