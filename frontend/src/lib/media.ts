@@ -17,11 +17,18 @@ export function media(url: string | null | undefined, width: number): string {
   return `${head}f_auto,q_auto,c_limit,w_${width}/${tail}`;
 }
 
+/** 옛 사이트에서 옮겨 와 우리 public 폴더가 그대로 들고 있는 사진. */
+const LEGACY_PHOTOS = "https://www.snu-shape.com/figs/";
+
 /**
- * Cloudinary 주소는 `media()` 가 이미 크기와 형식을 지정해 두므로 Next.js 가
- * 다시 손댈 필요가 없습니다. 그 밖의 주소(옛 사이트에서 옮겨 온 부원 사진 등)는
- * 원본 그대로 내려가므로 Next.js 이미지 최적화를 거치게 둡니다.
+ * Next.js 이미지 최적화에 맡겨도 되는 주소인지 알려 줍니다.
+ *
+ * Cloudinary 주소는 `media()` 가 이미 크기와 형식을 지정해 두었으니 그대로 두고,
+ * 우리 폴더에 있는 원본 사진만 최적화를 거칩니다. 나머지를 최적화에 넘기면 안
+ * 됩니다. `next.config.ts` 의 remotePatterns 에 없는 주소는 400 으로 막히는데,
+ * 관리자는 어떤 주소든 붙여 넣을 수 있기 때문입니다.
  */
-export function preTransformed(url: string | null | undefined): boolean {
-  return Boolean(url && url.startsWith("https://res.cloudinary.com/"));
+export function optimizable(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.startsWith("/") || url.startsWith(LEGACY_PHOTOS);
 }

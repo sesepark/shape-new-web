@@ -2,7 +2,7 @@
 
 import { CalendarDays, Camera, ChevronLeft, ChevronRight, Clock3, User, Wrench, X } from "lucide-react";
 import Image from "next/image";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { board } from "@/lib/board";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
@@ -190,7 +190,7 @@ export function ReservationCalendarView() {
                   {active.beforePhotoUrl && (
                     <figure>
                       <a href={active.beforePhotoUrl} target="_blank" rel="noreferrer">
-                        <Image src={media(active.beforePhotoUrl, 640)} alt="사용 전 사진" width={640} height={440} unoptimized />
+                        <Image src={media(active.beforePhotoUrl, 640)} alt="사용 전 사진" width={640} height={440} unoptimized={!optimizable(active.beforePhotoUrl)} />
                       </a>
                       <figcaption>사용 전</figcaption>
                     </figure>
@@ -198,7 +198,7 @@ export function ReservationCalendarView() {
                   {active.afterPhotoUrl && (
                     <figure>
                       <a href={active.afterPhotoUrl} target="_blank" rel="noreferrer">
-                        <Image src={media(active.afterPhotoUrl, 640)} alt="사용 후 사진" width={640} height={440} unoptimized />
+                        <Image src={media(active.afterPhotoUrl, 640)} alt="사용 후 사진" width={640} height={440} unoptimized={!optimizable(active.afterPhotoUrl)} />
                       </a>
                       <figcaption>사용 후</figcaption>
                     </figure>

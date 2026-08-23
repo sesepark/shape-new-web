@@ -7,7 +7,7 @@ import { PageShell } from "@/components/page-shell";
 import { ShapeUpOwnerActions } from "@/components/shape-up-owner-actions";
 import { api, itemOrNull } from "@/lib/api";
 import { date } from "@/lib/format";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 
 async function post(id: string) {
   return itemOrNull(api.shapeUpDetail(id), () => null);
@@ -52,7 +52,7 @@ export default async function ShapeUpDetailPage({ params }: { params: Promise<{ 
         </div>
       </header>
       {item.coverImage && (
-        <Image className="news-detail-cover" src={media(item.coverImage, 1400)} alt="" width={1400} height={800} unoptimized />
+        <Image className="news-detail-cover" src={media(item.coverImage, 1400)} alt="" width={1400} height={800} unoptimized={!optimizable(item.coverImage)} />
       )}
       <article className="rich-content news-detail-content" dangerouslySetInnerHTML={{ __html: item.contentHtml }} />
       {item.videoUrl && <ExternalLinkBlock url={item.videoUrl} />}

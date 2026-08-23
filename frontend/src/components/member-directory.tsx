@@ -6,7 +6,7 @@ import { CalendarDays, X } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { givenName, type ShapeMember } from "@/lib/members";
-import { media, preTransformed } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import type { MemberProfile } from "@/lib/types";
 
 const filters = ["전체", "준회원", "정회원", "알럼", "멤버"] as const;
@@ -68,7 +68,7 @@ export function MemberDirectory({
             </button>
             <div className="member-photo">
               {member.imageUrl ? (
-                <Image src={media(member.imageUrl, 560)} alt={`${member.name} 부원`} width={560} height={700} sizes="(max-width:680px) 45vw, 280px" unoptimized={preTransformed(member.imageUrl)} />
+                <Image src={media(member.imageUrl, 560)} alt={`${member.name} 부원`} width={560} height={700} sizes="(max-width:680px) 45vw, 280px" unoptimized={!optimizable(member.imageUrl)} />
               ) : (
                 <span aria-hidden="true">{givenName(member.name)}</span>
               )}
@@ -97,7 +97,7 @@ export function MemberDirectory({
             <header>
               <div className="member-dialog-photo">
                 {(profile?.imageUrl ?? active.imageUrl) ? (
-                  <Image src={media(profile?.imageUrl ?? active.imageUrl ?? "", 480)} alt="" width={480} height={600} unoptimized={preTransformed(profile?.imageUrl ?? active.imageUrl)} />
+                  <Image src={media(profile?.imageUrl ?? active.imageUrl ?? "", 480)} alt="" width={480} height={600} unoptimized={!optimizable(profile?.imageUrl ?? active.imageUrl)} />
                 ) : (
                   <span aria-hidden="true">{givenName(active.name)}</span>
                 )}

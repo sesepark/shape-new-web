@@ -5,7 +5,7 @@ import { ShapeSymbol } from "@/components/shape-symbol";
 import { EmptyState } from "@/components/empty-state";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { mockEquipment } from "@/lib/mock-data";
 
 export const metadata = {
@@ -40,7 +40,7 @@ export default async function EquipmentPage() {
                     alt={`${item.name} 장비`}
                     width={720}
                     height={620}
-                    unoptimized
+                    unoptimized={!optimizable(item.imageUrl)}
                   />
                 ) : (
                   <div

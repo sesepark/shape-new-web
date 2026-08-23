@@ -3,7 +3,7 @@
 import { ImagePlus, LoaderCircle, X } from "lucide-react";
 import Image from "next/image";
 import { useRef, useState } from "react";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { uploadImage, type UploadPurpose } from "@/lib/upload";
 
 export function ImageUploadField({
@@ -53,7 +53,7 @@ export function ImageUploadField({
             alt="등록할 이미지 미리보기"
             width={960}
             height={540}
-            unoptimized
+            unoptimized={!optimizable(value)}
           />
           <button
             type="button"

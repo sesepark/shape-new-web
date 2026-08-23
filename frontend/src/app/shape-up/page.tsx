@@ -6,7 +6,7 @@ import { PageShell } from "@/components/page-shell";
 import { ShapeUpWriteLink } from "@/components/shape-up-write-link";
 import { api, listOrEmpty } from "@/lib/api";
 import { date } from "@/lib/format";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 
 export const metadata = {
   title: "SHAPE-UP",
@@ -35,7 +35,7 @@ export default async function ShapeUpPage() {
               <Link href={`/shape-up/${post.id}`}>
                 <div className="shape-up-cover">
                   {post.coverImage ? (
-                    <Image src={media(post.coverImage, 900)} alt="" width={900} height={560} unoptimized />
+                    <Image src={media(post.coverImage, 900)} alt="" width={900} height={560} unoptimized={!optimizable(post.coverImage)} />
                   ) : (
                     <span aria-hidden="true">SHAPE-UP</span>
                   )}

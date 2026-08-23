@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { HoverPrefetchLink } from "@/components/hover-prefetch-link";
 import { ArrowUpRight, LogOut, Menu, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -8,6 +9,13 @@ import { ShapeSymbol } from "@/components/shape-symbol";
 import { groupForPath, navigation } from "@/lib/navigation";
 import { canManage, endSession, useSession } from "@/lib/session";
 
+/**
+ * 머리글과 전체 메뉴에는 사이트의 거의 모든 주소가 들어 있습니다. Next.js 는
+ * 화면에 들어온 링크를 미리 받아 두는데, 그러면 한 쪽을 열 때마다 마흔 건 넘는
+ * 요청이 나갑니다. 전체 메뉴는 열기 전까지 보이지도 않고, 드롭다운 하위 항목은
+ * 마우스를 올려야 나옵니다. 둘 다 미리 받기를 끄면 그때 가서 받으므로 체감
+ * 속도는 그대로이고 무료 요금제의 요청 수만 줄어듭니다.
+ */
 export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -54,27 +62,27 @@ export function SiteHeader() {
                 onMouseEnter={() => setDropdown(item.label)}
                 onMouseLeave={() => setDropdown(null)}
               >
-                <Link href={item.href} onClick={(event) => { event.currentTarget.blur(); setDropdown(null); }}>
+                <HoverPrefetchLink href={item.href} onClick={(event) => { event.currentTarget.blur(); setDropdown(null); }}>
                   <span className="nav-label" aria-label={item.label}>
                     <span className="nav-label-current">{item.label}</span>
                     <span className="nav-label-next" aria-hidden="true">{item.label}</span>
                   </span>
-                </Link>
+                </HoverPrefetchLink>
                 <div className={`nav-dropdown${dropdown === item.label ? " open" : ""}`}>
                   {item.children.map((child) => (
-                    <Link href={child.href} key={child.href} onClick={(event) => { event.currentTarget.blur(); setDropdown(null); }}>
+                    <HoverPrefetchLink href={child.href} key={child.href} onClick={(event) => { event.currentTarget.blur(); setDropdown(null); }}>
                       {child.label}
-                    </Link>
+                    </HoverPrefetchLink>
                   ))}
                 </div>
               </div>
             ))}
           </nav>
           <div className="header-actions">
-            <Link className="account-link" href={session ? "/mypage" : "/login"}>
+            <HoverPrefetchLink className="account-link" href={session ? "/mypage" : "/login"}>
               <span>{session ? session.name : "로그인"}</span>
               <ArrowUpRight size={14} />
-            </Link>
+            </HoverPrefetchLink>
             {session && (
               <button className="account-logout" type="button" onClick={signOut}>
                 <LogOut size={16} />
@@ -98,6 +106,7 @@ export function SiteHeader() {
             href="/"
             className="all-menu-brand"
             aria-label="SHAPE 홈"
+           
             onClick={() => setOpen(false)}
           >
             <ShapeSymbol className="all-menu-symbol" />
@@ -111,31 +120,31 @@ export function SiteHeader() {
             <section className="all-menu-group" key={item.label}>
               <div>
                 <span>0{index + 1}</span>
-                <Link href={item.href} onClick={() => setOpen(false)}>
+                <HoverPrefetchLink href={item.href} onClick={() => setOpen(false)}>
                   {item.label}
-                </Link>
+                </HoverPrefetchLink>
               </div>
               <p>
                 {item.children.map((child) => (
-                  <Link
+                  <HoverPrefetchLink
                     href={child.href}
                     key={child.href}
                     onClick={() => setOpen(false)}
                   >
                     {child.label}
-                  </Link>
+                  </HoverPrefetchLink>
                 ))}
               </p>
             </section>
           ))}
           <section className="all-menu-utilities">
-            <Link href={session ? "/mypage" : "/login"} onClick={() => setOpen(false)}>
+            <HoverPrefetchLink href={session ? "/mypage" : "/login"} onClick={() => setOpen(false)}>
               {session ? "마이페이지" : "로그인"}
-            </Link>
+            </HoverPrefetchLink>
             {canManage(session) && (
-              <Link href="/admin" onClick={() => setOpen(false)}>
+              <HoverPrefetchLink href="/admin" onClick={() => setOpen(false)}>
                 운영진 관리
-              </Link>
+              </HoverPrefetchLink>
             )}
             {session && (
               <button type="button" onClick={signOut}>

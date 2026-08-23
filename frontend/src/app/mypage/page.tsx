@@ -12,7 +12,7 @@ import { ImageUploadField } from "@/components/image-upload-field";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL, isPreview } from "@/lib/api";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { useSession } from "@/lib/session";
 import { currentSubscription, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
 import type { NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
@@ -95,8 +95,8 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
         )}
         {(reservation.beforePhotoUrl || reservation.afterPhotoUrl) && (
           <div className="reservation-photos">
-            {reservation.beforePhotoUrl && <figure><a href={reservation.beforePhotoUrl} target="_blank" rel="noreferrer"><Image src={media(reservation.beforePhotoUrl, 400)} alt="사용 전 사진" width={320} height={220} unoptimized /></a><figcaption>사용 전</figcaption></figure>}
-            {reservation.afterPhotoUrl && <figure><a href={reservation.afterPhotoUrl} target="_blank" rel="noreferrer"><Image src={media(reservation.afterPhotoUrl, 400)} alt="사용 후 사진" width={320} height={220} unoptimized /></a><figcaption>사용 후</figcaption></figure>}
+            {reservation.beforePhotoUrl && <figure><a href={reservation.beforePhotoUrl} target="_blank" rel="noreferrer"><Image src={media(reservation.beforePhotoUrl, 400)} alt="사용 전 사진" width={320} height={220} unoptimized={!optimizable(reservation.beforePhotoUrl)} /></a><figcaption>사용 전</figcaption></figure>}
+            {reservation.afterPhotoUrl && <figure><a href={reservation.afterPhotoUrl} target="_blank" rel="noreferrer"><Image src={media(reservation.afterPhotoUrl, 400)} alt="사용 후 사진" width={320} height={220} unoptimized={!optimizable(reservation.afterPhotoUrl)} /></a><figcaption>사용 후</figcaption></figure>}
           </div>
         )}
         {cancellable && <button className="text-button danger" type="button" onClick={cancel}><X size={14} /> 예약 취소</button>}
@@ -136,7 +136,7 @@ function ProfileCard({ session }: { session: SessionUser }) {
       <p className="meta">ACCOUNT</p>
       <h3>계정과 알림</h3>
       <div className="account-summary">
-        {profile.imageUrl ? <Image src={media(profile.imageUrl, 112)} alt="" width={56} height={56} unoptimized /> : <span className="account-initial">{profile.name.slice(0, 1)}</span>}
+        {profile.imageUrl ? <Image src={media(profile.imageUrl, 112)} alt="" width={56} height={56} unoptimized={!optimizable(profile.imageUrl)} /> : <span className="account-initial">{profile.name.slice(0, 1)}</span>}
         <div>
           <strong>{profile.name}</strong>
           <span>{profile.email}</span>

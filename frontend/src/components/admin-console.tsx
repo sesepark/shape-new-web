@@ -14,7 +14,7 @@ import {
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { useAsk } from "@/components/ask-dialog";
 import { isPreview } from "@/lib/api";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { mockEquipment, mockRoadmap } from "@/lib/mock-data";
 import { defaultMembers, type ShapeMember } from "@/lib/members";
 import type { AdminEquipmentItem, AdminReservationItem, AdminRoadmapItem, AdminUserItem, DirectoryUser, LicenseItem, MemberStatus } from "@/lib/types";
@@ -1824,13 +1824,13 @@ function ReservationsPanel() {
                 <div className="reservation-photos">
                   {row.beforePhotoUrl && (
                     <figure>
-                      <Image src={media(row.beforePhotoUrl, 400)} alt="사용 전 사진" width={320} height={220} unoptimized />
+                      <Image src={media(row.beforePhotoUrl, 400)} alt="사용 전 사진" width={320} height={220} unoptimized={!optimizable(row.beforePhotoUrl)} />
                       <figcaption>사용 전</figcaption>
                     </figure>
                   )}
                   {row.afterPhotoUrl && (
                     <figure>
-                      <Image src={media(row.afterPhotoUrl, 400)} alt="사용 후 사진" width={320} height={220} unoptimized />
+                      <Image src={media(row.afterPhotoUrl, 400)} alt="사용 후 사진" width={320} height={220} unoptimized={!optimizable(row.afterPhotoUrl)} />
                       <figcaption>사용 후</figcaption>
                     </figure>
                   )}

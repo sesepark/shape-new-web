@@ -12,7 +12,7 @@ import {
 import { PageShell } from "@/components/page-shell";
 import { ShapeSymbol } from "@/components/shape-symbol";
 import { api, listOrEmpty } from "@/lib/api";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { mockEquipment } from "@/lib/mock-data";
 
 async function equipmentById(id: string) {
@@ -65,7 +65,7 @@ export default async function EquipmentDetailPage({
               alt={`${equipment.name} 장비`}
               width={980}
               height={820}
-              unoptimized
+              unoptimized={!optimizable(equipment.imageUrl)}
               priority
             />
           ) : (

@@ -3,7 +3,7 @@ import Image from "next/image";
 import { EmptyState } from "@/components/empty-state";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
-import { media } from "@/lib/media";
+import { media, optimizable } from "@/lib/media";
 import { date } from "@/lib/format";
 import { mockNews } from "@/lib/mock-data";
 
@@ -26,7 +26,7 @@ export default async function NewsPage() {
         <div className="news-featured-list">
           {news.map((item) => (
             <article className="news-featured-card" key={item.id}>
-              {item.coverImage ? <Image src={media(item.coverImage, 1200)} alt="" width={1200} height={760} unoptimized /> : <div className="news-featured-placeholder" aria-hidden="true">SHAPE NEWS</div>}
+              {item.coverImage ? <Image src={media(item.coverImage, 1200)} alt="" width={1200} height={760} unoptimized={!optimizable(item.coverImage)} /> : <div className="news-featured-placeholder" aria-hidden="true">SHAPE NEWS</div>}
               <div className="news-featured-copy"><span className="meta">{item.category} · {date(item.publishedAt)}</span><h3>{item.title}</h3><p>{item.summary}</p><Link className="card-action" href={`/news/${item.id}`}>자세히 보기</Link></div>
             </article>
           ))}
