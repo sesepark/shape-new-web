@@ -928,12 +928,21 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 .shape-wordmark b { color:var(--blue); font-weight:inherit; }
 
 /* 전체 메뉴의 심볼.
-   흰색으로 눌러 칠하면 두 원과 기둥이 한 덩어리가 되어 S 자가 사라집니다.
-   원래 로고를 그대로 두고 흰 원판 위에 올려 파란 배경에서도 읽히게 합니다. */
-.all-menu-symbol {
-  padding:8px;
-  background:#fff;
+   brightness(0) 으로 흰색을 눌러 칠하면 두 원과 기둥이 한 덩어리가 되어 S 자가
+   사라집니다. 로고의 S 는 명암 차이로 만들어지므로, 그 차이를 살린 채 색만
+   뒤집어 파란 원판 위에 올립니다. 필터는 배경까지 함께 뒤집으므로 원판은
+   바깥(.all-menu-brand)이 맡습니다. */
+.all-menu-brand {
+  width:68px;
+  height:68px;
+  padding:10px;
+  background:var(--blue);
   border-radius:50%;
-  filter:none;
-  box-shadow:0 6px 18px rgba(9,22,58,.22);
+  box-shadow:0 8px 22px rgba(6,18,52,.3);
+}
+
+.all-menu-symbol {
+  width:100%;
+  height:100%;
+  filter:grayscale(1) invert(1) contrast(1.6) brightness(1.15);
 }
