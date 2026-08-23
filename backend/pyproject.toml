@@ -1,0 +1,45 @@
+[project]
+name = "shape-web-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14",
+  "asyncpg>=0.30",
+  "authlib>=1.4",
+  "bleach>=6.2",
+  "email-validator>=2.2",
+  "fastapi[standard]>=0.115",
+  "greenlet>=3.0",
+  "httpx>=0.28",
+  "itsdangerous>=2.2",
+  "pydantic-settings>=2.7",
+  "PyJWT[crypto]>=2.10",
+  "sqlalchemy>=2.0",
+  "pywebpush>=2.0.3",
+  "tinycss2>=1.5.1",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[dependency-groups]
+dev = ["aiosqlite>=0.20", "pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.9"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# FastAPI declares dependencies as call expressions in default arguments, which
+# is exactly what B008 flags, and Starlette resolves them per request.
+# The codebase pairs `commit(); refresh()` on one line (E702) and keeps
+# `str, Enum` bases (UP042) so Pydantic keeps emitting plain strings.
+ignore = ["B008", "E501", "E702", "UP042"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

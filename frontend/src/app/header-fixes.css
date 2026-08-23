@@ -1,0 +1,43 @@
+/* Kept in a final stylesheet: legacy additions cannot override this motion. */
+.desktop-nav .nav-item > a { overflow:hidden; }
+
+.desktop-nav .nav-label { position:relative !important; display:inline-grid !important; width:max-content !important; min-width:max-content !important; height:20px !important; overflow:hidden !important; place-items:center !important; color:#111 !important; perspective:700px !important; transform-style:preserve-3d !important; }
+
+.desktop-nav .nav-label-current, .desktop-nav .nav-label-next { position:absolute !important; inset:0 !important; display:grid !important; width:100% !important; height:100% !important; place-items:center !important; color:#111 !important; font:inherit !important; line-height:20px !important; white-space:nowrap !important; backface-visibility:hidden !important; visibility:visible !important; opacity:1 !important; will-change:transform; transition:none !important; }
+
+.desktop-nav .nav-label-current { position:relative !important; inset:auto !important; transform:translateY(0) rotateX(0deg); transform-origin:50% 100% !important; }
+
+.desktop-nav .nav-label-next { transform:translateY(110%) rotateX(-82deg); transform-origin:50% 0 !important; }
+
+.desktop-nav .nav-item:hover .nav-label-current, .desktop-nav .nav-item:focus-within .nav-label-current { animation:nav-roll-out .85s cubic-bezier(.2,.75,.2,1) both !important; }
+
+.desktop-nav .nav-item:hover .nav-label-next, .desktop-nav .nav-item:focus-within .nav-label-next { animation:nav-roll-in .85s cubic-bezier(.2,.75,.2,1) both !important; }
+
+.desktop-nav .nav-item.active .nav-label-current, .desktop-nav .nav-item.active .nav-label-next { color:#142354 !important; }
+
+@keyframes nav-roll-out {
+  0%,10% { transform:translateY(0) rotateX(0deg); }
+  100% { transform:translateY(-110%) rotateX(82deg); }
+}
+
+@keyframes nav-roll-in {
+  0%,10% { transform:translateY(110%) rotateX(-82deg); }
+  100% { transform:translateY(0) rotateX(0deg); }
+}
+
+.desktop-nav .nav-dropdown a { opacity:0; transform:translateY(-8px); transition:opacity .28s ease,transform .34s cubic-bezier(.22,.8,.22,1) !important; }
+
+.desktop-nav .nav-item:hover .nav-dropdown a, .desktop-nav .nav-item:focus-within .nav-dropdown a { opacity:1; transform:translateY(0); }
+
+.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(1), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(1) { transition-delay:.08s !important; }
+
+.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(2), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(2) { transition-delay:.13s !important; }
+
+.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(3), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(3) { transition-delay:.18s !important; }
+
+.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(4), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(4) { transition-delay:.23s !important; }
+
+.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(5), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(5) { transition-delay:.28s !important; }
+
+.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(6), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(6) { transition-delay:.33s !important; }
+

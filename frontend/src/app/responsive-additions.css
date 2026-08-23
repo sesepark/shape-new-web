@@ -1,0 +1,101 @@
+/* This file is loaded after legacy reservation styles, keeping the new workflow authoritative. */
+.booking-schedule-section .booking-slots { padding:0; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
+
+.booking-schedule-section .booking-slots button { min-height:38px; padding:6px 4px; color:#252a32; background:#fff; border:1px solid #e0e3e8; border-radius:999px; font-size:12px; }
+
+.booking-schedule-section .booking-slots button:hover:not(:disabled), .booking-schedule-section .booking-slots button.start, .booking-schedule-section .booking-slots button.range { color:#fff; background:var(--blue); border-color:var(--blue); }
+
+.booking-schedule-section .booking-slots button:disabled { color:#999ea7; background:#eff1f4; cursor:not-allowed; text-decoration:line-through; }
+
+.booking-request { display:block; background:#fff; border:1px solid #dce0e6; border-radius:0; }
+
+.booking-request .booking-purpose { display:grid; }
+
+@media (max-width:900px) {
+.booking-equipment-grid { grid-template-columns:repeat(2,1fr); }
+
+.directions-layout, .mypage-grid { grid-template-columns:1fr; }
+
+.directions-map-wrap, .directions-map-wrap iframe { min-height:390px; }
+
+.mypage-side { grid-template-columns:1fr 1fr; }
+
+.booking-schedule-grid { grid-template-columns:1fr; }
+
+}
+
+@media (max-width:680px) {
+@keyframes capsule-enter-mobile { from { opacity:0; transform:translate(0,16px); } to { opacity:1;transform:translate(0,0); } }
+
+.reservation-steps { grid-template-columns:repeat(2,1fr); gap:7px; }
+
+.reservation-steps li { min-height:68px; padding:12px 8px; font-size:13px; }
+
+.reservation-steps li svg:not(.step-arrow) { width:18px; }
+
+.step-arrow { display:none; }
+
+.booking-app { gap:20px; }
+
+.booking-guidance, .booking-equipment, .booking-schedule-section, .booking-request { padding:22px 16px; }
+
+.booking-guidance { font-size:14px; }
+
+.booking-guidance p { line-height:1.6; }
+
+.booking-section-head h3 { font-size:25px; }
+
+.booking-equipment-grid { grid-template-columns:1fr; }
+
+.booking-equipment-card { min-height:170px; display:grid; grid-template-columns:100px 1fr; column-gap:16px; }
+
+.booking-equipment-card img, .booking-device-icon { width:100px; height:108px; grid-row:span 3; margin:0; }
+
+.booking-equipment-card small { padding-top:8px; }
+
+.booking-date-card, .booking-time-card { padding:16px; }
+
+.booking-schedule-section .booking-slots { grid-template-columns:repeat(2,1fr); }
+
+.booking-summary { grid-template-columns:1fr; }
+
+.booking-summary div { min-height:66px; padding:13px 0; border-right:0; border-bottom:1px solid #e2e5e9; }
+
+.booking-summary div:last-child { border-bottom:0; }
+
+.booking-submit-row { align-items:stretch; flex-direction:column; }
+
+.booking-submit-row .button { width:100%; }
+
+.directions-info { padding:24px 20px; }
+
+.directions-map-wrap, .directions-map-wrap iframe { min-height:300px; }
+
+.directions-info dl>div { grid-template-columns:1fr; gap:6px; }
+
+.mypage-hero { align-items:flex-start; flex-direction:column; padding:26px 22px; }
+
+.mypage-hero h3 { font-size:27px; }
+
+.mypage-stats { grid-template-columns:1fr; }
+
+.mypage-stats article { min-height:83px; padding:16px 20px; border-right:0; border-bottom:1px solid #dce1e9; }
+
+.mypage-stats article:last-child { border-bottom:0; }
+
+.mypage-side { grid-template-columns:1fr; }
+
+.mypage-reservations, .mypage-side section { padding:22px 17px; }
+
+.my-reservation-list article { grid-template-columns:44px 1fr; gap:11px; }
+
+.reservation-status { grid-column:2; justify-self:start; }
+
+.reservation-date { padding-right:8px; }
+
+.my-reservation-list h4 { line-height:1.45; }
+
+.demo-ribbon { line-height:1.55; }
+
+}
+

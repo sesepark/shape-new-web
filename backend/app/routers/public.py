@@ -1,0 +1,162 @@
+from datetime import UTC, datetime, time, timedelta
+from datetime import date as date_type
+from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.models import (
+    ContentPage,
+    Equipment,
+    EquipmentLicenseRequirement,
+    EquipmentStatus,
+    EquipmentUnit,
+    License,
+    NewsPost,
+    RelatedLink,
+    ReservationSlot,
+    RoadmapItem,
+    RoadmapMember,
+    User,
+    UserStatus,
+)
+from app.schemas import (
+    ContentPageRead,
+    EquipmentRead,
+    LinkRead,
+    MemberProfile,
+    MemberProject,
+    NewsDetailRead,
+    NewsRead,
+    RoadmapRead,
+)
+
+router = APIRouter(tags=["public"])
+SEOUL = ZoneInfo("Asia/Seoul")
+# Reservations run around the clock; the columns stay for a future per-equipment
+# window but every response reports the same opening hours today.
+OPEN_HOUR, CLOSE_HOUR = 0, 24
+
+
+@router.get("/pages/{slug}", response_model=ContentPageRead)
+async def get_page(slug: str, db: AsyncSession = Depends(get_db)):
+    item = await db.scalar(select(ContentPage).where(ContentPage.slug == slug, ContentPage.is_published.is_(True)))
+    if not item:
+        raise HTTPException(404, "페이지를 찾을 수 없습니다.")
+    return item
+
+
+@router.get("/news", response_model=list[NewsRead])
+async def list_news(limit: int = Query(default=12, ge=1, le=50), category: str | None = Query(default=None, max_length=60), db: AsyncSession = Depends(get_db)):
+    query = select(NewsPost).where(NewsPost.is_published.is_(True), NewsPost.published_at.is_not(None))
+    if category:
+        query = query.where(NewsPost.category == category)
+    return (await db.scalars(query.order_by(NewsPost.published_at.desc()).limit(limit))).all()
+
+
+@router.get("/news/{item_id}", response_model=NewsDetailRead)
+async def news_detail(item_id: UUID, db: AsyncSession = Depends(get_db)):
+    item = await db.get(NewsPost, item_id)
+    if not item or not item.is_published or not item.published_at:
+        raise HTTPException(404, "뉴스를 찾을 수 없습니다.")
+    return item
+
+
+@router.get("/equipment", response_model=list[EquipmentRead])
+async def list_equipment(db: AsyncSession = Depends(get_db)):
+    equipment = (await db.scalars(select(Equipment).order_by(Equipment.sort_order, Equipment.name))).all()
+    ids = [item.id for item in equipment]
+    if not ids:
+        return []
+    requirements = (await db.execute(
+        select(EquipmentLicenseRequirement.equipment_id, License.name)
+        .join(License, License.id == EquipmentLicenseRequirement.license_id)
+    )).all()
+    counts = dict((await db.execute(
+        select(EquipmentUnit.equipment_id, func.count())
+        .where(EquipmentUnit.equipment_id.in_(ids), EquipmentUnit.status == EquipmentStatus.ACTIVE)
+        .group_by(EquipmentUnit.equipment_id)
+    )).all())
+    return [
+        EquipmentRead(
+            id=item.id, name=item.name, category=item.category, description=item.description,
+            image_url=item.image_url, status=item.status, reservation_unit_minutes=item.reservation_unit_minutes,
+            open_hour=OPEN_HOUR, close_hour=CLOSE_HOUR,
+            required_licenses=[row[1] for row in requirements if row[0] == item.id],
+            available_units=counts.get(item.id, 0),
+        )
+        for item in equipment
+    ]
+
+
+@router.get("/equipment/{equipment_id}/availability")
+async def equipment_availability(equipment_id: UUID, date: date_type = Query(), db: AsyncSession = Depends(get_db)):
+    equipment = await db.get(Equipment, equipment_id)
+    if not equipment:
+        raise HTTPException(404, "장비를 찾을 수 없습니다.")
+    units = (await db.scalars(select(EquipmentUnit).where(EquipmentUnit.equipment_id == equipment_id, EquipmentUnit.status == EquipmentStatus.ACTIVE).order_by(EquipmentUnit.label))).all()
+    day_start = datetime.combine(date, time.min, tzinfo=SEOUL).astimezone(UTC)
+    day_end = (datetime.combine(date, time.min, tzinfo=SEOUL) + timedelta(days=1)).astimezone(UTC)
+    reserved = []
+    if units:
+        reserved = (await db.execute(select(ReservationSlot.equipment_unit_id, ReservationSlot.slot_start).where(ReservationSlot.equipment_unit_id.in_([unit.id for unit in units]), ReservationSlot.slot_start >= day_start, ReservationSlot.slot_start < day_end))).all()
+    return {
+        "equipmentId": equipment.id,
+        "reservationUnitMinutes": equipment.reservation_unit_minutes,
+        "openHour": OPEN_HOUR,
+        "closeHour": CLOSE_HOUR,
+        "units": [{"id": unit.id, "label": unit.label, "reservedStarts": [slot.astimezone(SEOUL).isoformat() for unit_id, slot in reserved if unit_id == unit.id]} for unit in units],
+    }
+
+
+@router.get("/roadmap", response_model=list[RoadmapRead])
+async def list_roadmap(db: AsyncSession = Depends(get_db)):
+    return (await db.scalars(select(RoadmapItem).where(RoadmapItem.is_published.is_(True)).order_by(RoadmapItem.starts_at))).all()
+
+
+@router.get("/links", response_model=list[LinkRead])
+async def list_links(db: AsyncSession = Depends(get_db)):
+    return (await db.scalars(select(RelatedLink).where(RelatedLink.is_published.is_(True)).order_by(RelatedLink.sort_order, RelatedLink.title))).all()
+
+
+@router.get("/member-profiles", response_model=list[MemberProfile])
+async def member_profiles(db: AsyncSession = Depends(get_db)):
+    """Public profile of every member linked to a card on the 부원 page.
+
+    Only accounts an editor actually placed on the published page are returned,
+    so this never exposes the full member list, and only the fields the member
+    chose to show (name, portrait, introduction) plus their published projects.
+    """
+    page = await db.scalar(select(ContentPage).where(ContentPage.slug == "members", ContentPage.is_published.is_(True)))
+    cards = (page.content_json or {}).get("members", []) if page else []
+    wanted = set()
+    for card in cards:
+        # The card store is free-form JSON written by an editor, so a malformed
+        # or stale id must be skipped rather than break the whole page.
+        if not isinstance(card, dict) or not card.get("userId"):
+            continue
+        try:
+            wanted.add(UUID(str(card["userId"])))
+        except ValueError:
+            continue
+    if not wanted:
+        return []
+    users = (await db.scalars(select(User).where(User.id.in_(wanted), User.status == UserStatus.APPROVED, User.deleted_at.is_(None)))).all()
+    if not users:
+        return []
+    rows = (await db.execute(
+        select(RoadmapMember.user_id, RoadmapItem)
+        .join(RoadmapItem, RoadmapItem.id == RoadmapMember.roadmap_item_id)
+        .where(RoadmapMember.user_id.in_([user.id for user in users]), RoadmapItem.is_published.is_(True))
+        .order_by(RoadmapItem.starts_at)
+    )).all()
+    return [
+        MemberProfile(
+            id=user.id, name=user.name, image_url=user.image_url, introduction=user.introduction,
+            projects=[MemberProject.model_validate(item) for owner, item in rows if owner == user.id],
+        )
+        for user in users
+    ]
