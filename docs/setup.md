@@ -56,13 +56,18 @@
 
 - Vercel Root Directory: `frontend`
 - Render Root Directory: `backend`
-- Render Start Command: `fastapi run app/main.py --host 0.0.0.0 --port $PORT`
+- Render Start Command: `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Render Build Command: `pip install .`
 - `www.snu-shape.com`은 Vercel, `api.snu-shape.com`은 Render로 연결합니다.
 
-런타임 버전은 저장소에 고정되어 있습니다. Vercel은 `.nvmrc`(Node 20),
-Render는 `backend/.python-version`(Python 3.12)을 읽습니다. 두 버전에서
-빌드와 테스트를 확인했으므로, 대시보드에서 따로 바꾸지 않는 편이 좋습니다.
+런타임 버전은 저장소에 고정되어 있습니다. Vercel은 `frontend/package.json`의
+`engines.node`(20.x), Render는 `backend/.python-version`(Python 3.12)을 읽습니다.
+두 버전에서 빌드와 테스트를 확인했으므로 대시보드에서 따로 바꾸지 않는 편이 좋습니다.
+
+저장소 최상위에는 Node 표식을 두지 않습니다. `.nvmrc` 를 거기 두었더니 Render가
+Python 서비스인데도 Node 런타임으로 판단해, 시작 명령에서 `fastapi` 실행 파일을
+찾지 못하고 죽었습니다. 시작 명령을 `python -m uvicorn` 형태로 적는 것도 같은
+이유입니다. 콘솔 스크립트가 PATH 에 있는지에 기대지 않습니다.
 
 ### 첫 배포에서 데이터베이스 채우기
 
