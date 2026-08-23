@@ -10,11 +10,64 @@ import { media, optimizable } from "@/lib/media";
 import type { MemberProfile } from "@/lib/types";
 
 const filters = ["전체", "준회원", "정회원", "알럼", "멤버"] as const;
+/**
+ * 처음부터 사진을 붙여 둘 카드 수. 어떤 화면 폭에서도 첫 화면을 채울 만큼입니다.
+ * 나머지는 카드가 가까워졌을 때 붙입니다.
+ */
+const FIRST_SCREEN = 8;
+/** 카드가 화면에 닿기 전에 미리 받아 둘 거리. 스크롤해도 빈 칸이 보이지 않습니다. */
+const PHOTO_MARGIN = "400px 0px";
 const span = new Intl.DateTimeFormat("ko-KR", { year: "2-digit", month: "short", day: "numeric" });
 
 function period(project: MemberProfile["projects"][number]) {
   const starts = span.format(new Date(project.startsAt));
   return project.endsAt ? `${starts} — ${span.format(new Date(project.endsAt))}` : starts;
+}
+
+/**
+ * 부원 카드의 사진 한 장.
+ *
+ * `next/image` 는 기본으로 lazy 지만 브라우저가 잡는 여유 범위가 넓어, 서른 장이
+ * 넘는 격자에서는 스크롤하지 않아도 대부분이 내려받아집니다. 무료 요금제에서는
+ * 요청 수가 먼저 차므로, 첫 화면 몫만 처음부터 그리고 나머지는 카드가 가까워질
+ * 때 붙입니다. 사진이 없는 부원은 지금까지처럼 이름을 크게 씁니다.
+ */
+function MemberPhoto({ member, index }: { member: ShapeMember; index: number }) {
+  const [near, setNear] = useState(index < FIRST_SCREEN);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = box.current;
+    if (near || !element) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setNear(true);
+      },
+      { rootMargin: PHOTO_MARGIN },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [near]);
+  if (!member.imageUrl) {
+    return (
+      <div className="member-photo">
+        <span aria-hidden="true">{givenName(member.name)}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="member-photo" ref={box}>
+      {near && (
+        <Image
+          src={media(member.imageUrl, 560)}
+          alt={`${member.name} 부원`}
+          width={560}
+          height={700}
+          sizes="(max-width:680px) 45vw, 280px"
+          unoptimized={!optimizable(member.imageUrl)}
+        />
+      )}
+    </div>
+  );
 }
 
 export function MemberDirectory({
@@ -66,13 +119,7 @@ export function MemberDirectory({
             <button type="button" className="member-open" onClick={() => setOpenId(member.id)}>
               <span className="sr-only">{member.name} 부원 자세히 보기</span>
             </button>
-            <div className="member-photo">
-              {member.imageUrl ? (
-                <Image src={media(member.imageUrl, 560)} alt={`${member.name} 부원`} width={560} height={700} sizes="(max-width:680px) 45vw, 280px" unoptimized={!optimizable(member.imageUrl)} />
-              ) : (
-                <span aria-hidden="true">{givenName(member.name)}</span>
-              )}
-            </div>
+            <MemberPhoto member={member} index={index} />
             <div className="member-card-copy">
               <small>{member.membership ?? "정회원"} · {member.team}</small>
               <h3>{member.name}</h3>
