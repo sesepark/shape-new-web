@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from app.config import get_settings
+from app.security import COOKIE_NAME, session_owner
 
 API_PREFIX = "/api/v1"
 # Only these reads are safe to store on a shared CDN. Everything else — sessions,
@@ -48,8 +49,16 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         if content_length and int(content_length) > self.settings.max_request_bytes:
             return JSONResponse({"detail": "요청 크기가 너무 큽니다."}, status_code=413)
 
-        forwarded = request.headers.get("x-forwarded-for", "")
-        client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        # 학교 Wi-Fi 처럼 여러 회원이 한 IP 를 나눠 쓰는 곳에서는 IP 만으로 세면
+        # 정상 사용이 서로의 한도를 깎아먹는다. 로그인한 사람은 세션으로 센다.
+        # 세션 쿠키는 서명되어 있어 남의 몫을 쓰려면 위조가 필요하고, 쿠키가 없는
+        # 방문자는 그대로 IP 로 센다.
+        owner = session_owner(request.cookies.get(COOKIE_NAME))
+        if owner:
+            client = f"member:{owner}"
+        else:
+            forwarded = request.headers.get("x-forwarded-for", "")
+            client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
         write = request.method not in {"GET", "HEAD"}
         limit = self.settings.rate_limit_write_per_minute if write else self.settings.rate_limit_read_per_minute
         key = f"{client}:{'write' if write else 'read'}"

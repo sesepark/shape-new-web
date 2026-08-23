@@ -37,8 +37,8 @@ from sqlalchemy import select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.database import SessionLocal, engine  # noqa: E402
-from app.models import NewsPost  # noqa: E402
+# app.database 는 불러오는 순간 DATABASE_URL 로 엔진을 만든다. --upload 는
+# 데이터베이스를 쓰지 않으므로, 접속 주소가 아직 없어도 돌 수 있게 늦게 부른다.
 
 DEFAULT_DATA = Path(__file__).resolve().parents[3] / "legacy-data"
 CATEGORY = "활동"
@@ -154,6 +154,9 @@ def build_posts(data_dir: Path, mapping: dict[str, str]) -> list[dict]:
 
 
 async def insert(posts: list[dict]) -> None:
+    from app.database import SessionLocal, engine
+    from app.models import NewsPost
+
     async with SessionLocal() as db:
         existing = set((await db.scalars(select(NewsPost.title))).all())
         added = 0

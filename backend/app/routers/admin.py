@@ -53,7 +53,7 @@ from app.schemas import (
 from app.security import any_manager, owner_only, require_permission
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
-from app.services.notifications import publish_notice_notifications
+from app.services.notifications import deliver_push, publish_notice_notifications
 from app.services.reservations import approve, cancel, read_models
 from app.services.revalidate import refresh
 
@@ -163,9 +163,9 @@ async def admin_notices(_: User = Depends(require_permission("notices:manage")),
 async def create_notice(payload: NoticeWrite, actor: User = Depends(require_permission("notices:manage")), db: AsyncSession = Depends(get_db)):
     item = Notice(**editor_payload(payload), author_id=actor.id, published_at=datetime.now(UTC) if payload.is_published else None)
     db.add(item); await db.flush()
-    if payload.is_published:
-        await publish_notice_notifications(db, item.id, item.title)
+    devices = await publish_notice_notifications(db, item.id, item.title) if payload.is_published else []
     await db.commit()
+    await deliver_push(devices, item.title)
     refresh("notices")
     return {"id": item.id}
 
@@ -181,9 +181,9 @@ async def update_notice(item_id: UUID, payload: NoticeWrite, _: User = Depends(r
         setattr(item, key, value)
     if payload.is_published and not item.published_at:
         item.published_at = datetime.now(UTC)
-    if announce:
-        await publish_notice_notifications(db, item.id, item.title)
+    devices = await publish_notice_notifications(db, item.id, item.title) if announce else []
     await db.commit()
+    await deliver_push(devices, item.title)
     refresh("notices")
     return {"ok": True}
 

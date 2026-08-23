@@ -48,7 +48,7 @@ from app.schemas import (
 )
 from app.security import approved_user, current_user, has_permission, optional_user
 from app.services.content import sanitize_html
-from app.services.notifications import publish_notice_notifications
+from app.services.notifications import deliver_push, publish_notice_notifications
 from app.services.reservations import cancel, create_pending, read_models
 from app.services.revalidate import refresh
 
@@ -139,9 +139,9 @@ async def write_notice(payload: MemberNoticeWrite, user: User = Depends(approved
     db.add(item)
     await db.flush()
     # 알림은 운영진 공지에만 보낸다. 자유 글까지 전체 발송하면 알림이 무의미해진다.
-    if payload.category == "공지":
-        await publish_notice_notifications(db, item.id, item.title)
+    devices = await publish_notice_notifications(db, item.id, item.title) if payload.category == "공지" else []
     await db.commit()
+    await deliver_push(devices, item.title)
     reads = await notice_reads(db, [item], model=NoticeDetailRead, editor=lambda _: True)
     return reads[0]
 

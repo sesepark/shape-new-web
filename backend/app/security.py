@@ -19,6 +19,22 @@ def create_session_token(user_id: UUID) -> str:
     return jwt.encode(payload, settings.session_secret, algorithm="HS256")
 
 
+def session_owner(token: str | None) -> str | None:
+    """The signed-in account id inside a session cookie, without touching the database.
+
+    The flood guard uses this to count a member's requests against their own
+    account instead of the address they share with everyone else on the campus
+    network. The signature has to be checked here: keying on the raw cookie
+    would let anyone send a fresh random value per request and never be counted.
+    """
+    if not token:
+        return None
+    try:
+        return str(jwt.decode(token, get_settings().session_secret, algorithms=["HS256"])["sub"])
+    except (jwt.PyJWTError, KeyError):
+        return None
+
+
 async def current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     token = request.cookies.get(COOKIE_NAME)
     if not token:

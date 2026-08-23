@@ -715,3 +715,27 @@ async def test_a_visitor_gets_an_empty_session_rather_than_an_error(client, sess
     member = await make_user(session, "member@example.com")
     signed_in = await login(client, member).get("/api/v1/auth/me")
     assert signed_in.json()["email"] == "member@example.com"
+
+
+async def test_members_get_their_own_flood_budget(client, session):
+    """학교 Wi-Fi 처럼 한 IP 를 나눠 쓰는 곳에서 서로의 한도를 깎지 않아야 한다."""
+    first = await make_user(session, "one@example.com")
+    second = await make_user(session, "two@example.com")
+    for guard in CostGuardMiddleware.instances:
+        guard.settings.rate_limit_read_per_minute = 3
+        guard.buckets.clear()
+    try:
+        http = login(client, first)
+        codes = [(await http.get("/api/v1/auth/me")).status_code for _ in range(4)]
+        assert codes == [200, 200, 200, 429]
+        # 같은 주소에서 접속한 다른 회원은 자기 몫을 그대로 쓴다.
+        assert (await login(client, second).get("/api/v1/auth/me")).status_code == 200
+        # 서명이 맞지 않는 쿠키로는 새 몫을 만들 수 없다. 주소 기준으로 센다.
+        logout(client)
+        client.cookies.set("shape_session", "not-a-real-token")
+        visitor = [(await client.get("/api/v1/auth/me")).status_code for _ in range(4)]
+        assert visitor[-1] == 429
+    finally:
+        for guard in CostGuardMiddleware.instances:
+            guard.settings.rate_limit_read_per_minute = 5000
+            guard.buckets.clear()
