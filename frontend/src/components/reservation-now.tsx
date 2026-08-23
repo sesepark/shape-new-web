@@ -9,7 +9,46 @@ import type { ReservationItem } from "@/lib/types";
 
 /** 사용 시작을 누를 수 있게 열리는 시점. 백엔드의 허용 시각과 같습니다. */
 const START_GRACE_MINUTES = 10;
+/**
+ * 이 띠 하나 때문에 회원이 새로고침할 때마다 예약 목록을 다시 조회하면,
+ * 무료 티어에서 가장 자주 불리는 데이터베이스 질의가 됩니다. 예약은 자주 바뀌는
+ * 값이 아니므로 탭이 살아 있는 동안 잠시 재사용합니다.
+ */
+const CACHE_KEY = "shape:reservations";
+const CACHE_MS = 3 * 60_000;
 const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
+
+function cached(): ReservationItem[] | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { at: number; rows: ReservationItem[] };
+    return Date.now() - saved.at < CACHE_MS ? saved.rows : null;
+  } catch {
+    return null;
+  }
+}
+
+function remember(rows: ReservationItem[]) {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), rows }));
+  } catch {
+    // 시크릿 창처럼 저장이 막힌 곳에서는 그냥 매번 물어봅니다.
+  }
+}
+
+/** 지금 손을 써야 하는 예약. 사용 중이거나 곧 시작하는 것 하나. */
+function due(rows: ReservationItem[]): ReservationItem | null {
+  const now = Date.now();
+  return (
+    rows.find((row) => {
+      if (row.status === "IN_USE") return true;
+      if (row.status !== "APPROVED") return false;
+      const starts = new Date(row.startsAt).getTime();
+      return starts - START_GRACE_MINUTES * 60_000 <= now && now < new Date(row.endsAt).getTime();
+    }) ?? null
+  );
+}
 
 /**
  * 지금 써야 하는 예약이 있으면 어느 화면에서든 알려 주는 띠.
@@ -27,20 +66,18 @@ export function ReservationNow() {
     // 로그인하지 않은 방문자에게는 요청조차 보내지 않습니다.
     if (!session || session.status !== "APPROVED") return;
     const controller = new AbortController();
-    void fetch(`${API_URL}/reservations/me`, { credentials: "include", cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const rows = (await response.json()) as ReservationItem[];
-        const now = Date.now();
-        const due = rows.find((row) => {
-          if (row.status === "IN_USE") return true;
-          if (row.status !== "APPROVED") return false;
-          const starts = new Date(row.startsAt).getTime();
-          return starts - START_GRACE_MINUTES * 60_000 <= now && now < new Date(row.endsAt).getTime();
-        });
-        setItem(due ?? null);
-      })
-      .catch(() => undefined);
+    void (async () => {
+      const saved = cached();
+      if (saved) {
+        setItem(due(saved));
+        return;
+      }
+      const response = await fetch(`${API_URL}/reservations/me`, { credentials: "include", cache: "no-store", signal: controller.signal }).catch(() => null);
+      if (!response?.ok) return;
+      const rows = (await response.json()) as ReservationItem[];
+      remember(rows);
+      setItem(due(rows));
+    })();
     return () => controller.abort();
   }, [session]);
 
