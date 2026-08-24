@@ -36,10 +36,15 @@ def upgrade() -> None:
     if not any("team" in card for card in cards):
         return
     content = {**content, "members": [{k: v for k, v in card.items() if k != "team"} for card in cards]}
-    bind.execute(
-        sa.text("UPDATE content_pages SET content_json = :value WHERE slug = 'members'"),
-        {"value": json.dumps(content, ensure_ascii=False)},
+    # PostgreSQL 의 json 칸에는 문자열을 그대로 넣을 수 없다. 명시적으로 형을
+    # 밝혀 줘야 한다(42804: column is of type json but expression is of type text).
+    # SQLite 에는 json 형이 없으므로 문자열 그대로 넣는다.
+    statement = (
+        "UPDATE content_pages SET content_json = CAST(:value AS JSON) WHERE slug = 'members'"
+        if bind.dialect.name == "postgresql"
+        else "UPDATE content_pages SET content_json = :value WHERE slug = 'members'"
     )
+    bind.execute(sa.text(statement), {"value": json.dumps(content, ensure_ascii=False)})
 
 
 def downgrade() -> None:
