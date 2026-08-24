@@ -69,6 +69,26 @@ Python 서비스인데도 Node 런타임으로 판단해, 시작 명령에서 `f
 찾지 못하고 죽었습니다. 시작 명령을 `python -m uvicorn` 형태로 적는 것도 같은
 이유입니다. 콘솔 스크립트가 PATH 에 있는지에 기대지 않습니다.
 
+### 커밋 이메일
+
+Vercel은 배포하려는 커밋의 작성자 이메일을 GitHub 계정과 맞춰 보고, 맞는 계정이
+없으면 빌드를 시작하지도 않고 `Deployment was blocked` 로 끝냅니다. `contact@example.com`
+은 GitHub 계정에 등록된 주소가 아니어서 이 상태에 걸렸습니다.
+
+그래서 이 저장소의 `user.email` 은 동아리 GitHub 계정(`snuhumanoid`)의 noreply
+주소로 두었습니다.
+
+```bash
+git config user.email "263350575+snuhumanoid@users.noreply.github.com"
+git config user.name  "SHAPE"
+```
+
+noreply 주소는 GitHub이 그 계정에 대해 발급한 것이라 따로 인증할 필요가 없고,
+커밋 기록에 동아리 메일 주소가 남지도 않습니다. `contact@example.com` 을 그대로
+쓰고 싶다면 GitHub `snuhumanoid` 계정의 Settings → Emails 에 그 주소를 추가하고
+인증 메일을 확인하면 됩니다. 어느 쪽이든 **작성자 이메일이 바뀌기 전에 만든 커밋은
+계속 막히므로**, 막힌 커밋 위에 새 커밋을 올려 배포를 다시 태워야 합니다.
+
 ### 첫 배포에서 데이터베이스 채우기
 
 Neon은 바깥에서도 접속할 수 있으므로 **로컬에서** Neon URL을 가리켜 실행합니다.
