@@ -263,6 +263,20 @@ LINKS = [
 ]
 
 
+# 예약 단위는 장비마다 다르면 화면마다 시간표가 달라져 헷갈린다. 모두 한 시간이다.
+RESERVATION_UNIT_MINUTES = 60
+
+# 홈 화면에 쓰는 3D 모델을 배경 없는 그림으로 뽑아 카드에 붙인다. 제조사 제품
+# 사진을 가져다 쓰지 않는 이유는 저작권이 그쪽에 있기 때문이고, 실제로 이 그림이
+# 사이트의 다른 화면과 결이 같아 더 깔끔하다. 모델이 없는 장비는 비워 둔다.
+EQUIPMENT_IMAGES = {
+    "AI Worker": "/equipment/ai-worker.png",
+    "AI Sapiens": "/equipment/ai-sapiens.png",
+    "OMY": "/equipment/omy.png",
+    "LeRobot SO-ARM 101": "/equipment/so-arm101.png",
+}
+
+
 # ------------------------------------------------------------------- 보유 장비
 #
 # 대수는 SHAPE-UP 2026-2 기획안 7절 "현재 활용 가능 자원" 과 3차 운영진 회의록의
@@ -272,7 +286,7 @@ EQUIPMENT = [
     {
         "name": "AI Worker", "category": "양팔 로봇 · Teleoperation", "sort": 1,
         "units": ["AI Worker 1호기"], "license": "AI Worker 운용 교육",
-        "unit_minutes": 60,
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "양팔 조작과 원격 조종(teleoperation) 데이터 수집을 위한 Physical AI 플랫폼입니다. "
             "SHAPE-UP과 대회, 대외 행사가 동시에 필요로 하는 자원이므로 SHAPE-UP 사용 계획을 "
@@ -283,7 +297,7 @@ EQUIPMENT = [
     {
         "name": "OMY", "category": "로봇 팔 · 조작 정책 실험", "sort": 2,
         "units": ["OMY 1호기", "OMY 2호기"], "license": "OMY 운용 교육",
-        "unit_minutes": 60,
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "조작 정책 실험과 데이터 수집에 사용하는 로봇 팔 2대입니다. 두 대를 연동한 "
             "리더–팔로워 구성으로 원격 조종 데이터를 모을 수 있습니다."
@@ -292,7 +306,7 @@ EQUIPMENT = [
     {
         "name": "LeRobot SO-ARM 101", "category": "교육용 로봇 팔", "sort": 3,
         "units": ["SO-ARM 101 1호기", "SO-ARM 101 2호기"], "license": "SO-ARM 101 운용 교육",
-        "unit_minutes": 60,
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "교육 트랙 실습에 사용하는 소형 로봇 팔 2대입니다. 모방학습의 데이터 수집부터 "
             "정책 학습과 평가까지 한 사이클을 짧게 돌려 볼 수 있어 초심자 실습에 적합합니다. "
@@ -302,7 +316,7 @@ EQUIPMENT = [
     {
         "name": "RTX PRO 6000 워크스테이션", "category": "GPU · 시뮬레이션 및 학습", "sort": 4,
         "units": ["GPU 워크스테이션 1호기", "GPU 워크스테이션 2호기", "GPU 워크스테이션 3호기"],
-        "license": "GPU 워크스테이션 이용 교육", "unit_minutes": 120,
+        "license": "GPU 워크스테이션 이용 교육", "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "로봇 시뮬레이션과 정책 학습, 비전 모델 실험에 쓰는 GPU 워크스테이션 3대입니다. "
             "교육 트랙과 대회팀, SHAPE-UP이 함께 사용하므로 배분은 기획팀과 협의합니다. "
@@ -312,7 +326,7 @@ EQUIPMENT = [
     {
         "name": "Tesollo Robot Hand", "category": "Dexterous Hand", "sort": 5,
         "units": ["Tesollo Hand 1호기"], "license": "Tesollo Hand 운용 교육",
-        "unit_minutes": 60,
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "정교한 파지와 손가락 조작 정책 연구를 위한 다관절 로봇 손입니다. 손가락 링크가 "
             "얇아 과도한 토크나 충돌에 취약하므로, 새 정책을 실물에 올리기 전에 시뮬레이션에서 "
@@ -322,13 +336,13 @@ EQUIPMENT = [
     {
         "name": "ROBOTIS Hand", "category": "Dexterous Hand", "sort": 6,
         "units": ["ROBOTIS Hand 1호기"], "license": "ROBOTIS Hand 운용 교육",
-        "unit_minutes": 60,
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": "파지와 조작 실험에 사용하는 로봇 손입니다. Tesollo Hand와는 별개 장비로 예약합니다.",
     },
     {
         "name": "LEAP Hand", "category": "Dexterous Hand", "sort": 7,
         "units": ["LEAP Hand 1호기"], "license": "LEAP Hand 운용 교육",
-        "unit_minutes": 60,
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "저비용 다지 로봇 손 플랫폼입니다. 조작 정책 연구와 손 하드웨어 실험에 사용합니다."
         ),
@@ -336,7 +350,7 @@ EQUIPMENT = [
     {
         "name": "카메라", "category": "센서 · 데이터 수집", "sort": 8,
         "units": [f"카메라 {number}호기" for number in range(1, 8)],
-        "license": "카메라 이용 교육", "unit_minutes": 60,
+        "license": "카메라 이용 교육", "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
             "로봇 비전과 데이터 수집에 사용하는 카메라 7대입니다. 조작 데이터는 카메라 위치와 "
             "조명이 세션마다 같아야 하나의 데이터셋으로 성립하므로, 세팅을 바꿨다면 사용 후 "
@@ -345,7 +359,7 @@ EQUIPMENT = [
     },
     {
         "name": "Unitree G1 휴머노이드", "category": "전신 제어 · 확보 논의 중", "sort": 9,
-        "units": [], "license": None, "unit_minutes": 60,
+        "units": [], "license": None, "unit_minutes": RESERVATION_UNIT_MINUTES,
         "status": EquipmentStatus.INACTIVE,
         "description": (
             "전신 제어와 보행, 조작 연구를 위한 휴머노이드 플랫폼입니다. 확보 여부를 논의 중이며 "
@@ -356,7 +370,7 @@ EQUIPMENT = [
         # 지난 학기에 운용했던 플랫폼. 지금 보유하고 있지 않으므로 호기도 교육도
         # 두지 않고 상태를 INACTIVE 로 둔다. 예약 화면에 아예 뜨지 않는다.
         "name": "AI Sapiens", "category": "휴머노이드 · 이전 운용", "sort": 10,
-        "units": [], "license": None, "unit_minutes": 60,
+        "units": [], "license": None, "unit_minutes": RESERVATION_UNIT_MINUTES,
         "status": EquipmentStatus.INACTIVE,
         "description": (
             "SHAPE가 1기 활동 기간에 운용했던 휴머노이드 플랫폼입니다. 현재 보유 장비가 아니어서 "
@@ -433,16 +447,29 @@ async def main(dry_run: bool) -> None:
                 # 설명이나 상태는 관리자가 고쳤을 수 있으니 건드리지 않는다. 다만
                 # 목록에서 보이는 순서는 이 파일이 기준이므로 그것만 맞춰 준다.
                 existing = known_equipment[item["name"]]
+                fixed = []
                 if existing.sort_order != item["sort"]:
                     existing.sort_order = item["sort"]
-                    changes.append(f"  순서만 조정 장비 · {item['name']} → {item['sort']}번째")
-                else:
-                    changes.append(f"  건너뜀 (이미 있음) 장비 · {item['name']}")
+                    fixed.append(f"순서 {item['sort']}번째")
+                # 예약 단위가 장비마다 다르면 화면마다 시간표가 달라 헷갈린다.
+                if existing.reservation_unit_minutes != item["unit_minutes"]:
+                    existing.reservation_unit_minutes = item["unit_minutes"]
+                    fixed.append(f"예약 단위 {item['unit_minutes']}분")
+                # 그림은 아직 없을 때만 붙인다. 운영진이 올린 사진을 덮지 않는다.
+                picture = EQUIPMENT_IMAGES.get(item["name"])
+                if picture and not existing.image_url:
+                    existing.image_url = picture
+                    fixed.append("사진")
+                changes.append(
+                    f"  {'조정' if fixed else '건너뜀'} 장비 · {item['name']}"
+                    + (f" ({' · '.join(fixed)})" if fixed else " (이미 있음)")
+                )
                 continue
             equipment = Equipment(
                 name=item["name"], category=item["category"], description=item["description"],
                 status=item.get("status", EquipmentStatus.ACTIVE),
                 reservation_unit_minutes=item["unit_minutes"], sort_order=item["sort"],
+                image_url=EQUIPMENT_IMAGES.get(item["name"]),
             )
             db.add(equipment)
             await db.flush()

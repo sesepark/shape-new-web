@@ -449,7 +449,6 @@
 }
 
 .equipment-detail-media {
-  min-height: 600px;
   display: grid;
   place-items: center;
   padding: 44px;

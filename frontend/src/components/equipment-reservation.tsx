@@ -16,6 +16,21 @@ const dateLabel = (day: string) => new Intl.DateTimeFormat("ko-KR", { month: "lo
 
 const steps = [["장비 선택", Wrench], ["일정 선택", CalendarDays], ["신청 정보", ClipboardPenLine], ["예약 완료", Check]] as const;
 
+/** 지금 이후 몇 분 뒤부터 신청을 받을지. 서버도 시작 시각이 현재보다 앞이면 거절한다. */
+const LEAD_MINUTES = 5;
+
+/**
+ * `HH:MM` 칸이 이미 지났는지 본다.
+ *
+ * 예전에는 오늘도 00:00~23:00 스물네 칸을 모두 눌릴 수 있게 두었다. 화면에서는
+ * 멀쩡해 보이는데 신청하면 서버가 "지난 시간은 예약할 수 없습니다" 로 거절해,
+ * 왜 안 되는지 알 수 없었다. 고를 수 없는 칸은 처음부터 잠근다.
+ */
+function past(day: string, time: string): boolean {
+  const at = new Date(`${day}T${time}:00+09:00`);
+  return Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + LEAD_MINUTES * 60_000;
+}
+
 /** 하루를 예약 단위로 쪼갠 시작 시각 목록. 장비마다 단위가 달라 매번 새로 만든다. */
 function slotLabels(unitMinutes: number): string[] {
   const count = Math.floor(((RESERVATION_CLOSE_HOUR - RESERVATION_OPEN_HOUR) * 60) / unitMinutes);
@@ -114,7 +129,10 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         }
       })
       .catch((error: Error) => { if (error.name !== "AbortError") { setAvailability(null); setMessage("예약 현황을 불러오지 못했습니다."); } })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      // 예전에는 취소된 요청이면 loading 을 내리지 않았다. 마지막 요청이 취소되면
+      // 단추가 "확인 중" 으로 영구히 잠겼다(브라우저 확인에서 실제로 걸렸다).
+      // 새 요청은 어차피 스스로 loading 을 다시 올리므로 언제나 내려도 안전하다.
+      .finally(() => setLoading(false));
     return () => controller.abort();
     // 시간표는 장비와 날짜가 바뀔 때만 다시 받는다. 고른 시각(startHour·endHour)을
     // 여기 넣으면 시간을 누를 때마다 API 를 다시 부른다. 이 효과가 도는 시점에는
@@ -136,12 +154,28 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     setStage(2);
     window.setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
   }
+  /** 그 칸의 끝 시각. 마지막 칸은 자정으로 닫는다. */
+  const endOf = (index: number) => times[index + 1] ?? timeLabel(RESERVATION_CLOSE_HOUR * 60);
+
+  /**
+   * 한 번 누르면 그 한 칸이 잡히고, 뒤쪽 칸을 다시 누르면 거기까지 늘어난다.
+   *
+   * 예전에는 첫 번째 누름이 시작만 정하고 끝은 비워 두어서, 한 시간만 쓰려면
+   * 두 칸을 눌러야 했고 그러면 두 시간이 잡혔다. 무엇이 잡혔는지도 보이지 않았다.
+   */
   function chooseSlot(time: string, index: number) {
-    if (!startHour || endHour) { setStartHour(time); setEndHour(""); return; }
-    if (time <= startHour) { setStartHour(time); setEndHour(""); return; }
+    if (past(day, time)) { setMessage("이미 지난 시간은 예약할 수 없습니다."); return; }
     const startIndex = times.indexOf(startHour);
-    if (times.slice(startIndex, index + 1).some((item) => reserved.has(item))) { setMessage("예약된 시간대를 건너뛸 수 없습니다."); return; }
-    setEndHour(times[index + 1] ?? timeLabel(RESERVATION_CLOSE_HOUR * 60)); setStage(3); setMessage("");
+    // 아직 아무것도 없거나, 시작보다 앞을 누르면 그 칸 하나로 다시 시작한다.
+    if (!startHour || time <= startHour) {
+      setStartHour(time); setEndHour(endOf(index)); setStage(3); setMessage("");
+      return;
+    }
+    if (times.slice(startIndex, index + 1).some((item) => reserved.has(item))) {
+      setMessage("예약된 시간대를 건너뛸 수 없습니다.");
+      return;
+    }
+    setEndHour(endOf(index)); setStage(3); setMessage("");
   }
   async function submit() {
     if (access === "guest") { setMessage("로그인 후 승인된 회원만 예약을 신청할 수 있습니다."); return; }
@@ -187,7 +221,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     <div className="booking-guidance"><strong>장비사용 예약 신청 순서</strong><p>장비 모델과 사용 날짜·시간을 선택한 후, 작업 목적을 작성해 예약을 신청합니다.</p><small><CircleAlert size={15} />승인된 예약만 달력과 시간표에서 다른 회원에게 표시됩니다.</small></div>
     {access === "guest" && <p className="booking-signin" role="status"><Lock size={15} />예약 신청은 승인된 회원만 할 수 있습니다. 예약 가능 시간은 로그인 없이도 확인할 수 있습니다. <Link href="/login">로그인하기</Link></p>}
     <section className="booking-equipment" ref={equipmentRef} aria-labelledby="equipment-choice-title"><div className="booking-section-head"><p className="meta">01. EQUIPMENT</p><h3 id="equipment-choice-title">장비 선택</h3><span>예약할 장비와 개별 호기를 먼저 선택하세요.</span></div><div className="booking-equipment-grid">{equipment.map((item) => { const { ok, reason } = eligibility(item); return <button className={`booking-equipment-card${item.id === equipmentId ? " selected" : ""}${ok ? "" : " disabled"}`} type="button" disabled={!ok} onClick={() => chooseEquipment(item.id)} key={item.id}>{item.imageUrl ? <Image src={media(item.imageUrl, 640)} alt="" width={640} height={360} unoptimized={!optimizable(item.imageUrl)} /> : <span className="booking-device-icon"><Wrench size={34} /></span>}<span className="booking-card-category">{item.category}</span><strong>{item.name}</strong><small>{item.availableUnits}개 호기 · {ok ? "예약 가능" : reason}</small>{!ok && reason.startsWith("교육 필요") && <span className="booking-card-lock"><Lock size={13} /> 교육 이수 후 신청할 수 있습니다</span>}</button>; })}</div></section>
-    <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title"><div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div><div className="booking-schedule-grid"><article className="booking-date-card"><h4>예약 날짜</h4><label><span>예약 가능 날짜</span><input type="date" min={localDay()} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }} /></label><p><CalendarDays size={16} />{dateLabel(day)}</p></article><article className="booking-time-card" aria-busy={loading}><h4>예약 시간</h4><div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div><p className="slot-help">시작 시간과 종료 시간을 차례로 선택하세요. <i>회색은 이미 승인된 예약입니다.</i></p><div className="booking-slots">{times.map((time, index) => { const inRange = Boolean(startHour && endHour && time >= startHour && time < endHour); return <button type="button" disabled={reserved.has(time)} className={`${startHour === time ? "start" : ""}${inRange ? " range" : ""}`} onClick={() => chooseSlot(time, index)} key={time}>{time} - {times[index + 1] ?? timeLabel(RESERVATION_CLOSE_HOUR * 60)}</button>; })}</div>{!availability && <p className="form-note">{loading ? "예약 현황을 불러오는 중입니다." : "예약 현황이 없습니다."}</p>}</article></div></section>
+    <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title"><div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div><div className="booking-schedule-grid"><article className="booking-date-card"><h4>예약 날짜</h4><label><span>예약 가능 날짜</span><input type="date" min={localDay()} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }}  /></label><p><CalendarDays size={16} />{dateLabel(day)}</p></article><article className="booking-time-card" aria-busy={loading}><h4>예약 시간</h4><div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div><p className="slot-help">한 칸을 누르면 그 시간이 잡히고, 뒤쪽 칸을 다시 누르면 거기까지 늘어납니다. <i>회색은 이미 승인된 예약이거나 지난 시간입니다.</i></p><div className="booking-slots">{times.map((time, index) => { const inRange = Boolean(startHour && endHour && time >= startHour && time < endHour); const gone = past(day, time); return <button type="button" disabled={reserved.has(time) || gone} title={gone ? "이미 지난 시간입니다" : undefined} className={`${startHour === time ? "start" : ""}${inRange ? " range" : ""}${gone ? " gone" : ""}`} onClick={() => chooseSlot(time, index)} key={time}>{time} - {endOf(index)}</button>; })}</div>{!availability && <p className="form-note">{loading ? "예약 현황을 불러오는 중입니다." : "예약 현황이 없습니다."}</p>}</article></div></section>
     <section className="booking-request" aria-labelledby="request-title"><div className="booking-section-head"><p className="meta">03. REQUEST</p><h3 id="request-title">신청 정보</h3><span>신청자 정보는 로그인한 계정으로 자동 기록됩니다.</span></div><div className="booking-summary"><div><span>선택 장비</span><strong>{selected?.name ?? "장비를 선택해 주세요"}</strong></div><div><span>선택 일정</span><strong>{startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "시간을 선택해 주세요"}</strong></div><div><span>선택 호기</span><strong>{selectedUnit?.label ?? "호기를 선택해 주세요"}</strong></div></div><label className="booking-purpose"><span>사용 목적 및 작업 내용</span><textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={2000} placeholder="예: 휴머노이드 로봇 외장 부품 시제품 제작 / 사용 재료와 안전 유의사항" /></label><div className="booking-submit-row"><p>신청 후 운영진이 검토합니다. 승인 전에는 예약이 확정되지 않습니다. 여러 장비를 같은 시간에 함께 쓸 수 있습니다.</p><div className="booking-submit-buttons">{stage === 4 && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}<button className="button" type="button" disabled={loading || stage === 4} onClick={submit}>{stage === 4 ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button></div></div>{booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}</section>
     {message && <p className={`booking-message${stage === 4 ? " success" : ""}`} role="status">{message}</p>}
   </div>;

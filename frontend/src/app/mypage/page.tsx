@@ -201,8 +201,17 @@ function NoticeAlerts() {
         <div><p className="meta">NOTIFICATIONS</p><h3>새 공지 알림{unread > 0 ? ` (${unread})` : ""}</h3></div>
         {unread > 0 && <button type="button" className="text-button" onClick={markRead}>모두 읽음</button>}
       </div>
-      <button className="button secondary small push-toggle" type="button" disabled={subscribed === null} onClick={togglePush}>
-        <BellRing size={15} />{subscribed ? "브라우저 알림 끄기" : "브라우저 알림 받기"}
+      {/* 켜졌는지 글씨로만 알려 주면 눈에 들어오지 않습니다. 켜져 있으면 단추
+          자체가 파랗게 채워지고, 꺼져 있으면 테두리만 남습니다. */}
+      <button
+        className={`button small push-toggle${subscribed ? " on" : " secondary"}`}
+        type="button"
+        disabled={subscribed === null}
+        aria-pressed={subscribed === true}
+        onClick={togglePush}
+      >
+        <BellRing size={15} />
+        {subscribed === null ? "알림 설정 확인 중" : subscribed ? "브라우저 알림 켜짐" : "브라우저 알림 받기"}
       </button>
       {pushMessage && <p className="form-note">{pushMessage}</p>}
       {items === null ? (
@@ -286,6 +295,10 @@ function MyPagePanel({ session }: { session: SessionUser }) {
   const items = reservations ?? [];
   const confirmed = items.filter((item) => item.status === "APPROVED" || item.status === "IN_USE").length;
   const completed = items.filter((item) => item.status === "COMPLETED").length;
+  // 예약은 학기가 지나면 계속 쌓입니다. 지금 손을 써야 하는 것(대기·확정·사용 중)을
+  // 먼저 보여 주고, 끝난 기록은 접어 두었다가 펼쳐 봅니다.
+  const live = items.filter((item) => item.status === "PENDING" || item.status === "APPROVED" || item.status === "IN_USE");
+  const done = items.filter((item) => item.status === "COMPLETED" || item.status === "REJECTED" || item.status === "CANCELLED");
   return (
     <div className="mypage">
       <section className="mypage-hero">
@@ -306,9 +319,23 @@ function MyPagePanel({ session }: { session: SessionUser }) {
           {reservations === null ? (
             <p className="form-note">예약 정보를 불러오는 중입니다.</p>
           ) : items.length ? (
-            <div className="my-reservation-list">
-              {items.map((item) => <ReservationCard key={item.id} reservation={item} onChange={replace} />)}
-            </div>
+            <>
+              {live.length ? (
+                <div className="my-reservation-list">
+                  {live.map((item) => <ReservationCard key={item.id} reservation={item} onChange={replace} />)}
+                </div>
+              ) : (
+                <p className="empty-inline">진행 중인 예약이 없습니다.</p>
+              )}
+              {done.length > 0 && (
+                <details className="reservation-history">
+                  <summary>지난 예약 기록 {done.length}건 모두 보기</summary>
+                  <div className="my-reservation-list">
+                    {done.map((item) => <ReservationCard key={item.id} reservation={item} onChange={replace} />)}
+                  </div>
+                </details>
+              )}
+            </>
           ) : (
             <p className="empty-inline">아직 신청한 예약이 없습니다.</p>
           )}

@@ -390,6 +390,24 @@ node scripts/render-robot-check.mjs - /tmp/robots.png --grid '[
 `robot-model.tsx` 의 `MODEL_VERSION` 도 올려야 합니다. 모델은 1년 `immutable`
 로 캐시되어, 버전을 올리지 않으면 방문자가 옛 파일을 계속 씁니다.
 
+### 장비 카드 그림은 3D 모델에서 뽑습니다
+
+제조사 제품 사진을 가져다 쓰지 않습니다. 저작권이 그쪽에 있고, 배경과 결이
+사이트와 맞지 않습니다. 대신 홈 히어로에 쓰는 같은 glb 를 배경 없는 PNG 로
+뽑아 `public/equipment/` 에 둡니다.
+
+```bash
+cd frontend
+SHOT_SOLID=1 SHOT_TRANSPARENT=1 SHOT_WIDTH=760 SHOT_HEIGHT=475 SHOT_PAD=14 \
+  node scripts/render-robot-check.mjs public/models/omy.glb public/equipment/omy.png \
+  --grid '[{"pose":[],"facing":0}]'
+```
+
+`SHOT_SOLID=1` 은 부품마다 다른 색 대신 은색 한 가지로 칠합니다(조립 확인용
+색은 카드에 쓸 수 없습니다). `SHOT_TRANSPARENT=1` 은 배경을 비웁니다.
+크기는 카드 비율(16:10)에 맞춥니다. 모델이 없는 장비는 그림 없이 둡니다 —
+`seed_2026_2.py` 의 `EQUIPMENT_IMAGES` 에 없는 장비는 대체 표시가 나갑니다.
+
 ### 링크는 `HoverPrefetchLink` 로
 
 머리글과 전체 메뉴에 사이트의 거의 모든 주소가 들어 있어, 기본 `Link` 를 쓰면
@@ -438,7 +456,8 @@ node scripts/render-robot-check.mjs - /tmp/robots.png --grid '[
 | 공개 API 응답 모양 | `middleware.py` 의 `PUBLIC_READS`, 그 응답을 쓰는 페이지의 캐시 |
 | 관리자 저장 기능 | `services/revalidate.py` 의 `PATHS` 에 해당 경로가 있는가 |
 | 프런트엔드 화면 | 같은 데이터를 다루는 `/admin` 탭도 함께 고쳤는가 |
-| 사진이 들어가는 자리 | `--media-*` 변수를 썼는가 (픽셀 직접 입력 금지) |
+| 사진이 들어가는 자리 | `--media-*` 변수를 썼는가 (픽셀 직접 입력 금지). 목록과 상세가 같은 비율인가 |
+| 예약 시간을 다루는 곳 | 서버가 거절할 시간을 화면이 고를 수 있게 두지 않았는가 |
 | 회원을 고르는 UI | `PersonPicker` 또는 `FilterBox` 를 썼는가. 회원은 70명을 넘습니다 |
 | 글쓰기 도구 | `sanitize_html` 허용 목록과 `.rich-content` CSS 를 함께 넓혔는가 |
 | 홈에 장 추가 | `HomeScrollSnap` 의 `SECTIONS`, 그리고 한 장이 100dvh 를 넘지 않는가 |

@@ -17,9 +17,19 @@ import { Box3, Group, Vector3 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
-const WIDTH = 300;
-const HEIGHT = 380;
-const PAD = 16;
+const WIDTH = Number(process.env.SHOT_WIDTH ?? 300);
+const HEIGHT = Number(process.env.SHOT_HEIGHT ?? 380);
+const PAD = Number(process.env.SHOT_PAD ?? 16);
+/** 배경을 비운 PNG 로 낼지. 장비 카드에 넣을 그림은 배경이 없어야 한다. */
+const TRANSPARENT = process.env.SHOT_TRANSPARENT === "1";
+/**
+ * 부품마다 다른 색을 쓸지, 한 가지 색으로 칠할지.
+ *
+ * 조립이 맞는지 확인할 때는 부품마다 색이 달라야 어느 조각이 어디 붙었는지
+ * 보입니다. 반대로 장비 카드에 넣을 그림은 홈 화면처럼 한 가지 금속색이어야
+ * 합니다. `SHOT_SOLID=1` 로 켭니다.
+ */
+const SOLID = process.env.SHOT_SOLID === "1";
 /** ROS 는 Z 위, three 는 Y 위. 화면 쪽과 같은 기본 회전을 준다. */
 const FACING = -Math.PI / 2;
 
@@ -55,6 +65,8 @@ const PALETTE = [
   [40, 85, 243], [226, 75, 114], [17, 168, 132], [217, 119, 6],
   [139, 92, 246], [8, 145, 178], [101, 163, 13], [190, 24, 93],
 ];
+/** 홈 무대의 로봇과 같은 결. 밝은 은색에 파란 기가 살짝 돈다. */
+const SILVER = [231, 236, 246];
 
 function drawOne(root, pose, facing) {
   for (const [name, axis, angle] of pose) {
@@ -80,6 +92,7 @@ function drawOne(root, pose, facing) {
   const scale = Math.min((WIDTH - PAD * 2) / Math.max(size.x, 1e-6), (HEIGHT - PAD * 2) / Math.max(size.y, 1e-6));
 
   const pixels = new Uint8Array(WIDTH * HEIGHT * 3).fill(255);
+  const alpha = new Uint8Array(WIDTH * HEIGHT);
   const depth = new Float32Array(WIDTH * HEIGHT).fill(Infinity);
   const light = new Vector3(0.35, 0.5, 0.79).normalize();
 
@@ -88,6 +101,7 @@ function drawOne(root, pose, facing) {
     const index = y * WIDTH + x;
     if (z >= depth[index]) return;
     depth[index] = z;
+    alpha[index] = 255;
     pixels[index * 3] = Math.round(colour[0] * shade);
     pixels[index * 3 + 1] = Math.round(colour[1] * shade);
     pixels[index * 3 + 2] = Math.round(colour[2] * shade);
@@ -123,7 +137,8 @@ function drawOne(root, pose, facing) {
   let triangles = 0;
   pivot.traverse((node) => {
     if (!node.isMesh) return;
-    const colour = PALETTE[meshes++ % PALETTE.length];
+    const colour = SOLID ? SILVER : PALETTE[meshes++ % PALETTE.length];
+    meshes++;
     const position = node.geometry.getAttribute("position");
     const index = node.geometry.getIndex();
     const count = index ? index.count : position.count;
@@ -135,7 +150,7 @@ function drawOne(root, pose, facing) {
       triangles++;
     }
   });
-  return { pixels, meshes, triangles, size };
+  return { pixels, alpha, meshes, triangles, size };
 }
 
 /** 의존성 없이 PNG 한 장을 쓴다. */
@@ -149,11 +164,20 @@ function crc32(buffer) {
   for (const byte of buffer) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
   return c ^ 0xffffffff;
 }
-function png(width, height, rgb) {
-  const raw = Buffer.alloc((width * 3 + 1) * height);
+function png(width, height, rgb, alpha = null) {
+  const channels = alpha ? 4 : 3;
+  const stride = width * channels + 1;
+  const raw = Buffer.alloc(stride * height);
   for (let y = 0; y < height; y++) {
-    raw[y * (width * 3 + 1)] = 0;
-    Buffer.from(rgb.buffer, rgb.byteOffset + y * width * 3, width * 3).copy(raw, y * (width * 3 + 1) + 1);
+    raw[y * stride] = 0;
+    for (let x = 0; x < width; x++) {
+      const from = (y * width + x) * 3;
+      const to = y * stride + 1 + x * channels;
+      raw[to] = rgb[from];
+      raw[to + 1] = rgb[from + 1];
+      raw[to + 2] = rgb[from + 2];
+      if (alpha) raw[to + 3] = alpha[y * width + x];
+    }
   }
   const chunk = (type, body) => {
     const length = Buffer.alloc(4);
@@ -167,7 +191,7 @@ function png(width, height, rgb) {
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8;
-  header[9] = 2;
+  header[9] = alpha ? 6 : 2;
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),
@@ -180,7 +204,7 @@ console.log(file);
 const tiles = [];
 for (const shot of shots) {
   const result = drawOne(await load(shot.file ?? file), shot.pose ?? [], Number(shot.facing ?? 0));
-  tiles.push(result.pixels);
+  tiles.push(result);
   console.log(
     `  ${(shot.label || "기본").padEnd(14)} ` +
     `${result.size.toArray().map((v) => v.toFixed(3)).join(" × ")} m · ` +
@@ -188,14 +212,18 @@ for (const shot of shots) {
   );
 }
 
-const sheetWidth = WIDTH * tiles.length;
-const sheet = new Uint8Array(sheetWidth * HEIGHT * 3).fill(255);
-tiles.forEach((tile, column) => {
-  for (let y = 0; y < HEIGHT; y++) {
-    const from = y * WIDTH * 3;
-    const to = (y * sheetWidth + column * WIDTH) * 3;
-    sheet.set(tile.subarray(from, from + WIDTH * 3), to);
-  }
-});
-await writeFile(out, png(sheetWidth, HEIGHT, sheet));
+if (TRANSPARENT && tiles.length === 1) {
+  await writeFile(out, png(WIDTH, HEIGHT, tiles[0].pixels, tiles[0].alpha));
+} else {
+  const sheetWidth = WIDTH * tiles.length;
+  const sheet = new Uint8Array(sheetWidth * HEIGHT * 3).fill(255);
+  tiles.forEach((tile, column) => {
+    for (let y = 0; y < HEIGHT; y++) {
+      const from = y * WIDTH * 3;
+      const to = (y * sheetWidth + column * WIDTH) * 3;
+      sheet.set(tile.pixels.subarray(from, from + WIDTH * 3), to);
+    }
+  });
+  await writeFile(out, png(sheetWidth, HEIGHT, sheet));
+}
 console.log(`→ ${out}`);

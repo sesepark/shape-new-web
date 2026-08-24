@@ -26,7 +26,8 @@ const MODELS: Record<Robot, { file: string; scale: number; pose?: Pose; facing?:
   // 합니다.
   so101: {
     file: "so-arm101",
-    scale: 11.5,
+    // 11.5 로 두면 집게와 베이스가 무대 밖으로 나가 잘렸습니다. 80% 로 줄입니다.
+    scale: 9.2,
     facing: -0.63,
     pose: [
       ["upper_arm_link", "z", -1.2],
@@ -192,8 +193,14 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
           moveJoint("so101", "lower_arm_link", "z", -y * .2 + swing * .16);
           moveJoint("so101", "wrist_link", "z", y * .18 - breathe * .12);
           moveJoint("so101", "gripper_link", "z", x * .5 + sway * .35);
-          // 집게는 한쪽 턱만 움직이고, 열림 한계가 1.75rad 입니다.
-          moveJoint("so101", "moving_jaw_so101_v1_link", "z", .8 + Math.sin(seconds * .9) * .7);
+          // SO-101 의 집게는 실물이 비대칭입니다. 움직이는 턱은 하나뿐이고,
+          // 고정 턱은 손목 몸체와 한 덩어리로 찍혀 나와 따로 돌릴 수 없습니다.
+          // 한쪽만 펄럭이면 눈에 거슬리므로, 턱을 절반만 열고 손목을 반대로
+          // 같은 만큼 돌려 두 갈래가 대칭으로 벌어지게 합니다. 턱의 회전축은
+          // 손목 좌표계에서 -Y 라, 손목의 y 를 같은 부호로 돌리면 반대로 움직입니다.
+          const jaw = .8 + Math.sin(seconds * .9) * .7;
+          moveJoint("so101", "moving_jaw_so101_v1_link", "z", jaw / 2);
+          moveJoint("so101", "gripper_link", "y", -jaw / 2);
         } else {
           moveJoint("omy", "link1", "z", x * .5 + sway * .12);
           moveJoint("omy", "link2", "y", .78 + swing * .16 + y * .18);

@@ -69,12 +69,35 @@ export function ReservationCalendarView() {
     void run();
   }, [load]);
 
+  /**
+   * 장비 종류마다 고정 색을 준다.
+   *
+   * 예전에는 예약 상태(대기·확정·사용 중·완료)로만 색이 갈렸다. 한 달 화면에
+   * 여러 장비가 섞여 있으면 어느 줄이 같은 장비인지 알 수 없었다. 색은 장비가
+   * 가져가고, 상태는 아래 CSS 에서 채움·점선으로 구분한다.
+   *
+   * 이름 순으로 번호를 매기므로, 예약이 생기고 없어져도 같은 장비는 늘 같은 색이다.
+   */
+  const tone = useMemo(() => {
+    const names = [...new Set((items ?? []).map((item) => item.equipmentName))].sort();
+    return new Map(names.map((name, index) => [name, index % 8]));
+  }, [items]);
+
   const byDay = useMemo(() => {
     const map = new Map<string, ReservationCalendarItem[]>();
     for (const item of items ?? []) {
       for (const day of daysCovered(item)) {
         map.set(day, [...(map.get(day) ?? []), item]);
       }
+    }
+    // 같은 날에 여러 건이면 위에서부터 시간순으로 읽히게 한다. 시작이 같으면
+    // 짧은 것을 먼저, 그다음 장비 이름 순으로 자리를 고정한다.
+    for (const [day, rows] of map) {
+      map.set(day, [...rows].sort((a, b) =>
+        Date.parse(a.startsAt) - Date.parse(b.startsAt)
+        || Date.parse(a.endsAt) - Date.parse(b.endsAt)
+        || a.equipmentName.localeCompare(b.equipmentName, "ko")
+        || (a.unitLabel ?? "").localeCompare(b.unitLabel ?? "", "ko")));
     }
     return map;
   }, [items]);
@@ -102,9 +125,16 @@ export function ReservationCalendarView() {
           <ChevronRight size={18} />
         </button>
         <span className="calendar-legend-inline">
-          <i className="approved" /> 확정 <i className="in-use" /> 사용 중 <i className="pending" /> 대기 <i className="completed" /> 완료
+          <i className="approved" /> 확정 <i className="pending" /> 대기 <i className="in-use" /> 사용 중 <i className="completed" /> 완료
         </span>
       </div>
+      {tone.size > 0 && (
+        <ul className="calendar-equipment-legend" aria-label="장비별 색">
+          {[...tone.entries()].map(([name, index]) => (
+            <li key={name} data-tone={index}><i aria-hidden="true" />{name}</li>
+          ))}
+        </ul>
+      )}
       {message && <p className="save-notice">{message}</p>}
       <div className="reservation-grid" role="table" aria-label={`${month.getFullYear()}년 ${month.getMonth() + 1}월 장비 예약 현황`}>
         <div className="reservation-grid-head" role="row">
@@ -129,7 +159,7 @@ export function ReservationCalendarView() {
                 {items === null ? null : bookings.length ? (
                   <ul>
                     {bookings.map((booking) => (
-                      <li className={booking.status.toLowerCase()} key={`${booking.id}-${day}`}>
+                      <li className={booking.status.toLowerCase()} data-tone={tone.get(booking.equipmentName) ?? 0} key={`${booking.id}-${day}`}>
                         <button type="button" onClick={() => setActive(booking)} title={`${booking.equipmentName} ${booking.unitLabel} · ${booking.userName} · ${statusLabel[booking.status]}`}>
                           <b>{range(booking)}</b>
                           <span>{booking.unitLabel || booking.equipmentName}</span>
