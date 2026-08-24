@@ -1312,3 +1312,78 @@ def test_the_editor_can_save_tables_alignment_and_math():
     # 위험한 것은 그대로 막는다.
     blocked = sanitize_html('<script>alert(1)</script><p style="position:fixed">x</p><iframe src="x"></iframe>')
     assert "<script" not in blocked and "<iframe" not in blocked and "position" not in blocked
+
+
+async def test_a_new_member_gets_a_card_when_approved(client, session):
+    """새로 가입한 부원은 승인되는 순간 부원 카드가 생긴다.
+
+    명단에 미리 이름이 없던 사람은 고를 카드가 없어, 예전에는 부원 페이지에 아예
+    나오지 않았다. 이름·사진·소개말은 계정에서 가져오고 팀·역할은 운영진이 채운다.
+    """
+    from app.models import UserStatus
+
+    owner = await make_user(session, "owner-card@example.com", owner=True)
+    newcomer = await make_user(session, "new@example.com")
+    newcomer.name = "새로온"
+    newcomer.status = UserStatus.PENDING
+    newcomer.image_url = "https://res.cloudinary.com/demo/image/upload/v1/me.jpg"
+    await session.commit()
+
+    http = login(client, owner)
+    assert (await http.patch(f"/api/v1/admin/users/{newcomer.id}/status", json={"status": "APPROVED"})).status_code == 200
+
+    cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
+    mine = [card for card in cards if card.get("userId") == str(newcomer.id)]
+    assert len(mine) == 1, cards
+    assert mine[0]["name"] == "새로온"
+    assert mine[0]["membership"] == "준회원"
+
+    # 마이페이지에서도 내 카드로 보인다.
+    found = (await login(client, newcomer).get("/api/v1/auth/me/member-card")).json()
+    assert found["card"]["name"] == "새로온"
+
+    # 두 번 승인해도 카드가 겹쳐 생기지 않는다.
+    http = login(client, owner)
+    await http.patch(f"/api/v1/admin/users/{newcomer.id}/status", json={"status": "APPROVED"})
+    cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
+    assert len([card for card in cards if card.get("userId") == str(newcomer.id)]) == 1
+
+
+async def test_a_member_can_make_their_own_card(client, session):
+    """이 기능이 생기기 전에 승인된 부원은 마이페이지에서 직접 카드를 만든다."""
+    user = await make_user(session, "already@example.com")
+    user.name = "이미승인"
+    await session.commit()
+
+    http = login(client, user)
+    before = (await http.get("/api/v1/auth/me/member-card")).json()
+    assert before["card"] is None
+
+    made = await http.post("/api/v1/auth/me/member-card/new")
+    assert made.status_code == 200, made.text
+    assert made.json()["card"]["name"] == "이미승인"
+
+    # 다시 눌러도 카드는 하나다.
+    assert (await http.post("/api/v1/auth/me/member-card/new")).json()["card"]["id"] == made.json()["card"]["id"]
+    cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
+    assert len([card for card in cards if card.get("userId") == str(user.id)]) == 1
+
+
+async def test_releasing_an_account_card_removes_it(client, session):
+    """내 계정으로 만든 카드를 놓으면 카드 자체가 사라진다.
+
+    남겨 두면 주인 없는 카드가 부원 페이지에 그대로 남고, 이름이 같은 다른
+    사람에게 후보로 뜨기까지 한다. 명단에서 온 카드는 운영진 자료라 연결만 푼다.
+    """
+    user = await make_user(session, "made@example.com")
+    user.name = "만든이"
+    await session.commit()
+    http = login(client, user)
+
+    await http.post("/api/v1/auth/me/member-card/new")
+    cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
+    assert any(card["name"] == "만든이" for card in cards)
+
+    await http.delete("/api/v1/auth/me/member-card")
+    cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
+    assert not any(card["name"] == "만든이" for card in cards)

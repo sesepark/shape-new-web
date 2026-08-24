@@ -156,7 +156,7 @@ export function MemberDirectory({
             <div className="member-card-copy">
               <small>{member.membership ?? "정회원"}</small>
               <h3>{member.name}</h3>
-              <p>{member.role} · {member.affiliation}</p>
+              <p>{[member.role, member.affiliation].filter(Boolean).join(" · ")}</p>
             </div>
             <div className="member-hint" aria-hidden="true">자세히 보기</div>
           </article>
@@ -185,7 +185,7 @@ export function MemberDirectory({
               <div>
                 <small>{active.membership ?? "정회원"}</small>
                 <h3>{active.name}</h3>
-                <p>{active.role} · {active.affiliation}</p>
+                <p>{[active.role, active.affiliation].filter(Boolean).join(" · ")}</p>
               </div>
             </header>
             {profile?.introduction ? (

@@ -58,6 +58,7 @@ from app.schemas import (
 from app.security import READING_STATUSES, any_manager, owner_only, require_permission
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
+from app.services.member_cards import ensure_card
 from app.services.notifications import deliver_push, publish_notice_notifications
 from app.services.reservations import approve, cancel, read_models
 from app.services.revalidate import refresh
@@ -559,7 +560,13 @@ async def set_user_status(user_id: UUID, payload: UserDecision, actor: User = De
     if user.id == actor.id and payload.status != UserStatus.APPROVED:
         raise HTTPException(409, "자신의 계정 상태는 변경할 수 없습니다.")
     user.status = payload.status
+    # 부원이 되는 순간 부원 카드도 생깁니다. 명단에 미리 이름이 없던 새 부원은
+    # 이것이 없으면 부원 페이지에 아예 나오지 않습니다.
+    if payload.status in READING_STATUSES:
+        await ensure_card(db, user)
     await db.commit()
+    if payload.status in READING_STATUSES:
+        refresh("pages")
     return {"ok": True}
 
 
@@ -633,6 +640,7 @@ async def set_owner(user_id: UUID, payload: OwnerWrite, actor: User = Depends(ow
     # owner 는 승인된 회원이어야 회원용 화면에 들어갈 수 있다.
     if user.status != UserStatus.APPROVED:
         user.status = UserStatus.APPROVED
+    await ensure_card(db, user)
     held = set((await db.scalars(select(PermissionGrant.permission).where(PermissionGrant.user_id == user_id))).all())
     db.add_all([PermissionGrant(user_id=user_id, permission=name)
                 for name in sorted(MANAGEABLE_PERMISSIONS - held)])

@@ -49,7 +49,7 @@
 
 .booking-equipment-card { min-height:170px; display:grid; grid-template-columns:100px 1fr; column-gap:16px; }
 
-.booking-equipment-card img, .booking-device-icon { width:100px; height:108px; grid-row:span 3; margin:0; }
+.booking-equipment-card img, .booking-device-icon { width:100px; height:auto; grid-row:span 3; margin:0; }
 
 .booking-equipment-card small { padding-top:8px; }
 

@@ -19,6 +19,7 @@ from app.schemas import (
     SessionUser,
 )
 from app.security import COOKIE_NAME, create_session_token, current_user, optional_user, reading_user
+from app.services.member_cards import ensure_card
 from app.services.revalidate import refresh
 
 logger = logging.getLogger(__name__)
@@ -153,6 +154,23 @@ async def my_member_card(user: User = Depends(reading_user), db: AsyncSession = 
     )
 
 
+@router.post("/me/member-card/new", response_model=MemberCardRead)
+async def create_my_member_card(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """내 계정으로 부원 카드를 새로 만듭니다.
+
+    명단에 미리 만들어 둔 카드가 없는 부원을 위한 자리입니다. 새로 가입한 사람은
+    고를 카드가 없으니 "이름이 같은 카드를 찾지 못했습니다" 만 보고 막힙니다.
+    이름·사진·소개말은 계정에서 가져오고, 팀·역할은 운영진이 나중에 채웁니다.
+
+    승인될 때 카드가 자동으로 생기지만(admin.set_user_status), 그 전에 승인된
+    부원에게는 없습니다. 이미 카드가 있으면 그것을 그대로 돌려줍니다.
+    """
+    card = await ensure_card(db, user)
+    await db.commit()
+    refresh("pages")
+    return MemberCardRead(card=MemberCardItem(**card_fields(card)), candidates=[], available=[], my_name=user.name)
+
+
 @router.post("/me/member-card", response_model=MemberCardRead)
 async def claim_member_card(payload: MemberCardClaim, user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     """내 부원 카드를 집습니다.
@@ -201,11 +219,16 @@ async def release_member_card(user: User = Depends(reading_user), db: AsyncSessi
     직접 바꾸는 편이 덜 놀랍습니다.
     """
     page, cards = await member_page(db)
-    released = [
-        {key: value for key, value in card.items()
-         if not (key == "userId" and str(value) == str(user.id))}
-        for card in cards
-    ]
+    released = []
+    for card in cards:
+        mine = str(card.get("userId") or "") == str(user.id)
+        # 내 계정으로 만들어진 카드는 놓을 때 아예 지웁니다. 남겨 두면 주인 없는
+        # 카드가 부원 페이지에 그대로 남고, 이름이 같은 다른 사람에게 후보로
+        # 뜨기까지 합니다. 명단에서 온 카드(member-…)는 운영진의 자료이므로
+        # 연결만 풉니다.
+        if mine and str(card.get("id", "")).startswith("account-"):
+            continue
+        released.append({key: value for key, value in card.items() if not (key == "userId" and mine)})
     page.content_json = {**(page.content_json or {}), "members": released}
     await db.commit()
     refresh("pages")

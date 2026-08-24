@@ -151,13 +151,29 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
     setMessage("내 부원 카드로 연결했습니다. 이제 부원 페이지의 이 카드에 내 사진과 소개말이 나옵니다.");
   }
 
+  /**
+   * 명단에 내 카드가 없을 때, 내 계정으로 카드를 새로 만듭니다.
+   * 새로 가입한 부원은 고를 카드가 아예 없습니다.
+   */
+  async function createMine() {
+    setBusy(true);
+    const response = await call("/auth/me/member-card/new", { method: "POST" }).catch(() => null);
+    setBusy(false);
+    if (!response?.ok) { setMessage("카드를 만들지 못했습니다."); return; }
+    setState((await response.json()) as MemberCardState);
+    setPicking(false);
+    const user = await loadSession(true);
+    if (user) onProfile(user);
+    setMessage("부원 페이지에 내 카드가 만들어졌습니다. 사진과 소개말은 아래 '계정과 알림' 에서 바꾸면 카드에도 함께 반영됩니다.");
+  }
+
   async function release() {
     setBusy(true);
     const response = await call("/auth/me/member-card", { method: "DELETE" }).catch(() => null);
     setBusy(false);
     if (!response?.ok) { setMessage("연결을 해제하지 못했습니다."); return; }
     setState((await response.json()) as MemberCardState);
-    setMessage("연결을 해제했습니다. 부원 카드 자체는 그대로 남아 있습니다.");
+    setMessage("연결을 해제했습니다. 명단에 있던 카드는 그대로 남고, 내 계정으로 만든 카드는 함께 지워집니다.");
   }
 
   if (state === null) return null;
@@ -194,7 +210,8 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
             </div>
           </div>
           <p className="form-note">
-            부원 페이지의 이 카드에 <b>내 사진과 소개말</b>이 나옵니다. 이름·팀·역할은 운영진이 관리합니다.
+            부원 페이지의 이 카드에 <b>내 사진과 소개말</b>이 나옵니다. 아래 <b>‘계정과 알림’</b> 에서 바꾸면
+            부원 페이지에도 함께 반영됩니다. 이름·팀·역할은 운영진이 관리합니다.
           </p>
           <button type="button" className="text-button danger" disabled={busy} onClick={() => void release()}>
             연결 해제
@@ -210,10 +227,20 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
           )}
           {state.candidates.length === 0 && (
             <p className="form-note">
-              내 계정 이름 <b>{state.myName}</b> 과 같은 부원 카드를 찾지 못했습니다. 구글 계정 이름이 영문이거나
-              띄어쓰기가 다르면 이렇게 됩니다. 아래에서 <b>내 카드를 직접 고르면</b> 됩니다.
+              아직 연결된 부원 카드가 없습니다. <b>새로 가입했다면 아래에서 카드를 만들면 됩니다.</b>
+              이름·사진·소개말은 이 계정에서 그대로 가져오고, 팀과 역할은 운영진이 채웁니다.
+              이전 학기부터 활동해 <b>명단에 이미 내 카드가 있다면</b> 그 카드를 골라 연결해 주세요.
+              (내 계정 이름은 <b>{state.myName}</b> 입니다. 카드에 적힌 이름과 다르면 이름이 같은 카드로 추천되지 않습니다.)
             </p>
           )}
+          {/* 고를 카드가 있든 없든 '만들기' 는 늘 열어 둡니다. 이름이 같은 카드가
+              떠도 그것이 내 카드가 아닐 수 있습니다. */}
+          <div className="card-make">
+            <button type="button" className="button" disabled={busy} onClick={() => void createMine()}>
+              내 계정으로 부원 카드 만들기
+            </button>
+            <small className="field-hint">새로 가입한 부원은 이 길로 가면 됩니다.</small>
+          </div>
           {picking || state.candidates.length === 0 ? (
             state.available.length ? (
               <div className="card-chooser">
@@ -228,11 +255,11 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
                 {free.length === 0 && <p className="empty-inline">찾는 이름의 빈 카드가 없습니다.</p>}
                 <p className="field-hint">
                   아직 아무도 연결하지 않은 카드만 보입니다. 한 카드에는 한 사람만 연결할 수 있습니다.
-                  <b> 내 카드가 맞는지 확인하고</b> 눌러 주세요.
+                  <b> 내 카드가 맞는지 확인하고</b> 눌러 주세요. 내 카드가 없으면 위에서 새로 만들면 됩니다.
                 </p>
               </div>
             ) : (
-              <p className="empty-inline">비어 있는 부원 카드가 없습니다. 운영진에게 문의해 주세요.</p>
+              <p className="empty-inline">명단에 비어 있는 카드가 없습니다. 위에서 내 카드를 새로 만들어 주세요.</p>
             )
           ) : (
             <button type="button" className="text-button" onClick={() => setPicking(true)}>

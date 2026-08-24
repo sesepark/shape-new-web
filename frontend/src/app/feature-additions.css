@@ -323,7 +323,8 @@
 }
 
 .equipment-catalog-media {
-  height: 320px;
+  /* 높이는 site-polish.css 의 --media-ratio-equipment 가 정합니다. */
+  height: auto;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -1062,7 +1063,7 @@
   }
 
 .equipment-catalog-media {
-    height: 270px;
+    height: auto;
   }
 
 .equipment-catalog-copy {

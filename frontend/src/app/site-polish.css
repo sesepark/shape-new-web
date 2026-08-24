@@ -991,7 +991,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   .reservation-form input, .reservation-form textarea,
   .admin-form input, .admin-form textarea, .admin-form select { font-size:16px; }
   /* 도구줄 안의 선택 상자도 예외가 아닙니다. select 에 초점이 가도 확대됩니다. */
-  .editor-size-select { font-size:16px!important; }
+  .rich-editor .editor-select { font-size:16px; }
 
   /* 푸터의 메일 주소와 소셜 아이콘은 17~18px 이라 손가락으로 정확히 누르기
      어렵습니다. 보이는 크기는 그대로 두고 눌리는 영역만 넓힙니다. */
@@ -1022,6 +1022,9 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   --media-ratio-cover: 16 / 9;
   /* 인물 사진 */
   --media-ratio-portrait: 4 / 5;
+  /* 장비 사진. 목록·예약 화면·상세가 모두 이 비율을 씁니다. 로봇은 세로로 긴
+     물건이라 가로로 넓은 자리에서는 위아래가 많이 잘렸습니다. */
+  --media-ratio-equipment: 1 / 1;
   /* 사진을 기다리는 동안, 그리고 사진이 없을 때 깔리는 바탕 */
   --media-placeholder: #eef2f9;
 }
@@ -2328,14 +2331,30 @@ html:has(.shape-home) { scroll-padding-top: var(--home-header); }
    올리는 편이 좋습니다.
    ========================================================================== */
 
+/* 목록·예약 화면·상세가 모두 같은 비율, 같은 잘라내기를 씁니다. 예약 화면만
+   `contain` 이라 사진의 테두리(빈 배경)가 그대로 드러나 보였습니다. */
+.equipment-catalog-media,
+.equipment-detail-media,
+.booking-equipment-card :is(img, .booking-device-icon) {
+  aspect-ratio: var(--media-ratio-equipment);
+  height: auto;
+}
+
 .equipment-catalog-media img,
-.equipment-detail-media img {
+.equipment-detail-media img,
+.booking-equipment-card img {
   object-fit: cover;
   object-position: center;
 }
 
+/* 예약 화면 카드는 사진이 칸 너비를 꽉 채웁니다. */
+.booking-equipment-card img,
+.booking-equipment-card .booking-device-icon {
+  width: 100%;
+  max-height: none;
+}
+
 .equipment-detail-media {
-  aspect-ratio: var(--media-ratio-card);
   height: auto;
   padding: clamp(18px, 3vw, 40px);
   overflow: hidden;
@@ -3255,9 +3274,13 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
 .editor-button:disabled { opacity: .35; cursor: default; }
 
-.editor-select {
+/* 관리자 폼 안에도 들어가므로 `.rich-editor` 를 앞에 붙여 전역 입력칸 규칙을
+   이깁니다. 그 규칙(width:100%; padding:13px)이 그대로 걸리면 상자 하나가 한 줄을
+   차지하고 글자가 잘려 보입니다. */
+.rich-editor .editor-select {
   /* 글자가 다 보일 만큼은 넓어야 합니다. 좁히면 '제목 2' 가 '…' 로 잘립니다. */
-  min-width: 92px;
+  width: auto;
+  min-width: 96px;
   height: 32px;
   padding: 0 8px;
   border: 1px solid #dce1ea;
@@ -3268,7 +3291,7 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   font-weight: 700;
 }
 
-.editor-select:focus { outline: none; border-color: var(--blue); }
+.rich-editor .editor-select:focus { outline: none; border-color: var(--blue); }
 
 .editor-color { width: 20px; height: 20px; padding: 0; border: 1px solid #cfd6e2; border-radius: 50%; cursor: pointer; }
 
@@ -3362,3 +3385,12 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 }
 
 .editor-content .tiptap .math-block.ProseMirror-selectednode { border-color: var(--blue); }
+
+/* 카드를 새로 만드는 자리. 고를 카드가 있어도 늘 열어 둡니다. */
+.card-make {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}

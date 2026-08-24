@@ -880,7 +880,10 @@ button { color:inherit; }
 
 .editor-color { width:18px; height:18px; padding:0; border:2px solid #fff; outline:1px solid #c2c9d5; border-radius:50%; cursor:pointer; }
 
-.editor-size-select { width:auto!important; min-height:34px!important; padding:5px 7px!important; font-size:12px; }
+/* 관리자 폼 안에서는 `.admin-form select { width:100%; padding:13px }` 가 걸려
+   도구줄 상자가 한 줄을 통째로 차지하고 모양이 무너집니다. 도구줄 안의 상자는
+   그 규칙에서 벗어나야 합니다. */
+.rich-editor .editor-select { width:auto; min-height:0; }
 
 .external-preview { display:grid; gap:6px; margin-top:28px; padding:17px 18px; color:#18233b; background:#f4f7fc; border:1px solid #dce4f4; border-radius:11px; }
 

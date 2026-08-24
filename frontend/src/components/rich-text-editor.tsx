@@ -183,16 +183,6 @@ export function RichTextEditor({
     else editor!.chain().focus().extendMarkRange("link").setLink({ href: url.trim() }).run();
   }
 
-  async function addImageByUrl() {
-    const src = await ask({
-      title: "이미지 주소로 넣기",
-      description: "이미 인터넷에 올라와 있는 이미지 주소를 붙여 넣습니다. 내 컴퓨터 파일은 사진 단추를 쓰세요.",
-      confirmLabel: "넣기",
-      field: { label: "이미지 주소", placeholder: "https://", defaultValue: "https://", required: true },
-    });
-    if (src?.trim()) editor!.chain().focus().setImage({ src: src.trim(), alt: "" }).run();
-  }
-
   async function addImageFile(file: File) {
     setBusy(true);
     setMessage("");
@@ -308,7 +298,6 @@ export function RichTextEditor({
     <div className="editor-status">
       <span>
         Enter 새 문단 · Shift+Enter 줄바꿈 · 글자를 선택한 뒤 도구를 누르면 적용됩니다
-        <button type="button" className="text-button" onClick={addImageByUrl}>이미지 주소로 넣기</button>
       </span>
       <b>{editor.storage.characterCount.characters().toLocaleString()}자</b>
     </div>
