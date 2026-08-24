@@ -41,6 +41,7 @@ from app.schemas import (
     LicenseAssignment,
     LicenseRead,
     LicenseWrite,
+    LinkInspect,
     LinkWrite,
     NewsWrite,
     NoticeWrite,
@@ -70,6 +71,9 @@ def editor_payload(payload):
 
 async def news_payload(payload: NewsWrite):
     data = editor_payload(payload)
+    # 발행일은 아래에서 따로 다룬다. 초안으로 저장하면 아예 비워야 하고,
+    # 비워 둔 채 공개하면 저장하는 날로 잡아야 하기 때문이다.
+    data.pop("published_at", None)
     # HttpUrl round-trips as an object; the column stores plain text.
     data["external_url"] = str(payload.external_url) if payload.external_url else None
     # The article page needs an embed source or an Open Graph card, and reading
@@ -80,6 +84,18 @@ async def news_payload(payload: NewsWrite):
         content_json["preview"] = await build_link_preview(data["external_url"])
     data["content_json"] = content_json
     return data
+
+
+def published_date(payload: NewsWrite, previous: datetime | None = None) -> datetime | None:
+    """이 글에 찍을 발행일.
+
+    초안은 발행일이 없다(공개 목록이 `published_at` 이 있는 글만 내보낸다).
+    공개할 때는 관리자가 고른 날짜를 쓰고, 고르지 않았으면 이미 있던 값을,
+    그것도 없으면 지금을 쓴다.
+    """
+    if not payload.is_published:
+        return None
+    return payload.published_at or previous or datetime.now(UTC)
 
 
 # ---------------------------------------------------------------- content pages
@@ -111,7 +127,7 @@ async def admin_news(_: User = Depends(require_permission("news:manage")), db: A
 
 @router.post("/news", status_code=201)
 async def create_news(payload: NewsWrite, _: User = Depends(require_permission("news:manage")), db: AsyncSession = Depends(get_db)):
-    item = NewsPost(**await news_payload(payload), published_at=datetime.now(UTC) if payload.is_published else None)
+    item = NewsPost(**await news_payload(payload), published_at=published_date(payload))
     db.add(item); await db.commit()
     refresh("news")
     return {"id": item.id}
@@ -124,11 +140,23 @@ async def update_news(item_id: UUID, payload: NewsWrite, _: User = Depends(requi
         raise HTTPException(404, "뉴스를 찾을 수 없습니다.")
     for key, value in (await news_payload(payload)).items():
         setattr(item, key, value)
-    if payload.is_published and not item.published_at:
-        item.published_at = datetime.now(UTC)
+    # 관리자가 날짜를 고쳤으면 그대로 따른다. 예전에는 한 번 정해진 발행일을
+    # 다시 바꿀 방법이 없어서, 날짜를 잘못 넣으면 지우고 새로 쓸 수밖에 없었다.
+    item.published_at = published_date(payload, previous=item.published_at)
     await db.commit()
     refresh("news", [f"/news/{item_id}"])
     return {"ok": True}
+
+
+@router.post("/link-preview")
+async def inspect_link(payload: LinkInspect, _: User = Depends(require_permission("news:manage"))):
+    """저장하기 전에 링크를 한 번 읽어 본다.
+
+    언론보도를 올릴 때 발행일을 손으로 옮겨 적으면 틀리기 쉬우므로, 관리자 화면이
+    주소를 붙여 넣는 순간 이 창구로 원문을 읽어 날짜 칸을 채운다. 저장하지
+    않으므로 여러 번 눌러도 남는 것이 없다.
+    """
+    return await build_link_preview(str(payload.url))
 
 
 @router.post("/news/{item_id}/preview")

@@ -68,6 +68,10 @@ class MetaReader(HTMLParser):
         self.meta: dict[str, str] = {}
         self.title = ""
         self._in_title = False
+        # 언론사 상당수가 발행일을 meta 가 아니라 JSON-LD 안에만 둔다.
+        # 머리에 있는 ld+json 조각을 모아 두었다가 날짜만 뽑는다.
+        self.json_ld: list[str] = []
+        self._in_json_ld = False
         self.done = False
 
     def handle_starttag(self, tag, attrs):
@@ -76,6 +80,9 @@ class MetaReader(HTMLParser):
         values = dict(attrs)
         if tag == "title":
             self._in_title = True
+        elif tag == "script" and values.get("type", "").lower() == "application/ld+json":
+            self._in_json_ld = True
+            self.json_ld.append("")
         elif tag == "meta":
             key = (values.get("property") or values.get("name") or "").lower()
             content = values.get("content")
@@ -85,12 +92,47 @@ class MetaReader(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "title":
             self._in_title = False
+        elif tag == "script":
+            self._in_json_ld = False
         elif tag == "head":
             self.done = True
 
     def handle_data(self, data):
         if self._in_title and not self.title:
             self.title = data.strip()
+        elif self._in_json_ld and self.json_ld:
+            self.json_ld[-1] += data
+
+
+# 언론사·플랫폼이 발행일을 담는 자리. 앞쪽이 더 믿을 만하다.
+PUBLISHED_KEYS = (
+    "article:published_time",
+    "article:published",
+    "og:article:published_time",
+    "datepublished",
+    "date",
+    "dc.date.issued",
+    "pubdate",
+)
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?")
+
+
+def read_published(reader: "MetaReader") -> str:
+    """원문이 언제 나갔는지. 못 찾으면 빈 문자열.
+
+    언론보도를 올릴 때 발행일을 손으로 옮겨 적으면 틀리기 쉬우므로, 원문에서
+    읽어 관리자 화면의 날짜 칸에 채워 준다. meta 태그를 먼저 보고, 없으면
+    JSON-LD 안의 `datePublished` 를 본다. 국내 언론사 상당수가 후자만 둔다.
+    """
+    for key in PUBLISHED_KEYS:
+        raw = reader.meta.get(key)
+        if raw and (found := ISO_DATE.search(raw)):
+            return found.group(0)
+    for block in reader.json_ld:
+        match = re.search(r'"datePublished"\s*:\s*"([^"]+)"', block)
+        if match and (found := ISO_DATE.search(match.group(1))):
+            return found.group(0)
+    return ""
 
 
 def read_metadata(html: str, url: str) -> dict:
@@ -103,6 +145,7 @@ def read_metadata(html: str, url: str) -> dict:
         "description": meta.get("og:description") or meta.get("twitter:description") or meta.get("description") or "",
         "image": meta.get("og:image") or meta.get("twitter:image") or "",
         "siteName": site,
+        "publishedAt": read_published(reader),
     }
 
 
@@ -114,16 +157,14 @@ async def build(url: str | None) -> dict:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"status": "invalid", "url": url}
     embed = embed_for(url)
-    if embed:
-        return {"status": "embed", "url": url, "embed": embed}
     if not routable(parsed.hostname or ""):
-        return {"status": "unreachable", "url": url}
+        return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unreachable", "url": url}
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, max_redirects=4, headers={"User-Agent": USER_AGENT, "Accept-Language": "ko,en;q=0.8"}) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()
                 if "html" not in response.headers.get("content-type", ""):
-                    return {"status": "unsupported", "url": url}
+                    return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unsupported", "url": url}
                 body = b""
                 async for chunk in response.aiter_bytes():
                     body += chunk
@@ -131,5 +172,10 @@ async def build(url: str | None) -> dict:
                         break
                 html = body.decode(response.encoding or "utf-8", errors="replace")
     except (httpx.HTTPError, UnicodeDecodeError):
-        return {"status": "unreachable", "url": url}
-    return {"status": "card", "url": url, **read_metadata(html, url)}
+        # 영상·인스타그램은 페이지를 못 읽어도 화면 안에서 재생할 수 있다.
+        return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unreachable", "url": url}
+    meta = read_metadata(html, url)
+    if embed:
+        # 재생은 embed 가 맡고, 발행일만 페이지에서 가져와 날짜 칸을 채운다.
+        return {"status": "embed", "url": url, "embed": embed, "publishedAt": meta["publishedAt"]}
+    return {"status": "card", "url": url, **meta}

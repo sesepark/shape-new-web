@@ -237,22 +237,25 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
   if (tab === "동아리 소개") return <ClubIntroductionForm />;
   if (tab === "조직도") return <OrganizationForm />;
   if (tab === "부원") return <MembersForm />;
+  // key 를 주는 이유: 탭이 바뀌어도 같은 컴포넌트가 같은 자리에 그려지면 React 가
+  // 이전 상태를 이어 받는다. SHAPE 뉴스에서 저장한 뒤 언론보도로 넘어가면 그
+  // 안내와 입력이 그대로 남아 있었다. 탭 이름을 key 로 주면 새로 만들어진다.
   if (tab === "SHAPE 뉴스")
-    return <ContentForm tab={tab} endpoint="/admin/news" method="POST" news />;
+    return <ContentForm key={tab} tab={tab} endpoint="/admin/news" method="POST" news />;
   if (tab === "언론보도")
     return (
-      <ContentForm tab={tab} endpoint="/admin/news" method="POST" news press />
+      <ContentForm key={tab} tab={tab} endpoint="/admin/news" method="POST" news press />
     );
   if (tab === "게시판")
     return (
-      <ContentForm tab={tab} endpoint="/admin/notices" method="POST" notice />
+      <ContentForm key={tab} tab={tab} endpoint="/admin/notices" method="POST" notice />
     );
   if (tab === "보유 장비") return <EquipmentForm />;
   if (tab === "라이선스") return <LicenseManager />;
   if (tab === "장비 예약") return <ReservationsPanel />;
   if (["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"].includes(tab))
     return (
-      <RoadmapForm fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
+      <RoadmapForm key={tab} fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
     );
   if (tab === "관련 링크") return <LinkForm />;
   return <MembersPanel owner={owner} />;
@@ -340,6 +343,20 @@ function PersonPicker({ people, value, onSelect, placeholder, emptyLabel, clearL
  *
  * 알림을 성공 여부와 함께 들고 있고, 목록을 다시 읽는 일과 분리했습니다.
  */
+/** 오늘 날짜를 `YYYY-MM-DD` 로. 브라우저가 있는 지역의 하루를 기준으로 삼습니다. */
+function today(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
+/** `date` 입력에 넣을 수 있는 `YYYY-MM-DD`. 알 수 없으면 빈 문자열. */
+function dateOnly(value: unknown): string {
+  if (typeof value !== "string" || !value) return "";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "";
+  return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
 function useNotice() {
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const say = useCallback((text: string, ok = true) => setNotice(text ? { text, ok } : null), []);
@@ -499,8 +516,12 @@ function ContentForm({
   const [noticeCategory, setNoticeCategory] = useState("공지");
   const [pinned, setPinned] = useState(false);
   const [linkPreview, setLinkPreview] = useState(true);
+  // 소식이 실제로 있었던 날. 기본은 오늘이고, 언론보도는 주소를 붙여 넣으면
+  // 원문의 발행일로 바뀝니다.
+  const [publishedAt, setPublishedAt] = useState(today);
+  const [linkChecking, setLinkChecking] = useState(false);
   const [published, setPublished] = useState(true);
-  const [message, setMessage] = useState("");
+  const { say, node: saveNotice } = useNotice();
   const [selectedId, setSelectedId] = useState("");
   const { ask, dialogNode } = useAsk();
   const { rows: allRows, reload } = useAdminRows(news ? "/admin/news" : notice ? "/admin/notices" : "");
@@ -528,12 +549,39 @@ function ContentForm({
     setCoverImage("");
     setPinned(false);
     setLinkPreview(true);
+    setPublishedAt(today());
     setPublished(true);
+  }
+
+  /**
+   * 붙여 넣은 주소의 원문을 한 번 읽어 발행일을 채웁니다.
+   *
+   * 언론보도는 기사·인스타그램·유튜브가 나간 날이 곧 발행일입니다. 손으로 옮겨
+   * 적으면 틀리기 쉬워서, 주소 칸에서 손을 떼는 순간 원문에서 읽어 옵니다.
+   * 날짜를 못 찾으면 오늘 날짜를 그대로 둡니다.
+   */
+  async function readLink(url: string) {
+    if (!news || !url.trim()) return;
+    setLinkChecking(true);
+    const response = await adminSend("/admin/link-preview", "POST", { url: url.trim() });
+    setLinkChecking(false);
+    if (!response.ok) {
+      say("링크를 읽지 못했습니다. 발행일은 직접 입력해 주세요.", false);
+      return;
+    }
+    const preview = (await response.json()) as { publishedAt?: string; title?: string; siteName?: string };
+    const found = dateOnly(preview.publishedAt);
+    if (!found) {
+      say("원문에서 발행일을 찾지 못했습니다. 날짜를 확인해 주세요.", false);
+      return;
+    }
+    setPublishedAt(found);
+    say(`${preview.siteName || "원문"} 발행일 ${found} 을(를) 넣었습니다.`);
   }
 
   async function submit() {
     if (!title.trim()) {
-      setMessage("제목을 입력해 주세요.");
+      say("제목을 입력해 주세요.", false);
       return;
     }
     const payload = news
@@ -545,6 +593,8 @@ function ContentForm({
           category: newsCategory,
           coverImage: coverImage || null,
           externalUrl: externalUrl.trim() || null,
+          // 날짜만 고르므로 그 날 09시(한국 시간)로 보냅니다. 목록은 날짜만 씁니다.
+          publishedAt: publishedAt ? `${publishedAt}T09:00:00+09:00` : null,
           isPublished: published,
         }
       : notice
@@ -560,16 +610,17 @@ function ContentForm({
     const target = selectedId ? `${endpoint}/${selectedId}` : endpoint;
     const response = await adminSend(target, selectedId ? "PATCH" : method, payload);
     if (!response.ok) {
-      setMessage(
+      say(
         response.status === 0
           ? "서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."
           : response.status === 403
             ? "이 항목을 저장할 권한이 없습니다. 운영진에게 권한을 요청해 주세요."
             : "저장하지 못했습니다. 입력한 내용을 확인해 주세요.",
+        false,
       );
       return;
     }
-    setMessage(published ? `${tab}을(를) 저장하고 공개했습니다.` : `${tab}을(를) 임시 저장했습니다.`);
+    say(published ? `${tab}을(를) 저장하고 공개했습니다.` : `${tab}을(를) 임시 저장했습니다.`);
     reset();
     await reload();
   }
@@ -583,6 +634,7 @@ function ContentForm({
     setCoverImage(String(row.coverImage ?? ""));
     setNoticeCategory(String(row.category ?? "공지"));
     setPinned(Boolean(row.isPinned));
+    setPublishedAt(dateOnly(row.publishedAt) || today());
     setPublished(row.isPublished !== false);
     const json = row.contentJson;
     if (json && typeof json === "object") setLinkPreview((json as { linkPreview?: boolean }).linkPreview ?? true);
@@ -599,11 +651,11 @@ function ContentForm({
 
   async function refreshPreview() {
     if (!selectedId) {
-      setMessage("먼저 저장한 뒤 미리보기를 새로 만들 수 있습니다.");
+      say("먼저 저장한 뒤 미리보기를 새로 만들 수 있습니다.", false);
       return;
     }
     const response = await adminSend(`/admin/news/${selectedId}/preview`, "POST");
-    setMessage(response.ok ? "링크 미리보기를 다시 가져왔습니다." : "링크에서 미리보기를 가져오지 못했습니다.");
+    say(response.ok ? "링크 미리보기를 다시 가져왔습니다." : "링크에서 미리보기를 가져오지 못했습니다.", response.ok);
     if (response.ok) await reload();
   }
 
@@ -629,10 +681,37 @@ function ContentForm({
             />
           </label>
           <ImageUploadField value={coverImage} onChange={setCoverImage} purpose="news" label="대표 이미지" />
-          <label>
-            외부 링크 (기사 · YouTube · Instagram)
-            <input value={externalUrl} onChange={(event) => setExternalUrl(event.target.value)} type="url" placeholder="https://" />
-          </label>
+          <div className="admin-form-row">
+            <label>
+              발행일
+              <input
+                type="date"
+                value={publishedAt}
+                onChange={(event) => setPublishedAt(event.target.value)}
+              />
+            </label>
+            <label>
+              외부 링크 (기사 · YouTube · Instagram)
+              <input
+                value={externalUrl}
+                onChange={(event) => setExternalUrl(event.target.value)}
+                onBlur={(event) => void readLink(event.target.value)}
+                type="url"
+                placeholder="https://"
+              />
+            </label>
+          </div>
+          <p className="form-note">
+            {press
+              ? "발행일은 기본으로 오늘이고, 위 주소를 넣으면 원문이 나간 날로 바뀝니다."
+              : "발행일은 기본으로 오늘입니다. 지난 소식을 올릴 때는 실제 날짜로 바꿔 주세요."}
+            {linkChecking && " 원문을 읽고 있습니다…"}
+            {news && externalUrl.trim() && !linkChecking && (
+              <button type="button" className="text-button" onClick={() => void readLink(externalUrl)}>
+                <RefreshCw size={14} /> 원문에서 발행일 다시 읽기
+              </button>
+            )}
+          </p>
           <label className="toggle-field">
             <input type="checkbox" checked={linkPreview} onChange={(event) => setLinkPreview(event.target.checked)} />
             <span>공개 글에 링크 미리보기를 함께 보여주기</span>
@@ -678,11 +757,7 @@ function ContentForm({
             취소
           </button>
         )}
-        {message && (
-          <p className="save-notice" role="status">
-            {message}
-          </p>
-        )}
+        {saveNotice}
       </div>
       <ContentPreview title={title} body={body} externalUrl={externalUrl} showLinkPreview={linkPreview} summary={summary} />
       <AdminItems rows={rows} onEdit={edit} onDelete={remove} selectedId={selectedId} />

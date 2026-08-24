@@ -352,7 +352,7 @@ def test_open_graph_tags_become_a_preview_card():
       <meta property="og:site_name" content="예시신문"/>
     </head><body>본문</body></html>"""
     card = read_metadata(html, "https://news.example.com/a")
-    assert card == {"title": "SHAPE, 휴머노이드 데모 공개", "description": "서울대 학생들이 만든 로봇", "image": "https://cdn.example.com/a.jpg", "siteName": "예시신문"}
+    assert card == {"title": "SHAPE, 휴머노이드 데모 공개", "description": "서울대 학생들이 만든 로봇", "image": "https://cdn.example.com/a.jpg", "siteName": "예시신문", "publishedAt": ""}
     bare = read_metadata("<html><head><title>제목만</title></head></html>", "https://news.example.com/a")
     assert bare["title"] == "제목만" and bare["siteName"] == "news.example.com"
 
@@ -831,3 +831,58 @@ async def test_news_list_can_leave_out_a_category(client, session):
 
     언론보도 = (await client.get("/api/v1/news?category=언론보도")).json()
     assert [row["title"] for row in 언론보도] == ["신문에 실린 기사"]
+
+
+def test_original_publish_date_is_read_from_the_article():
+    """언론보도의 발행일은 원문에서 읽는다. 손으로 옮겨 적으면 틀리기 쉽다."""
+    from app.services.link_preview import read_metadata
+
+    # meta 태그에 둔 경우
+    tagged = read_metadata(
+        '<html><head><meta property="article:published_time" content="2026-07-15T19:06:00+09:00"/></head></html>',
+        "https://news.example.com/a",
+    )
+    assert tagged["publishedAt"] == "2026-07-15T19:06:00+09:00"
+
+    # 국내 언론사 상당수가 JSON-LD 안에만 둔다.
+    embedded = read_metadata(
+        '<html><head><script type="application/ld+json">'
+        '{"@type":"NewsArticle","datePublished":"2026-08-09T14:44:12+09:00"}'
+        "</script></head></html>",
+        "https://news.example.com/b",
+    )
+    assert embedded["publishedAt"] == "2026-08-09T14:44:12+09:00"
+
+    # 날짜가 없으면 빈 문자열. 관리자 화면은 그때 오늘 날짜를 쓴다.
+    assert read_metadata("<html><head></head></html>", "https://news.example.com/c")["publishedAt"] == ""
+
+
+async def test_news_keeps_the_publish_date_the_editor_chose(client, session):
+    """발행일은 관리자가 고른 날짜를 그대로 쓰고, 나중에 고칠 수도 있다."""
+    editor = await make_user(session, "editor@example.com", permissions=["news:manage"])
+    http = login(client, editor)
+    body = {
+        "title": "예전 소식", "summary": "요약", "category": "활동",
+        "contentHtml": "<p>본문</p>", "contentJson": {}, "isPublished": True,
+        "publishedAt": "2026-04-01T09:00:00+09:00",
+    }
+    created = await http.post("/api/v1/admin/news", json=body)
+    assert created.status_code == 201, created.text
+    item_id = created.json()["id"]
+
+    listed = (await client.get("/api/v1/news")).json()
+    assert listed[0]["publishedAt"].startswith("2026-04-01")
+
+    # 날짜를 고치면 그대로 따라간다. 예전에는 한 번 정해지면 바꿀 수 없었다.
+    edited = await http.patch(f"/api/v1/admin/news/{item_id}", json={**body, "publishedAt": "2026-05-20T09:00:00+09:00"})
+    assert edited.status_code == 200, edited.text
+    assert (await client.get("/api/v1/news")).json()[0]["publishedAt"].startswith("2026-05-20")
+
+    # 날짜를 비우고 공개하면 저장하는 날로 잡는다.
+    blank = await http.post("/api/v1/admin/news", json={**body, "title": "오늘 소식", "publishedAt": None})
+    assert blank.status_code == 201, blank.text
+
+    # 초안은 발행일이 없어 공개 목록에 나오지 않는다.
+    draft = await http.post("/api/v1/admin/news", json={**body, "title": "초안", "isPublished": False})
+    assert draft.status_code == 201
+    assert "초안" not in {row["title"] for row in (await client.get("/api/v1/news")).json()}

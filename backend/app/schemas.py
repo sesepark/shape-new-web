@@ -95,6 +95,12 @@ class AdminNewsRead(ORMModel):
     updated_at: datetime
 
 
+class LinkInspect(InputModel):
+    """저장 전에 읽어 볼 외부 링크."""
+
+    url: HttpUrl
+
+
 class NewsWrite(InputModel):
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=2000)
@@ -103,6 +109,9 @@ class NewsWrite(InputModel):
     content_html: str = ""
     cover_image: str | None = None
     external_url: HttpUrl | None = None
+    # 소식이 실제로 있었던 날. 관리자 화면에서 고르며, 기본값은 오늘입니다.
+    # 언론보도는 원문의 발행일을 읽어 채웁니다. 비워 두면 저장하는 날로 잡습니다.
+    published_at: datetime | None = None
     is_published: bool = False
 
 

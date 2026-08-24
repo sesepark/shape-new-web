@@ -35,7 +35,10 @@ export function HomeScrollSnap() {
     sections.forEach((section) => {
       section.querySelectorAll<HTMLElement>(REVEAL).forEach((item, index) => {
         item.classList.add("home-reveal");
-        item.style.setProperty("--reveal-index", String(index));
+        // 늦게 도착하는 느낌은 다섯 번째까지만 준다. 한 장에 조각이 열 개를
+        // 넘으면서 마지막 것의 지연이 1.2초까지 늘어, 다 나타나기 전에 사람이
+        // 먼저 다음 장으로 넘어가 버렸다.
+        item.style.setProperty("--reveal-index", String(Math.min(index, 5)));
       });
     });
 
