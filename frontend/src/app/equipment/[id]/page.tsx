@@ -12,7 +12,7 @@ import {
 import { PageShell } from "@/components/page-shell";
 import { ShapeSymbol } from "@/components/shape-symbol";
 import { api, listOrEmpty } from "@/lib/api";
-import { media, optimizable } from "@/lib/media";
+import { media, mediaSquare, optimizable } from "@/lib/media";
 
 /** 빌드 때 미리 그려 둔다. 이유는 `news/[id]/page.tsx` 의 같은 함수 주석에 있다. */
 export async function generateStaticParams() {
@@ -66,7 +66,7 @@ export default async function EquipmentDetailPage({
         <div className="equipment-detail-media">
           {equipment.imageUrl ? (
             <Image
-              src={media(equipment.imageUrl, 1200, "high")}
+              src={mediaSquare(equipment.imageUrl, 1200)}
               sizes="(max-width: 900px) 92vw, 620px"
               quality={92}
               alt={`${equipment.name} 장비`}

@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
+from sqlalchemy import select
 
 from app.middleware import CostGuardMiddleware, public_read
 from app.models import (
@@ -1416,3 +1417,104 @@ async def test_equipment_order_can_be_rearranged(client, session):
     assert bad.status_code == 404
     listed = (await client.get("/api/v1/equipment")).json()
     assert [row["name"] for row in listed] == list(reversed(names))
+
+
+# ------------------------------------------------------- 공개 응답 캐시 (Neon)
+
+
+async def test_public_read_is_served_from_the_cache_until_a_save_clears_it(client, session):
+    """같은 공개 창구를 다시 불러도 데이터베이스까지 내려가지 않는다.
+
+    Neon 무료 티어는 질의 횟수가 아니라 깨어 있는 시간으로 계산하고, 5분만 놀면
+    잠든다. 재검증이 올 때마다 데이터베이스를 깨우면 잠들 틈이 없어진다.
+    """
+    from app import cache
+    from app.models import NewsPost
+    from app.services.revalidate import refresh
+
+    cache.clear()
+    logout(client)
+    session.add(NewsPost(title="처음 제목", summary="요약", category="활동", is_published=True, published_at=datetime.now(UTC)))
+    await session.commit()
+
+    assert [row["title"] for row in (await client.get("/api/v1/news")).json()] == ["처음 제목"]
+
+    # 관리자 화면을 거치지 않고 값을 바꾸면 창이 끝날 때까지 옛 값이 나온다.
+    post = (await session.scalars(select(NewsPost))).one()
+    post.title = "바뀐 제목"
+    await session.commit()
+    assert [row["title"] for row in (await client.get("/api/v1/news")).json()] == ["처음 제목"]
+
+    # 운영진이 저장하면 그 자리에서 버린다.
+    refresh("news")
+    assert [row["title"] for row in (await client.get("/api/v1/news")).json()] == ["바뀐 제목"]
+
+
+async def test_a_signed_in_reader_never_gets_the_shared_cache(client, session):
+    """로그인한 사람의 화면에는 남의 몫으로 담아 둔 응답이 나가지 않는다."""
+    from app import cache
+    from app.models import ShapeUpPost
+
+    cache.clear()
+    author = await make_user(session, "shapeupcache@example.com")
+    session.add(ShapeUpPost(author_id=author.id, title="결과물", summary="", cohort="1기", team_name="가팀", is_published=True))
+    await session.commit()
+
+    # 방문자 몫이 먼저 담긴다. 고칠 수 없는 상태다.
+    logout(client)
+    assert (await client.get("/api/v1/shape-up")).json()[0]["canEdit"] is False
+
+    # 글쓴이가 보면 담아 둔 값이 아니라 자기 몫을 받는다.
+    assert (await login(client, author).get("/api/v1/shape-up")).json()[0]["canEdit"] is True
+    logout(client)
+
+
+async def test_cloudinary_delivery_urls_yield_the_public_id():
+    """변환과 판 번호가 낀 주소에서도 지울 이름을 뽑아낸다."""
+    from app.services.cloudinary import public_id_of
+
+    assert public_id_of("https://res.cloudinary.com/demo/image/upload/v1787/shape/news/1/a.jpg") == ("image", "shape/news/1/a")
+    assert public_id_of("https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,c_limit,w_1400/v1787/shape/news/1/a.jpg") == ("image", "shape/news/1/a")
+    # raw 파일은 확장자까지가 이름이다.
+    assert public_id_of("https://res.cloudinary.com/demo/raw/upload/v1787/shape/resources/1/report.pdf") == ("raw", "shape/resources/1/report.pdf")
+    assert public_id_of("https://example.com/not-ours.jpg") is None
+    assert public_id_of(None) is None
+
+
+async def test_growing_lists_are_cut_into_pages(client, session):
+    """자료실과 SHAPE UP 이 쌓여도 한 번에 받는 양은 그대로다."""
+    from app.models import Resource, ShapeUpPost
+    from app.routers.member import RESOURCE_PAGE, SHAPE_UP_PAGE
+
+    member = await make_user(session, "paging@example.com")
+    session.add_all([
+        Resource(author_id=member.id, title=f"자료 {index}", category="기타", is_public=True)
+        for index in range(RESOURCE_PAGE + 5)
+    ])
+    session.add_all([
+        ShapeUpPost(author_id=member.id, title=f"결과물 {index}", summary="", cohort="1기", team_name="가팀", is_published=True)
+        for index in range(SHAPE_UP_PAGE + 5)
+    ])
+    await session.commit()
+
+    http = login(client, member)
+    assert len((await http.get("/api/v1/resources")).json()) == RESOURCE_PAGE
+    assert len((await http.get("/api/v1/shape-up")).json()) == SHAPE_UP_PAGE
+    # 상한 위로는 올려 달라고 해도 올라가지 않는다.
+    assert (await http.get(f"/api/v1/resources?limit={RESOURCE_PAGE + 1}")).status_code == 422
+    logout(client)
+
+
+async def test_shape_up_detail_does_not_carry_the_editor_document(client, session):
+    """읽는 사람에게 쓰지도 않는 본문 사본이 함께 나가지 않는다."""
+    from app.models import ShapeUpPost
+
+    author = await make_user(session, "shapeupbody@example.com")
+    post = ShapeUpPost(author_id=author.id, title="결과물", summary="", cohort="1기", team_name="가팀", content_html="<p>본문</p>", is_published=True)
+    session.add(post)
+    await session.commit()
+
+    logout(client)
+    body = (await client.get(f"/api/v1/shape-up/{post.id}")).json()
+    assert body["contentHtml"] == "<p>본문</p>"
+    assert "contentJson" not in body

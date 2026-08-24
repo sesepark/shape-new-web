@@ -480,8 +480,11 @@ class ShapeUpRead(ORMModel):
 
 
 class ShapeUpDetailRead(ShapeUpRead):
+    # `content_json` 은 싣지 않습니다. 편집기가 저장할 때 늘 빈 값을 보내고
+    # (본문은 `content_html` 하나로 오갑니다), 읽는 쪽도 쓰지 않습니다. 그런데도
+    # 공개 상세 응답에 딸려 나가면서 읽는 사람마다 몫을 치르고 있었습니다.
+    # 게시판(`NoticeDetailRead`)은 이미 같은 이유로 빼 두었습니다.
     content_html: DeliveredHtml = ""
-    content_json: dict = Field(default_factory=dict)
 
 
 class ShapeUpWrite(InputModel):

@@ -121,15 +121,25 @@ flowchart LR
 `/`, `/about`, `/news`, `/members`, `/equipment`, `/roadmap`, `/links`, `/shape-up` 등.
 
 1. Next.js 서버 컴포넌트가 `src/lib/api.ts` 의 `api.*()` 로 백엔드를 호출합니다.
-   이 fetch 는 `next: { revalidate: 300 }` 이라 **5분간 Next.js Data Cache** 에 남습니다.
-2. 그린 HTML 은 Vercel Edge 캐시에 올라가고, 방문자는 대부분 CDN 에서 받습니다.
+   이 fetch 는 `next: { revalidate: 3600 }` 이라 **한 시간 동안 Next.js Data Cache**
+   에 남습니다.
+2. 그 호출이 백엔드까지 갔더라도 `app/cache.py` 의 공개 응답 캐시가 한 번 더
+   막아 줍니다. 같은 길이의 창을 쓰고, 시계에 고정된 경계에서 다 같이 만료됩니다.
+3. 그린 HTML 은 Vercel Edge 캐시에 올라가고, 방문자는 대부분 CDN 에서 받습니다.
    빌드 출력의 `○`(정적) 또는 `●`(경로별 정적)가 이 상태입니다.
-3. 관리자가 무언가 저장하면 백엔드가 `POST /api/revalidate` 로 알려 주고,
-   해당 경로가 즉시 새로 그려집니다. (`app/services/revalidate.py` ↔ `src/app/api/revalidate/route.ts`)
+4. 관리자가 무언가 저장하면 백엔드가 자기 캐시를 버리고 `POST /api/revalidate` 로
+   알려 주어, 해당 경로가 즉시 새로 그려집니다.
+   (`app/services/revalidate.py` ↔ `src/app/api/revalidate/route.ts`)
 
-> **공개 데이터를 실제로 지켜 주는 것은 Next.js Data Cache 입니다.** Render 앞에는
-> 공유 캐시가 없으므로 API 응답의 `s-maxage` 는 예비 장치일 뿐입니다. 이 재검증
-> 경로를 끊지 마세요.
+> **한 시간이라는 값은 느슨해서가 아니라, 저장이 그 자리에서 새로 고치기 때문에
+> 고를 수 있는 값입니다.** 이 재검증 경로를 끊으면 그 순간 한 시간짜리 지연이
+> 진짜 지연이 됩니다.
+>
+> **왜 한 시간인가.** Neon 무료 compute 는 월 100 CU-시간이고 5분만 놀면 잠듭니다.
+> 재검증 주기가 5분이던 동안에는 방문이 이어지는 내내 데이터베이스가 깨어 있어서,
+> 베타 이용자 다섯 명만으로 한도의 64% 를 쓰고 있었습니다. 자세한 계산은
+> [`free-tier-deployment.md`](free-tier-deployment.md) 에 있습니다. 이 값을 다시
+> 줄이려면 그 문서의 실측표를 먼저 보세요.
 
 상세 페이지(`/news/[id]`, `/equipment/[id]`, `/shape-up/[id]`)는 `generateStaticParams`
 로 빌드 때 미리 그려 둡니다. 목록을 못 받아 오면 빈 배열을 돌려주므로, 배포 중

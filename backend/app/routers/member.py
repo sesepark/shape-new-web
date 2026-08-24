@@ -54,6 +54,7 @@ from app.security import (
     optional_user,
     reading_user,
 )
+from app.services import cloudinary
 from app.services.content import sanitize_html
 from app.services.notifications import deliver_push, publish_notice_notifications, publish_owner_notifications
 from app.services.reservations import cancel, create_pending, read_models
@@ -446,15 +447,27 @@ async def resource_reads(db: AsyncSession, rows, viewer: User | None, manager: b
     ]
 
 
+# 자료실은 기수가 바뀔 때마다 쌓이기만 하는 표다. 게시판에 이미 넣은 것과 같은
+# 방식으로 한 번에 받는 양을 끊고, 더 보려면 마지막 글의 시각으로 이어받는다.
+RESOURCE_PAGE = 40
+
+
 @router.get("/resources", response_model=list[ResourceRead])
-async def list_resources(viewer: User | None = Depends(optional_user), db: AsyncSession = Depends(get_db)):
+async def list_resources(
+    viewer: User | None = Depends(optional_user),
+    db: AsyncSession = Depends(get_db),
+    before: datetime | None = Query(default=None, description="이 시각보다 앞선 자료부터 이어 받습니다."),
+    limit: int = Query(default=RESOURCE_PAGE, ge=1, le=RESOURCE_PAGE),
+):
     """Public entries for everyone; member-only entries once signed in."""
     # 보기 전용 회원도 회원 전용 자료를 읽는다. 고치는 것은 아래에서 막는다.
     member = bool(viewer and viewer.status in READING_STATUSES)
     query = select(Resource).order_by(Resource.created_at.desc())
     if not member:
         query = query.where(Resource.is_public.is_(True))
-    rows = list((await db.scalars(query)).all())
+    if before is not None:
+        query = query.where(Resource.created_at < before)
+    rows = list((await db.scalars(query.limit(limit))).all())
     editable = bool(viewer and viewer.status == UserStatus.APPROVED)
     manager = bool(editable and await has_permission(db, viewer, "content:manage"))
     return await resource_reads(db, rows, viewer if editable else None, manager)
@@ -485,19 +498,28 @@ async def own_resource(db: AsyncSession, resource_id: UUID, user: User) -> Resou
 @router.patch("/resources/{resource_id}", response_model=ResourceRead)
 async def edit_resource(resource_id: UUID, payload: ResourceWrite, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     item = await own_resource(db, resource_id, user)
+    # 파일을 갈아 끼웠으면 옛 파일은 아무도 가리키지 않는다. 남겨 두면 저장
+    # 용량만 계속 먹으므로 여기서 지운다.
+    replaced = item.file_url if item.file_url and item.file_url != payload.file_url else None
     item.title, item.description, item.category = payload.title.strip(), payload.description, payload.category
     item.file_url, item.file_name, item.file_size = payload.file_url, payload.file_name, payload.file_size
     item.link_url = str(payload.link_url) if payload.link_url else None
     item.is_public = payload.is_public
     await db.commit(); await db.refresh(item)
+    if replaced:
+        await cloudinary.destroy(replaced)
     return (await resource_reads(db, [item], user, True))[0]
 
 
 @router.delete("/resources/{resource_id}", status_code=204)
 async def remove_resource(resource_id: UUID, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     item = await own_resource(db, resource_id, user)
+    # 표에서 지우기 전에 주소를 챙겨 둔다. 파일을 함께 지우지 않으면 Cloudinary
+    # 저장 용량이 한 방향으로만 늘어난다(services/cloudinary.py 의 설명 참고).
+    stored = item.file_url
     await db.delete(item)
     await db.commit()
+    await cloudinary.destroy(stored)
 
 
 # ---------------------------------------------------------------- SHAPE-UP
@@ -525,10 +547,22 @@ async def shape_up_viewer(db: AsyncSession, viewer: User | None):
     return (viewer if member else None), manager
 
 
+# 기수마다 팀 수만큼 늘어난다. 공개 목록이라 사이트맵과 재검증도 같이 읽는다.
+SHAPE_UP_PAGE = 60
+
+
 @router.get("/shape-up", response_model=list[ShapeUpRead])
-async def list_shape_up(viewer: User | None = Depends(optional_user), db: AsyncSession = Depends(get_db)):
+async def list_shape_up(
+    viewer: User | None = Depends(optional_user),
+    db: AsyncSession = Depends(get_db),
+    before: datetime | None = Query(default=None, description="이 시각보다 앞선 글부터 이어 받습니다."),
+    limit: int = Query(default=SHAPE_UP_PAGE, ge=1, le=SHAPE_UP_PAGE),
+):
     """Finished team work, open to anyone; writing stays with members."""
-    rows = list((await db.scalars(select(ShapeUpPost).where(ShapeUpPost.is_published.is_(True)).order_by(ShapeUpPost.created_at.desc()))).all())
+    query = select(ShapeUpPost).where(ShapeUpPost.is_published.is_(True))
+    if before is not None:
+        query = query.where(ShapeUpPost.created_at < before)
+    rows = list((await db.scalars(query.order_by(ShapeUpPost.created_at.desc()).limit(limit))).all())
     member, manager = await shape_up_viewer(db, viewer)
     return await shape_up_reads(db, rows, member, manager)
 

@@ -21,6 +21,7 @@ os.environ.setdefault("RATE_LIMIT_WRITE_PER_MINUTE", "5000")
 import httpx  # noqa: E402
 from httpx import ASGITransport  # noqa: E402
 
+from app import cache  # noqa: E402
 from app.database import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.middleware import CostGuardMiddleware  # noqa: E402
@@ -32,6 +33,9 @@ from app.security import COOKIE_NAME, create_session_token  # noqa: E402
 def reset_rate_limits():
     for guard in CostGuardMiddleware.instances:
         guard.buckets.clear()
+    # 공개 응답 캐시는 프로세스 안에 남으므로, 앞선 시험이 담아 둔 값이 다음
+    # 시험의 조회에 그대로 돌아오면 원인을 찾기 어려운 실패가 난다.
+    cache.clear()
 
 
 @pytest.fixture(autouse=True)

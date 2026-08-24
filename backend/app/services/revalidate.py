@@ -5,6 +5,7 @@ import logging
 
 import httpx
 
+from app import cache
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,10 @@ async def _post(paths: list[str]) -> None:
 
 def refresh(kind: str, extra: list[str] | None = None) -> None:
     """Fire and forget so the admin request returns without waiting."""
+    # 백엔드가 들고 있던 공개 응답을 먼저 버린다. 이 순서를 지키지 않으면
+    # 아래 재검증 요청이 되돌아왔을 때 방금 지운 옛 값을 다시 받아 가서,
+    # 저장했는데도 화면이 그대로인 상태가 창 하나만큼 이어진다.
+    cache.clear()
     paths = PATHS.get(kind, []) + (extra or [])
     if not paths:
         return

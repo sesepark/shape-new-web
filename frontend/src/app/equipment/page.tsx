@@ -5,7 +5,7 @@ import { ShapeSymbol } from "@/components/shape-symbol";
 import { EmptyState } from "@/components/empty-state";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
-import { media, optimizable } from "@/lib/media";
+import { media, mediaSquare, optimizable } from "@/lib/media";
 
 export const metadata = {
   title: "보유 장비",
@@ -35,7 +35,7 @@ export default async function EquipmentPage() {
               <div className="equipment-catalog-media">
                 {item.imageUrl ? (
                   <Image
-                    src={media(item.imageUrl, 900, "high")}
+                    src={mediaSquare(item.imageUrl, 800)}
                     sizes="(max-width: 900px) 90vw, 420px"
                     quality={90}
                     alt={`${item.name} 장비`}

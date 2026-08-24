@@ -129,14 +129,29 @@ async def equipment_availability(equipment_id: UUID, date: date_type = Query(), 
     }
 
 
+# 로드맵은 학기마다 쌓이기만 하고 지워지지 않습니다. 화면이 실제로 보여 주는
+# 것은 이번 학기 안팎인데 전부 실어 보내면 해가 갈수록 응답만 길어집니다.
+ROADMAP_PAGE = 200
+
+
 @router.get("/roadmap", response_model=list[RoadmapRead])
-async def list_roadmap(db: AsyncSession = Depends(get_db)):
-    return (await db.scalars(select(RoadmapItem).where(RoadmapItem.is_published.is_(True)).order_by(RoadmapItem.starts_at))).all()
+async def list_roadmap(
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=ROADMAP_PAGE, ge=1, le=ROADMAP_PAGE),
+):
+    return (await db.scalars(
+        select(RoadmapItem).where(RoadmapItem.is_published.is_(True)).order_by(RoadmapItem.starts_at).limit(limit)
+    )).all()
+
+
+LINKS_PAGE = 100
 
 
 @router.get("/links", response_model=list[LinkRead])
 async def list_links(db: AsyncSession = Depends(get_db)):
-    return (await db.scalars(select(RelatedLink).where(RelatedLink.is_published.is_(True)).order_by(RelatedLink.sort_order, RelatedLink.title))).all()
+    return (await db.scalars(
+        select(RelatedLink).where(RelatedLink.is_published.is_(True)).order_by(RelatedLink.sort_order, RelatedLink.title).limit(LINKS_PAGE)
+    )).all()
 
 
 @router.get("/member-profiles", response_model=list[MemberProfile])

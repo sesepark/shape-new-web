@@ -4,8 +4,9 @@ from collections import defaultdict, deque
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
+from app import cache
 from app.config import get_settings
 from app.security import COOKIE_NAME, session_owner
 
@@ -73,18 +74,45 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
             if len(self.buckets) > 2_000:
                 self.buckets = defaultdict(deque, {name: values for name, values in self.buckets.items() if values and values[-1] > now - 60})
 
-        response = await call_next(request)
         path = request.url.path
         # 로그인한 사람의 요청은 공개 읽기라도 공유 캐시에 넣지 않는다.
         # /shape-up 처럼 같은 주소인데 보는 사람에 따라 canEdit 이 달라지는 응답이
         # 있어서, 공유 캐시가 앞에 붙는 순간 남의 화면에 수정 버튼이 뜬다.
         # 쿠키가 없는 요청(공개 페이지를 그리는 서버 쪽 호출)만 공유 캐시를 쓴다.
         signed_in = COOKIE_NAME in request.cookies
-        if request.method == "GET" and not signed_in and public_read(path):
+        cacheable = request.method == "GET" and not signed_in and public_read(path)
+
+        # 같은 조건에서 응답 자체도 잠시 들고 있는다. 공개 창구를 부르는 것은
+        # 사실상 Next.js 재검증뿐인데, 그 호출 하나하나가 Neon 을 깨워 5분씩
+        # 붙잡아 둔다. 여기서 막으면 데이터베이스가 잠들 틈이 생긴다.
+        # 자세한 사정은 app/cache.py 의 설명에 적어 두었다.
+        # 압축은 이 미들웨어 **안쪽**에서 일어나므로(main.py 의 쌓는 순서), 여기서
+        # 붙잡는 본문은 이미 gzip 이다. 압축을 못 받는 상대에게 그대로 돌려주면
+        # 깨진 응답이 나가므로, 받을 수 있는지를 열쇠에 같이 넣는다.
+        gzipped = "gzip" in request.headers.get("accept-encoding", "")
+        cache_key = f"{'z' if gzipped else 'p'}:{path}?{request.url.query}"
+
+        if cacheable:
+            hit = cache.get(cache_key)
+            if hit is not None:
+                status, body, headers = hit
+                return Response(content=body, status_code=status, headers=dict(headers))
+
+        response = await call_next(request)
+        if cacheable:
             if any(part in path for part in VOLATILE_READS):
-                response.headers.setdefault("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=60")
+                window = self.settings.volatile_cache_seconds
+                response.headers.setdefault("Cache-Control", f"public, max-age=0, s-maxage={window}, stale-while-revalidate=60")
             else:
-                response.headers.setdefault("Cache-Control", f"public, max-age=60, s-maxage={self.settings.public_cache_seconds}, stale-while-revalidate=600")
+                window = self.settings.public_cache_seconds
+                response.headers.setdefault("Cache-Control", f"public, max-age=60, s-maxage={window}, stale-while-revalidate=600")
+            # 200 만 담는다. 오류를 담아 두면 백엔드가 잠깐 흔들린 것이 창 하나만큼
+            # 그대로 굳어 버린다.
+            if response.status_code == 200:
+                body = b"".join([chunk async for chunk in response.body_iterator])
+                headers = [(key, value) for key, value in response.headers.items() if key.lower() != "content-length"]
+                cache.set(cache_key, (200, body, headers), window)
+                return Response(content=body, status_code=200, headers=dict(headers))
         elif path.startswith(API_PREFIX):
             response.headers.setdefault("Cache-Control", "private, no-store")
         return response

@@ -19,19 +19,29 @@ const MAX_BYTES = 10 * 1024 * 1024;
  * 그대로 씁니다. 사진이 이미 작으면 손대지 않습니다. GIF 는 움직임이 사라지므로
  * 건드리지 않습니다.
  */
+/**
+ * 올리기 전에 줄일 가장 긴 변.
+ *
+ * 보통은 1600px 이면 충분합니다. 다만 **장비와 소식 사진은 화면에서 크게 놓이고,
+ * 장비 사진은 1:1 로 잘라서 씁니다.** 가로로 넓은 사진을 정사각으로 자르면 세로가
+ * 그대로 한계가 되므로(16:9 사진을 1600 으로 줄이면 세로 900px 뿐), 이 두 가지만
+ * 넉넉히 둡니다. 늘어나는 무게는 장당 15KB 안팎입니다(실측 43KB → 58KB).
+ */
 const MAX_EDGE = 1600;
+const WIDE_EDGE = 2000;
+const WIDE_PURPOSES: UploadPurpose[] = ["equipment", "news"];
 const QUALITY = 0.82;
 /** 이보다 작으면 줄여 봐야 얻는 것이 없습니다. */
 const SKIP_UNDER_BYTES = 300 * 1024;
 
-async function shrink(file: File): Promise<File> {
+async function shrink(file: File, maxEdge = MAX_EDGE): Promise<File> {
   if (file.type === "image/gif" || file.type === "image/svg+xml") return file;
   if (file.size < SKIP_UNDER_BYTES) return file;
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
   try {
     // EXIF 방향을 반영해서 읽습니다. 이것을 빼면 세로로 찍은 사진이 눕습니다.
     const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
@@ -55,7 +65,7 @@ async function shrink(file: File): Promise<File> {
 export async function uploadImage(file: File, purpose: UploadPurpose): Promise<{ url?: string; error?: string }> {
   if (!file.type.startsWith("image/")) return { error: "JPG, PNG, WebP 이미지만 올릴 수 있습니다." };
   if (file.size > MAX_BYTES) return { error: "이미지는 10MB 이하만 올릴 수 있습니다." };
-  const upload = await shrink(file);
+  const upload = await shrink(file, WIDE_PURPOSES.includes(purpose) ? WIDE_EDGE : MAX_EDGE);
   try {
     const signature = await fetch(`${API_URL}/media/signature?purpose=${purpose}`, { method: "POST", credentials: "include" });
     if (signature.status === 403) return { error: "이미지를 올릴 권한이 없습니다." };

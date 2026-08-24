@@ -12,6 +12,8 @@ import type { ResourceCategory, ResourceItem } from "@/lib/types";
 const categories: ResourceCategory[] = ["양식", "교육 자료", "장비 매뉴얼", "발표 자료", "기타"];
 const filters = ["전체", ...categories] as const;
 const listDate = new Intl.DateTimeFormat("ko-KR", { year: "2-digit", month: "short", day: "numeric" });
+/** 서버가 한 번에 보내 주는 자료 수. 백엔드의 RESOURCE_PAGE 와 같아야 합니다. */
+const PAGE = 40;
 
 function readableSize(bytes: number) {
   if (!bytes) return "";
@@ -125,11 +127,32 @@ export function ResourceLibrary() {
   const [filter, setFilter] = useState<(typeof filters)[number]>("전체");
   const [writing, setWriting] = useState(false);
   const [message, setMessage] = useState("");
+  // 자료실은 기수가 쌓일수록 늘기만 합니다. 게시판과 같이 한 번에 40개만 받고,
+  // 더 오래된 자료는 눌러서 이어 받습니다.
+  const [more, setMore] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
     const response = await board("/resources");
-    setItems(response.ok ? ((await response.json()) as ResourceItem[]) : []);
+    const rows = response.ok ? ((await response.json()) as ResourceItem[]) : [];
+    setItems(rows);
+    setMore(rows.length >= PAGE);
   }, []);
+
+  async function loadOlder() {
+    const oldest = items?.[items.length - 1]?.createdAt;
+    if (!oldest) return;
+    setLoading(true);
+    const response = await board(`/resources?before=${encodeURIComponent(oldest)}`).catch(() => null);
+    setLoading(false);
+    if (!response?.ok) return;
+    const rows = (await response.json()) as ResourceItem[];
+    setMore(rows.length >= PAGE);
+    setItems((current) => {
+      const seen = new Set((current ?? []).map((item) => item.id));
+      return [...(current ?? []), ...rows.filter((item) => !seen.has(item.id))];
+    });
+  }
 
   useEffect(() => {
     const load = async () => { await reload(); };
@@ -217,6 +240,11 @@ export function ResourceLibrary() {
           <h2>{filter === "전체" ? "등록된 자료가 없습니다" : `${filter} 자료가 없습니다`}</h2>
           <p>양식이나 매뉴얼을 올리면 부원 누구나 바로 내려받을 수 있습니다.</p>
         </div>
+      )}
+      {more && visible.length > 0 && (
+        <button type="button" className="button secondary board-more" disabled={loading} onClick={() => void loadOlder()}>
+          {loading ? "불러오는 중…" : "이전 자료 더 보기"}
+        </button>
       )}
       {dialogNode}
     </div>

@@ -27,6 +27,27 @@ const QUALITY: Record<MediaQuality, string> = {
   eco: "q_auto:eco",
 };
 
+/**
+ * 정사각으로 잘라서 받아 옵니다.
+ *
+ * 장비 사진 자리는 1:1 인데 올라오는 사진은 대개 가로로 넓습니다. 지금까지는 넓은
+ * 사진을 그대로 받아 **화면에서** 정사각으로 잘랐습니다. 그러면 받아 온 픽셀의
+ * 절반 이상을 버리면서, 정작 세로는 모자라 늘려 그리게 됩니다(16:9 사진이면
+ * 1.75배). 자를 곳을 Cloudinary 에 맡기면 필요한 크기가 그대로 오고, 버리는
+ * 픽셀이 없으니 전송량도 줍니다. `g_auto` 는 사진에서 중요한 부분을 스스로
+ * 찾아 그쪽을 남깁니다.
+ */
+export function mediaSquare(url: string | null | undefined, size: number, quality: MediaQuality = "high"): string {
+  if (!url) return "";
+  if (url.startsWith(LEGACY_PHOTOS)) return url.slice(LEGACY_PHOTOS.length - "/figs/".length);
+  const marker = url.indexOf(UPLOAD_MARKER);
+  if (!url.startsWith("https://res.cloudinary.com/") || marker === -1) return url;
+  const head = url.slice(0, marker + UPLOAD_MARKER.length);
+  const tail = url.slice(marker + UPLOAD_MARKER.length);
+  if (/^[a-z]_[^/]*\//.test(tail)) return url;
+  return `${head}f_auto,${QUALITY[quality]},c_fill,g_auto,w_${size},h_${size}/${tail}`;
+}
+
 export function media(url: string | null | undefined, width: number, quality: MediaQuality = "auto"): string {
   if (!url) return "";
   // 옛 사이트 주소로 저장된 부원 사진은 우리 public 폴더에 그대로 있는 파일이다.

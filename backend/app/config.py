@@ -24,7 +24,13 @@ class Settings(BaseSettings):
     db_max_overflow: int = 1
     db_pool_timeout_seconds: int = 30
     db_pool_recycle_seconds: int = 300
-    public_cache_seconds: int = 300
+    # 공개 데이터를 얼마나 오래 들고 있을지. 백엔드 안 캐시의 '창' 길이이자
+    # 응답에 실리는 s-maxage 값이다. 운영진이 저장하면 그 즉시 캐시를 버리고
+    # Next.js 재검증까지 부르므로, 이 값이 길다고 해서 수정이 늦게 보이지 않는다.
+    # 늦게 보이는 것은 관리자 화면을 거치지 않고 바꾼 경우뿐이다.
+    public_cache_seconds: int = 3600
+    # 예약 가능 시간은 승인 즉시 바뀌므로 훨씬 짧게 둔다.
+    volatile_cache_seconds: int = 30
     rate_limit_read_per_minute: int = 120
     rate_limit_write_per_minute: int = 20
     max_request_bytes: int = 2_000_000
