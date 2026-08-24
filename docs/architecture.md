@@ -37,6 +37,31 @@ Claude·Codex 같은 도구가 저장소를 처음 열었을 때 가장 먼저 �
 새 CSS 를 넣을 때 데스크톱 규칙만 쓰고 반응형 분기를 빠뜨리는 것이 가장 흔한
 실수입니다. 보고하기 전에 스스로 한 번 더 확인하세요.
 
+### 눈대중으로 하지 말고 실제 브라우저로 재세요
+
+여백을 어림해서 줄이면 거의 맞지 않습니다. 실제로 재어 보니 홈의 네 장이 모두
+52~273px 넘치고 있었고, 머리글이 첫 내용을 최대 74px 가리고 있었습니다.
+둘 다 눈대중으로는 보이지 않던 것입니다.
+
+Playwright 를 저장소 밖(스크래치 폴더)에 설치해 씁니다. **`package.json` 에는
+넣지 마세요.** devDependency 는 Vercel 빌드에서도 설치되어 배포가 무거워집니다.
+
+```bash
+mkdir -p /tmp/e2e && cd /tmp/e2e && npm init -y && npm i -D playwright
+npx playwright install chromium
+```
+
+재는 요령 두 가지가 있습니다.
+
+* **스냅 자리 기준으로 재세요.** 머리글이 92px 이고 `scroll-padding-top` 이
+  걸려 있으므로, 첫 장을 뺀 나머지 장이 들어갈 자리는 `화면 높이 − 92px` 입니다.
+* **`scrollIntoView()` 로 옮기세요.** `window.scrollTo(offsetTop)` 은
+  `scroll-padding-top` 을 무시해서, 멀쩡한 화면도 머리글에 가린 것처럼 보입니다.
+
+WebGL 캔버스는 `preserveDrawingBuffer` 없이 `drawImage` 로 읽으면 빈 화면이
+나옵니다. 로봇이 그려졌는지 볼 때는 **화면 캡처**(`locator.screenshot()`)를
+쓰세요. 캡처는 합성된 프레임을 담습니다.
+
 ---
 
 ## 1. 전체 구성

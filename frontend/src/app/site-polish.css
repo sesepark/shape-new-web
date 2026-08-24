@@ -1920,3 +1920,234 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
     }
   }
 }
+
+/* ==========================================================================
+   관리자 알림은 흐름에서 띄운다
+   --------------------------------------------------------------------------
+   안내를 본문 흐름에 넣으면 뜰 때마다 아래 내용이 그만큼 밀립니다. 권한 체크
+   상자를 누르는 순간 목록이 65px 아래로 내려가서, 브라우저가 스크롤을 붙잡아
+   주지 않는 위치에서는 화면이 튕기는 것처럼 보였습니다. 화면 아래에 떠 있게
+   하면 무엇을 눌러도 목록이 움직이지 않습니다.
+   ========================================================================== */
+
+.save-notice {
+  position: fixed;
+  z-index: 80;
+  bottom: 22px;
+  left: 50%;
+  max-width: min(560px, calc(100vw - 32px));
+  margin: 0;
+  padding: 13px 18px;
+  transform: translateX(-50%);
+  border: 1px solid #b8e3ca;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(16, 29, 63, .18);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: keep-all;
+  animation: notice-in .22s ease-out both;
+}
+
+.save-notice.danger { border-color: #f4c2cd; }
+
+@keyframes notice-in {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* 저장 단추 옆에 붙여 쓰던 자리는 예외로 흐름에 남긴다. */
+.admin-actions .save-notice {
+  position: static;
+  max-width: none;
+  transform: none;
+  box-shadow: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-notice { animation: none; }
+}
+
+/* ==========================================================================
+   홈 좁은 화면 — 실측으로 맞춘 값
+   --------------------------------------------------------------------------
+   390×664(아이폰 15 기준)에서 실제로 재어 보고 맞춘 값입니다. 홈은 한 화면이
+   한 장인 구조라, 장이 화면보다 크게 높으면 다음 장이 반쯤 보이는 어정쩡한
+   상태가 됩니다. 재기 전에는 여백만 줄여 두었는데 네 장 모두 52~273px 넘치고
+   있었습니다.
+
+   측정 방법은 `docs/architecture.md` 0절에 적어 두었습니다. 홈에 무엇을 더하면
+   반드시 다시 재세요.
+   ========================================================================== */
+
+@media (max-width: 680px) {
+  .home-introduction,
+  .home-numbers,
+  .home-next {
+    padding: clamp(26px, 4.4svh, 56px) 22px;
+    gap: clamp(13px, 2.2svh, 28px);
+  }
+
+  /* --- 소개 (넘침 +52) ------------------------------------------------- */
+  .home-slogan { margin-top: 13px; font-size: 14px; }
+
+  .home-fields { margin: 14px 0 13px; }
+
+  .home-fields li { padding: 9px 11px; }
+
+  .home-intro-body > p { margin-bottom: 0; font-size: 14px; line-height: 1.65; }
+
+  /* --- 세 단계 (넘침 +88) --------------------------------------------- */
+  /* '일정 보기' 링크를 더하면서 칸이 229px 로 늘었습니다. 세 칸이라 그만큼이
+     그대로 세 배가 됩니다. */
+  .home-pillars { padding: 18px; }
+
+  .home-pillars article { min-height: 0; padding: 13px 18px; }
+
+  .home-pillars h3 { margin: 8px 0 5px; font-size: 21px; }
+
+  .home-pillars p { font-size: 12px; line-height: 1.55; }
+
+  .home-pillar-link { margin-top: 8px; font-size: 12px; }
+
+  /* --- 숫자 (넘침 +66) ------------------------------------------------ */
+  .home-fact-grid > div { padding: 12px 13px; }
+
+  .home-fact-grid dd strong { font-size: 24px; }
+
+  .home-week li { padding: 9px 13px; gap: 10px; }
+
+  .home-week b { width: 28px; height: 28px; font-size: 13px; }
+
+  .home-week strong { font-size: 14px; }
+
+  .home-week small { font-size: 11.5px; }
+
+  .home-footnote { font-size: 11.5px; line-height: 1.6; }
+
+  /* --- 다가오는 일정 (넘침 +273, 가장 큼) ------------------------------ */
+  /* 플랫폼 설명 한 줄은 바로 위 칩들이 이미 말해 주므로 좁은 화면에서는 접습니다.
+     일정의 분류 이름표도 제목이 이미 알려 주는 정보라 함께 접습니다. */
+  .home-platforms h3 { margin-bottom: 11px; font-size: 13px; }
+
+  .home-platforms ul { margin-bottom: 13px; gap: 6px; }
+
+  .home-platforms li { padding: 5px 10px; font-size: 12px; }
+
+  .home-platforms p { display: none; }
+
+  .home-contests { margin-bottom: 14px; gap: 7px; }
+
+  .home-contests li { padding: 8px 12px; gap: 2px; }
+
+  .home-contests strong { font-size: 12.5px; }
+
+  .home-contests small { font-size: 11px; }
+
+  .home-timeline li { padding: 9px 0 9px 18px; }
+
+  .home-timeline li::before { top: 15px; }
+
+  .home-timeline strong { font-size: 14.5px; }
+
+  .home-timeline time { font-size: 11px; }
+
+  .home-timeline small { display: none; }
+
+  .home-next-body { gap: 20px; }
+}
+
+/* ==========================================================================
+   홈 스냅 덱 — 머리글이 첫 내용을 가리지 않게
+   --------------------------------------------------------------------------
+   머리글은 화면에 고정되어 떠 있고 높이가 92px 입니다. 각 장이 `100dvh` 이고
+   `scroll-snap-align: start` 이면 장의 맨 위 92px 이 늘 머리글 뒤로 들어갑니다.
+   실제로 재어 보니 좁은 화면에서 세 단계 칸은 74px, 일정 장은 60px, 숫자 장은
+   51px 이 가려 있었습니다(세 단계는 예전부터 그랬습니다).
+
+   `scroll-padding-top` 으로 스냅이 머리글 아래에서 멈추게 하고, 첫 장을 뺀
+   나머지 장의 높이를 그만큼 줄입니다. 첫 장은 자기 여백으로 이미 머리글을
+   비켜 두었으므로 그대로 화면 전체를 씁니다.
+   ========================================================================== */
+
+:root { --home-header: 92px; }
+
+html:has(.shape-home) { scroll-padding-top: var(--home-header); }
+
+.shape-home > section { min-height: calc(100dvh - var(--home-header)); }
+
+/* 첫 장만은 화면 전체를 씁니다. 자기 여백으로 이미 머리글을 비켜 두었습니다.
+   `.home-hero` 만으로는 위 규칙(선택자 두 개)에 밀리므로 같은 무게로 적습니다. */
+.shape-home > section.home-hero { min-height: 100dvh; }
+
+/* --------------------------------------------------------------------------
+   좁은 화면 2차 조정 — 스냅 자리(화면 − 머리글 92px)에 맞춘다
+   실측: 소개 618, 숫자 641, 일정 659 → 자리는 572px. 각각 46·69·87px 넘쳤다.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 680px) {
+  /* 소개 −46px */
+  .home-slogan { margin-top: 10px; padding-left: 12px; font-size: 13px; line-height: 1.45; }
+
+  .home-fields li { padding: 7px 10px; }
+
+  .home-fields strong { font-size: 12.5px; }
+
+  .home-intro-body > p { font-size: 13px; line-height: 1.6; }
+
+  .home-section-head > h2 { font-size: clamp(24px, 7vw, 32px); }
+
+  /* 숫자 −69px */
+  .home-fact-grid > div { padding: 10px 12px; gap: 3px; }
+
+  .home-fact-grid dt { font-size: 10px; letter-spacing: .06em; }
+
+  .home-fact-grid dd strong { font-size: 21px; }
+
+  .home-fact-grid p { font-size: 11px; line-height: 1.45; }
+
+  .home-week li { padding: 7px 11px; gap: 9px; }
+
+  .home-week b { width: 25px; height: 25px; font-size: 12px; }
+
+  .home-week strong { font-size: 13px; }
+
+  .home-week small { font-size: 11px; }
+
+  .home-footnote { font-size: 11px; line-height: 1.5; }
+
+  /* 일정 −87px. 다가오는 일정은 두 건까지만 보여 주고, 나머지는 바로 아래
+     '전체 로드맵 보기' 로 갑니다. 좁은 화면에서 세 건을 넣으면 이 장만
+     한 화면을 훌쩍 넘습니다. */
+  .home-timeline li:nth-child(3):not(.home-timeline-more) { display: none; }
+
+  .home-platforms h3 { margin-bottom: 9px; font-size: 12px; }
+
+  .home-platforms ul { margin-bottom: 11px; }
+
+  .home-platforms li { padding: 4px 9px; font-size: 11.5px; }
+
+  .home-contests li { padding: 7px 11px; }
+
+  .home-contests strong { font-size: 12px; }
+
+  .home-timeline li { padding: 8px 0 8px 17px; }
+
+  .home-timeline strong { font-size: 13.5px; }
+
+  .home-next-body { gap: 16px; }
+}
+
+@media (max-width: 680px) {
+  /* 소개가 22px 더 넘쳤다. 분야 칸 사이와 위아래 여백에서 줄인다. */
+  .home-fields { margin: 11px 0 10px; }
+
+  .home-fields li { padding: 6px 10px; }
+
+  .home-introduction { gap: 11px; }
+}
+
+@media (max-width: 680px) {
+  /* 12px 더. 눈표(WHAT WE SHAPE)와 제목 사이 여백이 22px 로 넉넉했다. */
+  .home-introduction > div > p { margin-bottom: 10px; }
+}
