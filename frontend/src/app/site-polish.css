@@ -3274,9 +3274,12 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
 .editor-button:disabled { opacity: .35; cursor: default; }
 
-/* 관리자 폼 안에도 들어가므로 `.rich-editor` 를 앞에 붙여 전역 입력칸 규칙을
-   이깁니다. 그 규칙(width:100%; padding:13px)이 그대로 걸리면 상자 하나가 한 줄을
-   차지하고 글자가 잘려 보입니다. */
+/* 고르기 단추. 브라우저가 그리는 native select 를 쓰면 글상자를 누를 때 초점을
+   빼앗아 가서(문단 모양 상자가 잡힘) 단추와 목록으로 직접 만들었습니다.
+   관리자 폼 안에도 들어가므로 `.rich-editor` 를 앞에 붙여 전역 입력칸 규칙을
+   이깁니다. */
+.editor-menu { position: relative; display: inline-flex; }
+
 .rich-editor .editor-select {
   /* 글자가 다 보일 만큼은 넓어야 합니다. 좁히면 '제목 2' 가 '…' 로 잘립니다. */
   width: auto;
@@ -3291,7 +3294,52 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   font-weight: 700;
 }
 
-.rich-editor .editor-select:focus { outline: none; border-color: var(--blue); }
+.rich-editor .editor-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.rich-editor .editor-select:hover,
+.rich-editor .editor-select.open { border-color: var(--blue); color: var(--blue); }
+
+.rich-editor .editor-select:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+
+.editor-menu-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #dce1ea;
+  border-radius: 10px;
+  box-shadow: 0 14px 30px rgba(18, 32, 66, .14);
+}
+
+.editor-menu-list button {
+  width: 100%;
+  padding: 7px 11px;
+  display: block;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #333944;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.editor-menu-list button:hover { background: #eef2fb; }
+
+.editor-menu-list button.picked { background: var(--blue); color: #fff; }
 
 .editor-color { width: 20px; height: 20px; padding: 0; border: 1px solid #cfd6e2; border-radius: 50%; cursor: pointer; }
 
@@ -3393,4 +3441,58 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
+}
+
+/* ==========================================================================
+   관리자 — 목록 차례를 끌어서 바꾸기
+   --------------------------------------------------------------------------
+   손잡이를 왼쪽에 두어 끌 수 있다는 것을 먼저 알립니다. 손가락으로 쓰는
+   화면에서는 HTML 의 끌어놓기가 동작하지 않으므로 위·아래 단추를 함께 둡니다.
+   ========================================================================== */
+
+.admin-item[draggable="true"] { cursor: grab; }
+
+.admin-item.dragging { opacity: .45; cursor: grabbing; }
+
+/* 놓을 자리를 파란 선으로 알려 줍니다. */
+.admin-item.drop-here { box-shadow: inset 0 3px 0 var(--blue); }
+
+.admin-item-grip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: #a6adba;
+}
+
+.admin-item:hover .admin-item-grip { color: var(--blue); }
+
+.admin-item-move {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 6px;
+}
+
+.admin-item-move button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #dce1ea;
+  border-radius: 7px;
+  background: #fff;
+  color: #4b535f;
+  cursor: pointer;
+}
+
+.admin-item-move button:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+
+.admin-item-move button:disabled { opacity: .35; cursor: default; }
+
+@media (max-width: 620px) {
+  /* 좁은 화면에서는 끌기가 안 되므로 화살표를 눈에 띄게 둡니다. */
+  .admin-item-grip { display: none; }
+  .admin-item-move button { width: 30px; height: 30px; }
 }

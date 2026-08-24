@@ -15,9 +15,9 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Code2, Columns3, Highlighter,
   Image as ImageIcon, Italic, Link2, List, ListOrdered, Minus, Quote, Redo2, Rows3,
-  Sigma, Strikethrough, Table2, Trash2, Underline as UnderlineIcon, Undo2,
+  ChevronDown, Sigma, Strikethrough, Table2, Trash2, Underline as UnderlineIcon, Undo2,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAsk } from "@/components/ask-dialog";
 import { LineHeight, MathBlock } from "@/components/editor-extensions";
 import { uploadImage, type UploadPurpose } from "@/lib/upload";
@@ -45,6 +45,79 @@ const blocks = [
   { label: "인용문", value: "quote" },
   { label: "코드 블록", value: "code" },
 ];
+
+/**
+ * 도구 막대의 고르기 단추.
+ *
+ * 처음에는 평범한 `<select>` 를 썼는데, **글상자를 누르는 순간 초점이 이 상자로
+ * 끌려갔습니다.** 글을 쓰려고 눌렀는데 '문단 모양' 이 잡히는 치명적인 문제였습니다.
+ * 도구 막대를 통째로 빼면 멀쩡했고, 단추 하나만 두면 역시 멀쩡했고, `<select>`
+ * 하나만 두면 다시 문제가 났습니다. 값을 React 가 쥐든(controlled) 우리가 직접
+ * 넣든(ref) 마찬가지였습니다. 브라우저가 그리는 native select 자체가 편집기의
+ * 초점과 부딪힙니다.
+ *
+ * 그래서 단추와 작은 목록으로 직접 만듭니다. 고른 뒤에는 편집기로 초점을
+ * 돌려주므로 이어서 바로 쓸 수 있습니다.
+ */
+function ToolMenu({ label, value, options, onPick, title }: {
+  label: string;
+  value: string;
+  options: { label: string; value: string }[];
+  onPick: (value: string) => void;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const current = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  return (
+    <div className="editor-menu" ref={box}>
+      <button
+        type="button"
+        className={`editor-select${open ? " open" : ""}`}
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={title ?? label}
+        onClick={() => setOpen((was) => !was)}
+      >
+        {current.label}
+        <ChevronDown size={14} />
+      </button>
+      {open && (
+        <ul className="editor-menu-list" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <li key={option.label}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={option.value === value}
+                className={option.value === value ? "picked" : ""}
+                onClick={() => { setOpen(false); onPick(option.value); }}
+              >
+                {option.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function RichTextEditor({
   value,
@@ -92,7 +165,24 @@ export function RichTextEditor({
     onUpdate: ({ editor: current }) => onChange(current.getHTML()),
     editorProps: { attributes: { "aria-label": "본문 편집기", class: "tiptap" } },
   });
-  useEffect(() => { if (editor && editor.getHTML() !== value) editor.commands.setContent(value, { emitUpdate: false }); }, [editor, value]);
+  /**
+   * 바깥에서 온 글을 편집기에 실어 줍니다(글 수정 화면이 저장된 글을 열 때).
+   *
+   * **빈 글을 조심해야 합니다.** 새 글을 쓸 때 바깥이 들고 있는 값은 빈 문자열인데
+   * 편집기가 돌려주는 값은 `<p></p>` 입니다. 둘을 그냥 견주면 늘 다르므로, 화면이
+   * 다시 그려질 때마다 `setContent` 가 돌면서 문서를 통째로 갈아 끼웁니다. 그러면
+   * 글상자를 누른 순간 커서가 있던 자리가 사라지고 **초점이 도구 막대의 첫 상자로
+   * 옮겨 갑니다.** 실제로 글을 쓰려고 누르면 '문단 모양' 상자가 잡히는 문제가
+   * 여기서 나왔습니다.
+   *
+   * 그래서 양쪽이 모두 비어 있으면 같은 것으로 봅니다.
+   */
+  useEffect(() => {
+    if (!editor) return;
+    if (editor.getHTML() === value) return;
+    if (!value.trim() && editor.isEmpty) return;
+    editor.commands.setContent(value, { emitUpdate: false });
+  }, [editor, value]);
   if (!editor) return <div className="editor-loading">편집기를 준비하고 있습니다.</div>;
 
   /**
@@ -207,21 +297,15 @@ export function RichTextEditor({
   return <div className="rich-editor">
     <div className="editor-toolbar" role="toolbar" aria-label="글쓰기 도구">
       <span className="editor-tool-group">
-        <select className="editor-select" aria-label="문단 모양" title="문단 모양" value={pickedBlock} onChange={(event) => applyBlock(event.target.value)}>
-          {blocks.map((block) => <option key={block.value} value={block.value}>{block.label}</option>)}
-        </select>
-        <select
-          className="editor-select"
-          aria-label="글자 크기"
+        <ToolMenu label="문단 모양" value={pickedBlock} options={blocks} onPick={applyBlock} />
+        <ToolMenu
+          label="글자 크기"
           title="글자 크기 — 고른 글자에 적용됩니다. 고른 글자가 없으면 커서가 있는 줄 전체에 적용됩니다."
           value={pickedSize}
-          onChange={(event) => applySize(event.target.value)}
-        >
-          {sizes.map((size) => <option key={size.label} value={size.value}>{size.label}</option>)}
-        </select>
-        <select className="editor-select" aria-label="줄 간격" title="줄 간격" value={pickedHeight} onChange={(event) => applyLineHeight(event.target.value)}>
-          {lineHeights.map((row) => <option key={row.label} value={row.value}>{row.label}</option>)}
-        </select>
+          options={sizes}
+          onPick={applySize}
+        />
+        <ToolMenu label="줄 간격" value={pickedHeight} options={lineHeights} onPick={applyLineHeight} />
       </span>
 
       <span className="editor-tool-group">

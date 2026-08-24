@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +47,7 @@ from app.schemas import (
     LinkWrite,
     NewsWrite,
     NoticeWrite,
+    OrderWrite,
     OwnerWrite,
     PageWrite,
     PermissionSetWrite,
@@ -283,6 +284,28 @@ async def update_equipment(equipment_id: UUID, payload: EquipmentWrite, _: User 
         await db.rollback()
         raise HTTPException(409, "같은 이름의 장비가 이미 있습니다.") from exc
     refresh("equipment", [f"/equipment/{equipment_id}"])
+    return {"ok": True}
+
+
+@router.put("/equipment/order")
+async def reorder_equipment(payload: OrderWrite, _: User = Depends(require_permission("equipment:manage")), db: AsyncSession = Depends(get_db)):
+    """장비가 보이는 차례를 한 번에 정합니다.
+
+    관리자 화면에서 목록을 끌어다 놓으면 여기로 새 차례가 옵니다. 장비마다 따로
+    저장하면 요청이 장비 수만큼 나가고, 중간에 하나가 실패하면 차례가 반쯤
+    뒤섞인 채 남습니다. 한 번에 받아 한 번에 저장합니다.
+
+    받지 못한 장비는 건드리지 않고 뒤에 그대로 둡니다.
+    """
+    wanted = [item_id for item_id in payload.ids]
+    found = set((await db.scalars(select(Equipment.id).where(Equipment.id.in_(wanted)))).all())
+    missing = [item_id for item_id in wanted if item_id not in found]
+    if missing:
+        raise HTTPException(404, "목록에 없는 장비가 있습니다. 화면을 새로 고친 뒤 다시 시도해 주세요.")
+    for position, item_id in enumerate(wanted):
+        await db.execute(update(Equipment).where(Equipment.id == item_id).values(sort_order=position))
+    await db.commit()
+    refresh("equipment")
     return {"ok": True}
 
 

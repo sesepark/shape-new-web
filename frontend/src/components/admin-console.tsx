@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ExternalLink, Eye, PencilLine, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Eye, GripVertical, PencilLine, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImageUploadField } from "@/components/image-upload-field";
 import { MemberDirectory } from "@/components/member-directory";
 import {
@@ -501,26 +501,88 @@ function AdminItems({
   rows,
   onEdit,
   onDelete,
+  onReorder,
   selectedId = "",
   emptyLabel = "아직 등록된 항목이 없습니다. 위에서 첫 항목을 만들어 보세요.",
 }: {
   rows: AdminRow[];
   onEdit: (row: AdminRow) => void;
   onDelete: (row: AdminRow) => void;
+  /** 주면 목록을 끌어다 놓아 차례를 바꿀 수 있습니다. 새 차례가 인자로 옵니다. */
+  onReorder?: (ids: string[]) => void;
   selectedId?: string;
   emptyLabel?: string;
 }) {
+  // 끌고 있는 줄. 손을 떼면 그 자리로 옮깁니다.
+  //
+  // 어느 줄을 집었는지는 ref 에도 둡니다. 화면 표시(흐리게·파란 선)는 state 로
+  // 충분하지만, 놓는 순간의 판단까지 state 에 기대면 다시 그려지기 전에 손을 뗀
+  // 경우(아주 빠른 끌기)에 집은 줄을 잃어버립니다.
+  const held = useRef<number | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+
+  /** 한 줄을 다른 자리로 옮긴 새 차례. */
+  const moved = (from: number, to: number) => {
+    const ids = rows.map((row) => String(row.id));
+    const [picked] = ids.splice(from, 1);
+    ids.splice(to, 0, picked);
+    return ids;
+  };
+  const drop = (to: number) => {
+    const from = held.current;
+    held.current = null;
+    setDragging(null);
+    setOver(null);
+    if (from === null || from === to) return;
+    onReorder?.(moved(from, to));
+  };
+  /**
+   * 위·아래 단추.
+   *
+   * 손가락으로 쓰는 화면에서는 HTML 의 끌어놓기가 동작하지 않습니다. 키보드만
+   * 쓰는 사람도 마찬가지입니다. 같은 일을 하는 단추를 함께 둡니다.
+   */
+  const nudge = (index: number, step: number) => {
+    const to = index + step;
+    if (to < 0 || to >= rows.length) return;
+    onReorder?.(moved(index, to));
+  };
+
   return (
     <div className="admin-items">
       <h3>등록된 항목 {rows.length > 0 && <em>{rows.length}</em>}</h3>
+      {onReorder && rows.length > 1 && (
+        <p className="form-note">
+          줄을 끌어다 놓으면 공개 화면에 보이는 차례가 바뀝니다. 손가락으로 쓸 때는 <b>위·아래 화살표</b>를 누르세요.
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="empty-inline">{emptyLabel}</p>
       ) : (
-        rows.map((row) => {
+        rows.map((row, index) => {
           const published = row.isPublished !== false;
           const when = row.publishedAt ?? row.startsAt ?? row.updatedAt;
+          const marks = [
+            selectedId === String(row.id) ? " editing" : "",
+            dragging === index ? " dragging" : "",
+            over === index && dragging !== null && dragging !== index ? " drop-here" : "",
+          ].join("");
           return (
-            <div className={`admin-item${selectedId === String(row.id) ? " editing" : ""}`} key={String(row.id)}>
+            <div
+              className={`admin-item${marks}`}
+              key={String(row.id)}
+              draggable={Boolean(onReorder)}
+              onDragStart={() => { held.current = index; setDragging(index); }}
+              onDragEnd={() => { held.current = null; setDragging(null); setOver(null); }}
+              onDragOver={(event) => { if (held.current !== null) { event.preventDefault(); setOver(index); } }}
+              onDrop={(event) => { event.preventDefault(); drop(index); }}
+            >
+              {onReorder && (
+                <span className="admin-item-grip" aria-hidden="true" title="끌어서 차례 바꾸기">
+                  <GripVertical size={16} />
+                </span>
+              )}
               <div className="admin-item-copy">
                 <strong>{String(row.title ?? row.name ?? "항목")}</strong>
                 <span>
@@ -530,6 +592,16 @@ function AdminItems({
                 </span>
               </div>
               <div className="admin-item-actions">
+                {onReorder && (
+                  <span className="admin-item-move">
+                    <button type="button" aria-label="위로 옮기기" title="위로" disabled={index === 0} onClick={() => nudge(index, -1)}>
+                      <ArrowUp size={14} />
+                    </button>
+                    <button type="button" aria-label="아래로 옮기기" title="아래로" disabled={index === rows.length - 1} onClick={() => nudge(index, 1)}>
+                      <ArrowDown size={14} />
+                    </button>
+                  </span>
+                )}
                 <button type="button" onClick={() => onEdit(row)}>수정</button>
                 <button type="button" className="danger" onClick={() => onDelete(row)}>삭제</button>
               </div>
@@ -839,10 +911,14 @@ function ContentForm({
           </label>
         </div>
       )}
-      <label>
-        본문
+      <div className="field-block">
+        <span className="field-label">본문</span>
+        {/* 편집기를 <label> 로 감싸면 안 됩니다. label 을 누르면 브라우저가 그 안의
+            첫 입력 요소를 대신 눌러 주는데, 글상자를 누르는 순간 그 동작이 일어나
+            **도구 막대의 첫 단추로 초점이 끌려갔습니다.** 글을 쓰려고 눌렀는데
+            '문단 모양' 이 잡히는 문제가 여기서 났습니다. */}
         <RichTextEditor value={body} onChange={setBody} />
-      </label>
+      </div>
       <PublishChoice value={published} onChange={setPublished} />
       <div className="admin-actions">
         <button type="button" className="button" onClick={submit}>
@@ -1191,10 +1267,10 @@ function ClubIntroductionForm() {
           onChange={(event) => setTitle(event.target.value)}
         />
       </label>
-      <label>
-        소개 본문
+      <div className="field-block">
+        <span className="field-label">소개 본문</span>
         <RichTextEditor value={body} onChange={setBody} />
-      </label>
+      </div>
       <div className="fact-editor">
         <div>
           <strong>숫자 정보</strong>
@@ -1744,6 +1820,8 @@ function EquipmentForm() {
   const [imageUrl, setImageUrl] = useState("");
   const [unit, setUnit] = useState(60);
   const [status, setStatus] = useState("ACTIVE");
+  // 차례는 목록에서 끌어다 놓아 정합니다. 새 장비는 맨 뒤에 붙고, 수정할 때는
+  // 지금 차례를 그대로 지킵니다.
   const [sortOrder, setSortOrder] = useState(0);
   const [licenseIds, setLicenseIds] = useState<string[]>([]);
   const [message, setMessage] = useState("");
@@ -1762,6 +1840,7 @@ function EquipmentForm() {
   }, []);
   function reset() {
     setSelectedId("");
+    setSortOrder(items.length);
     setName("");
     setCategory("");
     setDescription("");
@@ -1771,6 +1850,24 @@ function EquipmentForm() {
     setSortOrder(0);
     setLicenseIds([]);
   }
+  /**
+   * 목록에서 끌어다 놓은 차례를 저장합니다.
+   *
+   * 화면을 먼저 옮기고(끌어 놓은 자리에 그대로 있어야 자연스럽습니다) 서버에
+   * 알립니다. 실패하면 서버 값을 다시 읽어 되돌립니다.
+   */
+  async function reorder(ids: string[]) {
+    const byId = new Map(items.map((item) => [String(item.id), item]));
+    setRows(ids.map((id) => byId.get(id)).filter(Boolean) as unknown as AdminRow[]);
+    const response = await adminSend("/admin/equipment/order", "PUT", { ids });
+    if (!response.ok) {
+      setMessage("차례를 저장하지 못했습니다.");
+      await reload();
+      return;
+    }
+    setMessage("장비 차례를 저장했습니다. 공개 화면에 바로 반영됩니다.");
+  }
+
   async function submit() {
     if (!name.trim() || !category.trim()) {
       setMessage("장비명과 분류를 입력해 주세요.");
@@ -1859,11 +1956,10 @@ function EquipmentForm() {
             <option value={120}>120분</option>
           </select>
         </label>
-        <label>
-          노출 순서
-          <input type="number" min={0} max={999} value={sortOrder} onChange={(event) => setSortOrder(Number(event.target.value))} />
-        </label>
       </div>
+      {/* 노출 순서를 숫자로 적는 칸은 없앴습니다. 같은 숫자를 두 장비에 적으면
+          이름순으로 갈려서 "바꿨는데 그대로" 로 보였습니다. 아래 목록을 끌어다
+          놓으면 차례가 0부터 다시 매겨지므로 겹칠 일이 없습니다. */}
       <fieldset className="license-picker">
         <legend>예약에 필요한 라이선스</legend>
         {/*
@@ -1912,7 +2008,14 @@ function EquipmentForm() {
       </div>
       {selected && <UnitEditor equipment={selected} onChanged={reload} />}
       <ContentPreview title={name} body={`<p>${description || "장비 설명이 여기에 표시됩니다."}</p>`} />
-      <AdminItems rows={rows} onEdit={edit} onDelete={remove} selectedId={selectedId} emptyLabel="등록된 장비가 없습니다. 첫 장비를 등록해 주세요." />
+      <AdminItems
+        rows={rows}
+        onEdit={edit}
+        onDelete={remove}
+        onReorder={reorder}
+        selectedId={selectedId}
+        emptyLabel="등록된 장비가 없습니다. 첫 장비를 등록해 주세요."
+      />
       {dialogNode}
     </div>
   );

@@ -132,10 +132,14 @@ export function ShapeUpEditor() {
             <input type="url" value={videoUrl} placeholder="https://youtu.be/..." onChange={(event) => setVideoUrl(event.target.value)} />
           </label>
         </div>
-        <label>
-          본문
+        <div className="field-block">
+          <span className="field-label">본문</span>
+          {/* 편집기를 <label> 로 감싸면 안 됩니다. label 을 누르면 브라우저가 그 안의
+            첫 입력 요소를 대신 눌러 주는데, 글상자를 누르는 순간 그 동작이 일어나
+            **도구 막대의 첫 단추로 초점이 끌려갔습니다.** 글을 쓰려고 눌렀는데
+            '문단 모양' 이 잡히는 문제가 여기서 났습니다. */}
           <RichTextEditor value={body} onChange={setBody} purpose="news" placeholder="문제를 어떻게 정했고, 어떤 방법으로 접근했고, 무엇을 확인했는지 적어 주세요. 막힌 지점과 남은 과제도 함께 남기면 다음 기수에 큰 도움이 됩니다." />
-        </label>
+        </div>
         <div className="admin-actions">
           <button type="button" className="button" disabled={busy} onClick={submit}>
             {busy ? "저장 중" : postId ? "수정 내용 저장" : "결과물 공개"}

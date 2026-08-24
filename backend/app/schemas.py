@@ -100,6 +100,12 @@ class MemberCardClaim(InputModel):
 DeliveredHtml = Annotated[str, AfterValidator(deliver_smaller)]
 
 
+class OrderWrite(InputModel):
+    """목록의 새 차례. 받은 순서가 곧 노출 순서가 됩니다."""
+
+    ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
 class ContentPageRead(ORMModel):
     slug: str
     title: str

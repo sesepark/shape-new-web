@@ -268,14 +268,15 @@ RESERVATION_UNIT_MINUTES = 60
 # 홈 화면에 쓰는 3D 모델을 배경 없는 그림으로 뽑아 카드에 붙인다. 제조사 제품
 # 사진을 가져다 쓰지 않는 이유는 저작권이 그쪽에 있기 때문이고, 실제로 이 그림이
 # 사이트의 다른 화면과 결이 같아 더 깔끔하다. 모델이 없는 장비는 비워 둔다.
-# 주소 뒤의 판 번호(?v=)는 지우지 마세요. 이미지 최적화 결과를 1년 동안 들고
-# 있으므로(next.config.ts 의 minimumCacheTTL), 파일 내용만 바꾸고 주소를 그대로
-# 두면 화면에는 옛 사진이 계속 나옵니다. 사진을 다시 뽑을 때마다 번호를 올립니다.
+# 파일 이름 끝의 번호는 판 번호입니다. 이미지 최적화 결과를 1년 동안 들고
+# 있으므로(next.config.ts 의 minimumCacheTTL), 사진을 다시 뽑을 때는 **파일 이름을
+# 바꿔야** 합니다. 주소 뒤에 ?v= 를 붙이는 방법은 쓸 수 없습니다 — Next.js 이미지
+# 최적화가 로컬 주소에 붙은 물음표를 받지 않습니다(400).
 EQUIPMENT_IMAGES = {
-    "AI Worker": "/equipment/ai-worker.png?v=2",
-    "AI Sapiens": "/equipment/ai-sapiens.png?v=2",
-    "OMY": "/equipment/omy.png?v=2",
-    "LeRobot SO-ARM 101": "/equipment/so-arm101.png?v=2",
+    "AI Worker": "/equipment/ai-worker-2.png",
+    "AI Sapiens": "/equipment/ai-sapiens-2.png",
+    "OMY": "/equipment/omy-2.png",
+    "LeRobot SO-ARM 101": "/equipment/so-arm101-2.png",
 }
 
 

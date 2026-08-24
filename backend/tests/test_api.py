@@ -1387,3 +1387,32 @@ async def test_releasing_an_account_card_removes_it(client, session):
     await http.delete("/api/v1/auth/me/member-card")
     cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
     assert not any(card["name"] == "만든이" for card in cards)
+
+
+async def test_equipment_order_can_be_rearranged(client, session):
+    """관리자 화면에서 끌어다 놓은 차례가 공개 목록에 그대로 나온다."""
+    from app.models import Equipment
+
+    manager = await make_user(session, "gearorder@example.com", permissions=["equipment:manage"])
+    names = ["가 장비", "나 장비", "다 장비"]
+    for index, name in enumerate(names):
+        session.add(Equipment(name=name, category="시험", sort_order=index))
+    await session.commit()
+
+    listed = (await client.get("/api/v1/equipment")).json()
+    assert [row["name"] for row in listed] == names
+
+    http = login(client, manager)
+    flipped = [row["id"] for row in reversed(listed)]
+    assert (await http.put("/api/v1/admin/equipment/order", json={"ids": flipped})).status_code == 200
+
+    listed = (await client.get("/api/v1/equipment")).json()
+    assert [row["name"] for row in listed] == list(reversed(names))
+
+    # 없는 장비가 섞여 오면 아무것도 바꾸지 않는다.
+    import uuid
+
+    bad = await http.put("/api/v1/admin/equipment/order", json={"ids": [*flipped, str(uuid.uuid4())]})
+    assert bad.status_code == 404
+    listed = (await client.get("/api/v1/equipment")).json()
+    assert [row["name"] for row in listed] == list(reversed(names))
