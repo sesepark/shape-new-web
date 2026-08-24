@@ -1023,3 +1023,82 @@ async def test_an_owner_can_set_a_member_to_viewer(client, session):
     http = login(client, owner)
     assert (await http.patch(f"/api/v1/admin/users/{member.id}/status", json={"status": "APPROVED"})).status_code == 200
     assert (await login(client, member).get("/api/v1/notices")).status_code == 200
+
+
+async def member_page_with(session, cards):
+    from app.models import ContentPage
+
+    session.add(ContentPage(slug="members", title="부원", content_json={"members": cards}, content_html="", is_published=True))
+    await session.commit()
+
+
+async def test_a_member_claims_their_own_card(client, session):
+    """부원 카드와 구글 계정을 잇는 일은 본인이 한다.
+
+    운영진이 마흔 명을 하나씩 맞춰 주는 것보다 각자 로그인해서 자기 카드를
+    집는 편이 정확하다.
+    """
+    mine = await make_user(session, "yuha@example.com")
+    mine.name = "오유하"
+    other = await make_user(session, "other@example.com")
+    other.name = "류이든"
+    await session.commit()
+    await member_page_with(session, [
+        {"id": "card-1", "name": "오유하", "team": "Management", "role": "팀원", "membership": "정회원",
+         "imageUrl": "/figs/오유하.jpeg"},
+        {"id": "card-2", "name": "류이든", "team": "Manipulation", "role": "팀원", "membership": "멤버"},
+    ])
+
+    http = login(client, mine)
+    # 이름이 같은 카드가 후보로 나온다.
+    found = (await http.get("/api/v1/auth/me/member-card")).json()
+    assert found["card"] is None
+    assert [row["id"] for row in found["candidates"]] == ["card-1"]
+
+    # 남의 카드는 집을 수 없다.
+    assert (await http.post("/api/v1/auth/me/member-card", json={"cardId": "card-2"})).status_code == 403
+    assert (await http.post("/api/v1/auth/me/member-card", json={"cardId": "없는카드"})).status_code == 404
+
+    claimed = await http.post("/api/v1/auth/me/member-card", json={"cardId": "card-1"})
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["card"]["id"] == "card-1"
+
+    # 카드 사진이 내 계정 사진이 된다. 두 프로필이 갈리지 않게 하는 자리다.
+    assert (await http.get("/api/v1/auth/me")).json()["imageUrl"] == "/figs/오유하.jpeg"
+
+    # 공개 부원 카드에도 연결이 남는다.
+    page = (await client.get("/api/v1/pages/members")).json()
+    assert page["contentJson"]["members"][0]["userId"] == str(mine.id)
+
+    # 이미 집힌 카드는 남이 집을 수 없다.
+    thief = await make_user(session, "thief@example.com")
+    thief.name = "오유하"
+    await session.commit()
+    assert (await login(client, thief).post("/api/v1/auth/me/member-card", json={"cardId": "card-1"})).status_code == 409
+
+    # 놓으면 카드는 남고 연결만 사라진다.
+    http = login(client, mine)
+    released = await http.delete("/api/v1/auth/me/member-card")
+    assert released.status_code == 200
+    # 놓자마자 다시 후보로 올라와, 잘못 집었을 때 곧바로 되돌릴 수 있다.
+    assert [row["id"] for row in released.json()["candidates"]] == ["card-1"]
+    page = (await client.get("/api/v1/pages/members")).json()
+    assert "userId" not in page["contentJson"]["members"][0]
+    assert page["contentJson"]["members"][0]["name"] == "오유하"
+
+
+async def test_claiming_moves_the_link_from_an_older_card(client, session):
+    """한 계정은 카드 하나만 갖는다. 다른 카드를 집으면 앞의 것은 놓인다."""
+    user = await make_user(session, "one@example.com")
+    user.name = "강채아"
+    await session.commit()
+    await member_page_with(session, [
+        {"id": "old", "name": "강채아"},
+        {"id": "new", "name": "강채아"},
+    ])
+    http = login(client, user)
+    assert (await http.post("/api/v1/auth/me/member-card", json={"cardId": "old"})).status_code == 200
+    assert (await http.post("/api/v1/auth/me/member-card", json={"cardId": "new"})).status_code == 200
+    cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
+    assert "userId" not in cards[0]
+    assert cards[1]["userId"] == str(user.id)

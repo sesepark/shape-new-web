@@ -99,6 +99,21 @@ export interface AdminRoadmapItem extends RoadmapItem {
   memberIds: string[];
 }
 
+/** 부원 페이지에 놓인 카드 한 장. 마이페이지가 내 카드를 확인할 때 씁니다. */
+export interface MemberCardItem {
+  id: string;
+  name: string;
+  team: string;
+  role: string;
+  membership: string;
+  imageUrl?: string | null;
+}
+
+export interface MemberCardState {
+  card: MemberCardItem | null;
+  candidates: MemberCardItem[];
+}
+
 export interface DirectoryUser {
   id: string;
   name: string;

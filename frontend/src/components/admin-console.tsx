@@ -49,6 +49,14 @@ const tabPermission: Record<Section, string> = {
 };
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+/**
+ * 관리자 화면이 공개 응답을 읽을 때 붙이는 설정.
+ *
+ * 공개 읽기는 방문자용으로 60초 캐시된다. 관리자 화면이 그냥 읽으면 방금 저장한
+ * 내용 대신 최대 1분 전의 응답이 돌아온다. 실제로 부원 카드에 구글 계정을
+ * 연결하고 저장해도 곧바로 다시 풀린 것처럼 보였다(서버에는 저장되어 있었다).
+ */
+const PUBLIC_READ: RequestInit = { cache: "no-store" };
 type AdminRow = Record<
   string,
   string | number | boolean | null | Record<string, unknown> | unknown[]
@@ -797,7 +805,7 @@ function ClubIntroductionForm() {
   ]);
   const [message, setMessage] = useState("");
   useEffect(() => {
-    void fetch(`${apiUrl}/pages/club-introduction`)
+    void fetch(`${apiUrl}/pages/club-introduction`, PUBLIC_READ)
       .then(async (response) => {
         if (!response.ok) return;
         const page = await response.json();
@@ -908,7 +916,7 @@ function MembersForm() {
     });
   }, []);
   useEffect(() => {
-    void fetch(`${apiUrl}/pages/members`)
+    void fetch(`${apiUrl}/pages/members`, PUBLIC_READ)
       .then(async (response) => {
         if (!response.ok) return;
         const page = await response.json();
@@ -917,50 +925,16 @@ function MembersForm() {
       })
       .catch(() => undefined);
   }, []);
-  /** 아직 구글 계정이 붙지 않은 카드. 1기 부원이 대부분입니다. */
+  /** 아직 구글 계정이 붙지 않은 카드. 아직 로그인하지 않은 부원입니다. */
   const unlinked = members.filter((member) => !member.userId).map((member) => member.name);
+  /** 카드에 붙은 계정을 이름·사진과 함께 보여 주기 위한 표. */
+  const accounts = new Map(directory.map((person) => [person.id, person]));
   const update = (index: number, patch: Partial<ShapeMember>) =>
     setMembers((current) =>
       current.map((member, i) =>
         i === index ? { ...member, ...patch } : member,
       ),
     );
-  /**
-   * 이름이 같은 구글 계정을 카드에 붙입니다.
-   *
-   * 부원은 모두 구글 로그인으로 가입하므로 카드 하나에 계정 하나가 있어야
-   * 하는데, 마흔 장을 손으로 고르는 일이라 미뤄지기 쉽습니다. 이름이 정확히
-   * 같은 계정이 하나뿐일 때만 붙이고, 여럿이면 건드리지 않고 알려 줍니다.
-   * 이미 연결된 카드는 그대로 둡니다. 붙인 뒤에는 저장을 눌러야 반영됩니다.
-   */
-  function autoLink() {
-    const byName = new Map<string, DirectoryUser[]>();
-    for (const person of directory) {
-      byName.set(person.name, [...(byName.get(person.name) ?? []), person]);
-    }
-    const taken = new Set(members.map((member) => member.userId).filter(Boolean));
-    const linked: string[] = [];
-    const ambiguous: string[] = [];
-    setMembers((current) => current.map((member) => {
-      if (member.userId) return member;
-      const found = byName.get(member.name.trim()) ?? [];
-      if (found.length > 1) { ambiguous.push(member.name); return member; }
-      const one = found[0];
-      if (!one || taken.has(one.id)) return member;
-      taken.add(one.id);
-      linked.push(member.name);
-      return { ...member, userId: one.id };
-    }));
-    if (!linked.length && !ambiguous.length) {
-      say("이름이 같은 계정을 찾지 못했습니다. 아직 가입하지 않은 부원일 수 있습니다.", false);
-      return;
-    }
-    say(
-      `${linked.length}명을 연결했습니다${ambiguous.length ? ` · 이름이 겹쳐 건너뛴 ${ambiguous.length}명: ${ambiguous.join(", ")}` : ""}. 저장을 눌러야 반영됩니다.`,
-      ambiguous.length === 0,
-    );
-  }
-
   async function submit() {
     try {
       const response = await fetch(`${apiUrl}/admin/pages/members`, {
@@ -992,11 +966,12 @@ function MembersForm() {
           구글 계정 연결 <b>{members.filter((member) => member.userId).length}</b> / {members.length}명
           {unlinked.length > 0 && <i> · 미연결 {unlinked.slice(0, 6).join(", ")}{unlinked.length > 6 ? ` 외 ${unlinked.length - 6}명` : ""}</i>}
         </span>
-        <button type="button" className="text-button" onClick={autoLink}>이름이 같은 계정 자동 연결</button>
       </div>
       <p className="form-note">
-        계정을 연결하면 <b>사진과 소개말은 본인이 마이페이지에서 관리한 값</b>이 카드에 나옵니다. 아직 가입하지 않은
-        부원(주로 1기)은 카드에 저장된 사진을 그대로 씁니다.
+        <b>계정 연결은 부원 본인이 마이페이지에서 합니다.</b> 로그인하면 이름이 같은 카드가 후보로 뜨고, 본인이
+        고르면 연결됩니다. 운영진이 마흔 장을 하나씩 맞출 일이 아니고, 본인이 고르는 편이 정확합니다. 여기서는
+        연결 상태를 확인하고, 잘못 연결된 카드만 풀어 줍니다. 연결된 카드는 <b>사진과 소개말</b>에 본인이
+        마이페이지에서 설정한 값이 나오고, 아직 연결되지 않은 카드는 카드에 저장된 사진을 그대로 씁니다.
       </p>
       <div className="member-admin-list">
         {members.map((member, index) => (
@@ -1065,22 +1040,22 @@ function MembersForm() {
               </label>
             </div>
             <div className="field-block">
-              <span className="field-label">연결할 계정</span>
-              <PersonPicker
-                people={directory.map((person) => ({
-                  id: person.id, name: person.name, detail: person.email, imageUrl: person.imageUrl,
-                }))}
-                value={member.userId}
-                onSelect={(id) => update(index, { userId: id })}
-                placeholder="이름이나 이메일로 검색"
-                emptyLabel="승인된 회원이 아직 없습니다."
-                clearLabel="연결 해제"
-              />
+              <span className="field-label">구글 계정</span>
+              {member.userId ? (
+                <div className="card-account">
+                  <Avatar name={accounts.get(member.userId)?.name ?? "?"} imageUrl={accounts.get(member.userId)?.imageUrl} />
+                  <div>
+                    <strong>{accounts.get(member.userId)?.name ?? "연결됨"}</strong>
+                    <span>{accounts.get(member.userId)?.email ?? "회원 목록에 없는 계정입니다."}</span>
+                  </div>
+                  <button type="button" className="text-button danger" onClick={() => update(index, { userId: undefined })}>
+                    연결 해제
+                  </button>
+                </div>
+              ) : (
+                <p className="empty-inline">본인이 로그인해 마이페이지에서 연결하면 여기에 표시됩니다.</p>
+              )}
             </div>
-            <p className="form-note">
-              계정을 연결하면 이 카드의 <b>사진과 소개말</b>은 본인이 마이페이지에서 설정한 값으로 표시되고,
-              카드를 누르면 참여 중인 프로젝트가 함께 보입니다. 운영진은 이름·팀·역할·소속만 관리합니다.
-            </p>
             <button
               type="button"
               className="text-button danger"
@@ -1246,7 +1221,7 @@ function OrganizationForm() {
   const [members, setMembers] = useState<ShapeMember[]>([]);
   const [message, setMessage] = useState("");
   useEffect(() => {
-    void fetch(`${apiUrl}/pages/organization`)
+    void fetch(`${apiUrl}/pages/organization`, PUBLIC_READ)
       .then(async (response) => {
         if (!response.ok) return;
         const page = await response.json();
@@ -1256,7 +1231,7 @@ function OrganizationForm() {
       .catch(() => undefined);
   }, []);
   useEffect(() => {
-    void fetch(`${apiUrl}/pages/members`).then(async (response) => {
+    void fetch(`${apiUrl}/pages/members`, PUBLIC_READ).then(async (response) => {
       if (!response.ok) return;
       const page = await response.json();
       const stored = page.contentJson?.members ?? page.content_json?.members;

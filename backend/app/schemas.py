@@ -58,6 +58,28 @@ class MemberProfile(ORMModel):
     projects: list[MemberProject] = []
 
 
+class MemberCardItem(ORMModel):
+    """부원 페이지에 놓인 카드 한 장. 마이페이지가 내 카드를 확인할 때 씁니다."""
+
+    id: str
+    name: str
+    team: str = ""
+    role: str = ""
+    membership: str = ""
+    image_url: str | None = None
+
+
+class MemberCardRead(ORMModel):
+    """내게 연결된 카드와, 아직이라면 내 것으로 보이는 후보."""
+
+    card: MemberCardItem | None = None
+    candidates: list[MemberCardItem] = []
+
+
+class MemberCardClaim(InputModel):
+    card_id: str = Field(min_length=1, max_length=120)
+
+
 class ContentPageRead(ORMModel):
     slug: str
     title: str

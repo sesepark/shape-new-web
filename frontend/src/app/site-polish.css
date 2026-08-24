@@ -2650,3 +2650,88 @@ html:has(.shape-home) { scroll-padding-top: 0; }
     border-left: 1px solid #e5e9f1;
   }
 }
+
+/* ==========================================================================
+   부원 카드 ↔ 구글 계정
+   --------------------------------------------------------------------------
+   연결은 부원 본인이 마이페이지에서 합니다. 그래서 두 자리가 필요합니다.
+   마이페이지에는 내 카드(또는 이름이 같은 후보)를 고르는 자리가, 관리자
+   페이지에는 누가 연결했는지 확인하고 잘못된 것만 풀어 주는 자리가 있습니다.
+   ========================================================================== */
+
+.my-member-card .card-link,
+.card-account,
+.card-candidates li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.my-member-card .card-link img,
+.card-candidates img {
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.my-member-card .card-link > div,
+.card-account > div,
+.card-candidates li > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.my-member-card .card-link strong,
+.card-account strong,
+.card-candidates strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.my-member-card .card-link span,
+.card-account span,
+.card-candidates span {
+  font-size: 12px;
+  color: #7b8496;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-candidates {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-candidates li {
+  padding: 9px 11px;
+  background: #f7f8fb;
+  border: 1px solid #e6e9f0;
+  border-radius: 10px;
+}
+
+/* 좁은 화면에서는 버튼이 이름을 밀어내지 않도록 아래로 내립니다. */
+@media (max-width: 480px) {
+  .card-candidates li,
+  .card-account {
+    flex-wrap: wrap;
+  }
+
+  .card-candidates li button,
+  .card-account button {
+    margin-left: 54px;
+  }
+}
+
+.card-account {
+  padding: 9px 11px;
+  background: #f7f8fb;
+  border: 1px solid #e6e9f0;
+  border-radius: 10px;
+}

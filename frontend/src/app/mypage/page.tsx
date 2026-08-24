@@ -13,9 +13,9 @@ import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
-import { useSession } from "@/lib/session";
+import { loadSession, useSession } from "@/lib/session";
 import { currentSubscription, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
-import type { NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
+import type { MemberCardState, NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
 
 type EquipmentPermission = {
   equipmentId: string;
@@ -104,15 +104,114 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
   );
 }
 
-function ProfileCard({ session }: { session: SessionUser }) {
-  const { refresh } = useSession();
-  // The gate above holds the session it rendered with, so the saved values are
-  // kept here as well to show the new name and portrait straight away.
-  const [profile, setProfile] = useState(session);
+/**
+ * 내 부원 카드.
+ *
+ * 부원 페이지의 카드와 구글 계정은 원래 따로 놀았습니다. 운영진이 마흔 장을
+ * 하나씩 맞춰 주는 대신, 각자 로그인해서 자기 카드를 집습니다. 이름이 같은
+ * 카드만 후보로 나오고, 집으면 카드 사진이 내 프로필 사진이 됩니다.
+ */
+function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void }) {
+  const [state, setState] = useState<MemberCardState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void call("/auth/me/member-card", { signal: controller.signal })
+      .then(async (response) => setState(response.ok ? ((await response.json()) as MemberCardState) : { card: null, candidates: [] }))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  async function claim(cardId: string) {
+    setBusy(true);
+    const response = await call("/auth/me/member-card", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cardId }),
+    }).catch(() => null);
+    setBusy(false);
+    if (!response?.ok) {
+      const detail = (await response?.json().catch(() => null)) as { detail?: string } | null;
+      setMessage(detail?.detail ?? "카드를 연결하지 못했습니다.");
+      return;
+    }
+    setState((await response.json()) as MemberCardState);
+    // 카드 사진을 계정 사진으로 삼았을 수 있다. 옆의 계정 칸까지 같이 새로 읽는다.
+    const user = await loadSession(true);
+    if (user) onProfile(user);
+    setMessage("내 부원 카드로 연결했습니다. 이제 부원 페이지의 이 카드에 내 사진과 소개말이 나옵니다.");
+  }
+
+  async function release() {
+    setBusy(true);
+    const response = await call("/auth/me/member-card", { method: "DELETE" }).catch(() => null);
+    setBusy(false);
+    if (!response?.ok) { setMessage("연결을 해제하지 못했습니다."); return; }
+    setState((await response.json()) as MemberCardState);
+    setMessage("연결을 해제했습니다. 부원 카드 자체는 그대로 남아 있습니다.");
+  }
+
+  if (state === null) return null;
+  return (
+    <section className="my-member-card">
+      <p className="meta">MEMBER CARD</p>
+      <h3>내 부원 카드</h3>
+      {state.card ? (
+        <>
+          <div className="card-link">
+            {state.card.imageUrl
+              ? <Image src={media(state.card.imageUrl, 112)} alt="" width={56} height={56} unoptimized={!optimizable(state.card.imageUrl)} />
+              : <span className="account-initial">{state.card.name.slice(0, 1)}</span>}
+            <div>
+              <strong>{state.card.name}</strong>
+              <span>{[state.card.membership, state.card.team, state.card.role].filter(Boolean).join(" · ")}</span>
+            </div>
+          </div>
+          <p className="form-note">
+            부원 페이지의 이 카드에 <b>내 사진과 소개말</b>이 나옵니다. 이름·팀·역할은 운영진이 관리합니다.
+          </p>
+          <button type="button" className="text-button danger" disabled={busy} onClick={() => void release()}>
+            연결 해제
+          </button>
+        </>
+      ) : state.candidates.length ? (
+        <>
+          <p className="form-note">이름이 같은 부원 카드를 찾았습니다. 내 카드가 맞으면 연결해 주세요.</p>
+          <ul className="card-candidates">
+            {state.candidates.map((card) => (
+              <li key={card.id}>
+                {card.imageUrl
+                  ? <Image src={media(card.imageUrl, 96)} alt="" width={44} height={44} unoptimized={!optimizable(card.imageUrl)} />
+                  : <span className="account-initial">{card.name.slice(0, 1)}</span>}
+                <div>
+                  <strong>{card.name}</strong>
+                  <span>{[card.membership, card.team, card.role].filter(Boolean).join(" · ")}</span>
+                </div>
+                <button type="button" className="button small" disabled={busy} onClick={() => void claim(card.id)}>
+                  내 카드입니다
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="empty-inline">
+          이름이 같은 부원 카드를 찾지 못했습니다. 마이페이지의 이름을 부원 페이지에 적힌 이름과 같게 맞추거나,
+          운영진에게 문의해 주세요.
+        </p>
+      )}
+      {message && <p className="form-note">{message}</p>}
+    </section>
+  );
+}
+
+function ProfileCard({ profile, onProfile }: { profile: SessionUser; onProfile: (user: SessionUser) => void }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(session.name);
-  const [imageUrl, setImageUrl] = useState(session.imageUrl ?? "");
-  const [introduction, setIntroduction] = useState(session.introduction ?? "");
+  const [name, setName] = useState(profile.name);
+  const [imageUrl, setImageUrl] = useState(profile.imageUrl ?? "");
+  const [introduction, setIntroduction] = useState(profile.introduction ?? "");
   const [message, setMessage] = useState("");
   async function save() {
     if (!name.trim()) { setMessage("이름을 입력해 주세요."); return; }
@@ -122,8 +221,8 @@ function ProfileCard({ session }: { session: SessionUser }) {
       body: JSON.stringify({ name: name.trim(), imageUrl: imageUrl || null, introduction: introduction.trim() || null }),
     }).catch(() => null);
     if (!response?.ok) { setMessage("회원 정보를 저장하지 못했습니다."); return; }
-    setProfile((await response.json()) as SessionUser);
-    await refresh();
+    onProfile((await response.json()) as SessionUser);
+    await loadSession(true);
     setMessage("회원 정보를 저장했습니다.");
     setOpen(false);
   }
@@ -161,7 +260,17 @@ function ProfileCard({ session }: { session: SessionUser }) {
       ) : (
         <>
           {profile.introduction && <p className="account-intro">{profile.introduction}</p>}
-          <button type="button" onClick={() => setOpen(true)}><Check size={16} />이름 · 사진 · 소개말 설정</button>
+          <button
+            type="button"
+            onClick={() => {
+              setName(profile.name);
+              setImageUrl(profile.imageUrl ?? "");
+              setIntroduction(profile.introduction ?? "");
+              setOpen(true);
+            }}
+          >
+            <Check size={16} />이름 · 사진 · 소개말 설정
+          </button>
         </>
       )}
       {message && <p className="form-note">{message}</p>}
@@ -284,6 +393,9 @@ function MyProjects() {
 }
 
 function MyPagePanel({ session }: { session: SessionUser }) {
+  // 위의 로그인 문지기는 처음 읽은 회원 정보를 그대로 들고 있다. 이름·사진을
+  // 고치거나 부원 카드를 연결하면 바뀐 값을 여기에 담아 곧바로 보여 준다.
+  const [profile, setProfile] = useState(session);
   const [reservations, setReservations] = useState<ReservationItem[] | null>(null);
   const [permissions, setPermissions] = useState<EquipmentPermission[] | null>(null);
   useEffect(() => {
@@ -386,7 +498,8 @@ function MyPagePanel({ session }: { session: SessionUser }) {
             <Link href="/equipment">장비 목록 보기 <ChevronRight size={15} /></Link>
           </section>
           <NoticeAlerts />
-          <ProfileCard session={session} />
+          <ProfileCard profile={profile} onProfile={setProfile} />
+          <MyMemberCard onProfile={setProfile} />
         </aside>
       </div>
     </div>

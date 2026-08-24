@@ -9,9 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import License, PermissionGrant, User, UserLicense, UserStatus
-from app.schemas import ProfileWrite, SessionUser
-from app.security import COOKIE_NAME, create_session_token, current_user, optional_user
+from app.models import ContentPage, License, PermissionGrant, User, UserLicense, UserStatus
+from app.schemas import (
+    MemberCardClaim,
+    MemberCardItem,
+    MemberCardRead,
+    ProfileWrite,
+    SessionUser,
+)
+from app.security import COOKIE_NAME, create_session_token, current_user, optional_user, reading_user
+from app.services.revalidate import refresh
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -99,6 +106,89 @@ async def me(user: User | None = Depends(optional_user), db: AsyncSession = Depe
     return await session_for(db, user) if user else None
 
 
+def name_matches(cards: list[dict], user: User) -> list[MemberCardItem]:
+    """아직 아무도 집지 않은, 이름이 같은 카드들."""
+    return [
+        MemberCardItem(**card_fields(card))
+        for card in cards
+        if not card.get("userId") and card.get("name", "").strip() == user.name.strip()
+    ]
+
+
+@router.get("/me/member-card", response_model=MemberCardRead)
+async def my_member_card(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """지금 내게 연결된 부원 카드와, 아직이라면 내 것으로 보이는 후보.
+
+    부원 카드와 구글 계정을 잇는 일은 본인이 합니다. 운영진이 마흔 명을 하나씩
+    맞춰 주는 것보다, 각자 로그인해서 자기 카드를 집는 편이 정확하고 빠릅니다.
+    후보는 이름이 같은 카드입니다. 없으면 빈 목록이 갑니다.
+    """
+    cards = await member_cards(db)
+    mine = next((card for card in cards if str(card.get("userId") or "") == str(user.id)), None)
+    if mine:
+        return MemberCardRead(card=MemberCardItem(**card_fields(mine)), candidates=[])
+    return MemberCardRead(card=None, candidates=name_matches(cards, user))
+
+
+@router.post("/me/member-card", response_model=MemberCardRead)
+async def claim_member_card(payload: MemberCardClaim, user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """내 부원 카드를 집습니다.
+
+    이름이 같은 카드만 집을 수 있습니다. 남의 카드를 집으면 그 사람의 사진과
+    소개말 자리에 내 것이 나가므로, 이름이 다르면 거절합니다. 이미 다른 계정이
+    집은 카드도 거절합니다.
+
+    카드에 사진이 있고 내 계정 사진이 아직 구글에서 가져온 것 그대로이면,
+    카드 사진을 내 사진으로 삼습니다. 두 사진이 갈려 있던 것을 하나로 모으는
+    자리가 여기입니다. 마음에 들지 않으면 마이페이지에서 바꾸면 됩니다.
+    """
+    page, cards = await member_page(db)
+    target = next((card for card in cards if str(card.get("id")) == payload.card_id), None)
+    if not target:
+        raise HTTPException(404, "부원 카드를 찾을 수 없습니다.")
+    if target.get("userId") and str(target["userId"]) != str(user.id):
+        raise HTTPException(409, "이미 다른 계정이 연결한 카드입니다. 운영진에게 문의해 주세요.")
+    if target.get("name", "").strip() != user.name.strip():
+        raise HTTPException(403, "이름이 같은 카드만 연결할 수 있습니다. 이름이 다르면 운영진에게 문의해 주세요.")
+    # 한 계정은 카드 하나만 가진다. 예전에 집은 카드가 있으면 놓는다.
+    updated = []
+    for card in cards:
+        if str(card.get("id")) == payload.card_id:
+            updated.append({**card, "userId": str(user.id)})
+        elif str(card.get("userId") or "") == str(user.id):
+            updated.append({key: value for key, value in card.items() if key != "userId"})
+        else:
+            updated.append(card)
+    page.content_json = {**(page.content_json or {}), "members": updated}
+    if target.get("imageUrl") and (not user.image_url or "googleusercontent.com" in (user.image_url or "")):
+        user.image_url = target["imageUrl"]
+    await db.commit()
+    refresh("pages")
+    mine = next(card for card in updated if str(card.get("id")) == payload.card_id)
+    return MemberCardRead(card=MemberCardItem(**card_fields(mine)), candidates=[])
+
+
+@router.delete("/me/member-card", response_model=MemberCardRead)
+async def release_member_card(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """내 카드 연결을 놓습니다. 카드 자체는 그대로 남습니다.
+
+    잘못 집었을 때 되돌리는 길입니다. 놓고 나면 다시 후보 목록이 가므로 화면을
+    새로 읽지 않아도 곧바로 다른 카드를 고를 수 있습니다. 계정 사진은 그대로
+    둡니다. 이미 그 사진으로 알아보고 있을 테니, 바꾸고 싶으면 마이페이지에서
+    직접 바꾸는 편이 덜 놀랍습니다.
+    """
+    page, cards = await member_page(db)
+    released = [
+        {key: value for key, value in card.items()
+         if not (key == "userId" and str(value) == str(user.id))}
+        for card in cards
+    ]
+    page.content_json = {**(page.content_json or {}), "members": released}
+    await db.commit()
+    refresh("pages")
+    return MemberCardRead(card=None, candidates=name_matches(released, user))
+
+
 @router.patch("/me", response_model=SessionUser)
 async def update_me(payload: ProfileWrite, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
     user.name = payload.name
@@ -114,3 +204,34 @@ async def logout(response: Response):
     # The delete has to repeat the attributes the cookie was written with or the
     # browser keeps the original session cookie.
     response.delete_cookie(COOKIE_NAME, domain=options["domain"], path=options["path"], secure=options["secure"], httponly=True, samesite="lax")
+
+
+async def member_page(db: AsyncSession):
+    """부원 카드가 담긴 페이지와 그 목록.
+
+    `content_json` 은 제자리에서 고치면 SQLAlchemy 가 바뀐 줄 모른다. 부르는
+    쪽이 새 목록을 만들어 통째로 넣도록 사본을 돌려준다.
+    """
+    page = await db.scalar(select(ContentPage).where(ContentPage.slug == "members"))
+    if not page:
+        raise HTTPException(404, "부원 페이지가 아직 없습니다.")
+    stored = (page.content_json or {}).get("members", [])
+    return page, [dict(card) for card in stored if isinstance(card, dict)]
+
+
+async def member_cards(db: AsyncSession) -> list[dict]:
+    page = await db.scalar(select(ContentPage).where(ContentPage.slug == "members"))
+    stored = (page.content_json or {}).get("members", []) if page else []
+    return [dict(card) for card in stored if isinstance(card, dict)]
+
+
+def card_fields(card: dict) -> dict:
+    """부원 카드에서 화면이 쓰는 값만 뽑는다."""
+    return {
+        "id": str(card.get("id") or ""),
+        "name": str(card.get("name") or ""),
+        "team": str(card.get("team") or ""),
+        "role": str(card.get("role") or ""),
+        "membership": str(card.get("membership") or ""),
+        "image_url": card.get("imageUrl") or None,
+    }
