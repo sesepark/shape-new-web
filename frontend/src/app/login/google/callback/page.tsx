@@ -26,7 +26,8 @@ function CallbackInner() {
     const code = params.get("code");
     const failed = params.get("error");
     if (failed || !code) {
-      router.replace("/login?error=oauth");
+      // 구글이 이유를 알려 주면 그대로 넘겨, 로그인 화면에서 무엇이 문제인지 보이게 합니다.
+      router.replace(`/login?error=${encodeURIComponent(failed || "oauth")}`);
       return;
     }
     if (!stateMatches(params.get("state"))) {
