@@ -172,21 +172,37 @@
 .press-empty { padding:60px; color:#747d8c; text-align:center; }
 
 @media (max-width:900px) {
-.home-hero { min-height:auto; padding:135px 26px 90px; grid-template-columns:1fr; gap:16px; }
+/* 모바일 홈은 섹션마다 한 화면(100svh)에 맞춰야 합니다. 고정 픽셀로 여백과
+   무대 높이를 쌓으면 화면이 짧은 기기(사파리는 주소 표시줄까지 빼서 더
+   짧습니다)에서 히어로가 넘쳐 첫 화면이 잘렸습니다. 글자와 여백을 svh 로
+   묶고 남는 높이는 로봇 무대가 가져가도록 행을 나눕니다. */
+.home-hero { padding:calc(84px + 2svh) 26px calc(26px + 2.5svh); grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); align-items:stretch; gap:4px; }
 
-.home-intro h1 { font-size:clamp(58px,15vw,104px); }
+.home-intro h1 { font-size:clamp(44px,min(14vw,10.5svh),104px); }
 
-.home-robot-stage { min-height:500px; }
+.home-intro>span { margin-top:min(26px,2.8svh); }
 
-.robot-copy { top:6%; right:0; }
+.home-intro>a { margin-top:min(28px,3svh); }
 
-.home-scroll { left:26px; }
+.home-robot-stage { min-height:0; }
 
-.home-introduction { min-height:auto; padding:105px 26px; grid-template-columns:1fr; gap:50px; }
+/* 무대에 남은 높이를 캔버스가 그대로 채웁니다. flex 자식이라 min-height 만
+   0 으로 두면 높이가 0 으로 접힙니다. */
+.robot-visual { flex:1 1 auto; min-height:0; }
 
-.home-pillars { min-height:auto; padding:26px; }
+/* 좁은 화면에서는 로봇 설명이 팔 위에 겹쳐 읽기 어려웠습니다. 3D 캔버스만
+   설명 아래로 내려 두 요소가 세로로 나뉘게 합니다. */
+.robot-model-canvas { top:clamp(34px,6svh,84px); height:auto; }
 
-.home-pillars article { min-height:280px; padding:26px; }
+.robot-copy { top:0; right:0; }
+
+.home-scroll { left:26px; bottom:max(14px,1.6svh); }
+
+.home-introduction { padding:105px 26px; grid-template-columns:1fr; gap:min(50px,5svh); }
+
+.home-pillars { padding:26px; }
+
+.home-pillars article { min-height:clamp(128px,17svh,280px); padding:26px; }
 
 .press-directory-hero { padding:38px 0 45px; }
 
@@ -197,19 +213,17 @@
 
 .home-intro>span { font-size:15px; }
 
-.home-robot-stage { min-height:420px; }
+.robot-copy { max-width:min(180px,49%); }
 
-.robot-copy { max-width:180px; }
-
-.robot-copy h2 { font-size:25px; }
+.robot-copy h2 { font-size:clamp(20px,2.6svh,25px); }
 
 .robot-copy span { font-size:12px; }
 
-.robot-switch { right:0; bottom:2%; }
+.robot-switch { right:0; bottom:0; }
 
 .robot-switch button { padding:9px 11px; font-size:11px; }
 
-.robot-visual { min-height:405px; }
+.robot-visual { min-height:0; }
 
 .worker-illustration { width:110%; max-width:none; }
 
@@ -219,9 +233,9 @@
 
 .robot-visual.is-sapiens .sapiens-illustration { transform:translateY(0) scale(.8); }
 
-.home-pillars { grid-template-columns:1fr; gap:1px; }
+.home-pillars { grid-template-columns:1fr; grid-template-rows:repeat(3,minmax(0,1fr)); gap:1px; }
 
-.home-pillars article { min-height:220px; }
+.home-pillars article { min-height:clamp(112px,15svh,220px); padding:max(16px,2svh) 22px; }
 
 .press-search { height:62px; padding-left:20px; }
 
@@ -236,6 +250,24 @@
 .press-number { font-size:15px; }
 
 .press-title { font-size:16px; }
+
+ }
+
+/* 세로가 짧은 폰(아이폰 SE 계열, 사파리는 주소 표시줄까지 빼면 550px 대)에서는
+   히어로에 들어갈 것이 너무 많습니다. 로봇 한 줄 설명은 접고 제목만 남겨
+   3D 모델이 볼 만한 크기를 유지하도록 합니다. */
+@media (max-width:900px) and (max-height:640px) {
+.home-intro h1 { font-size:clamp(38px,min(13vw,9.5svh),104px); }
+
+.robot-copy span { display:none; }
+
+.home-pillars { padding:16px; }
+
+.home-pillars article { padding:14px 20px; }
+
+.home-pillars h3 { font-size:26px; }
+
+.home-pillars p { font-size:13px; }
 
  }
 
