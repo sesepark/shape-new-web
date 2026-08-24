@@ -31,12 +31,26 @@ const MAX_EDGE = 1600;
 const WIDE_EDGE = 2000;
 const WIDE_PURPOSES: UploadPurpose[] = ["equipment", "news"];
 const QUALITY = 0.82;
-/** 이보다 작으면 줄여 봐야 얻는 것이 없습니다. */
+/**
+ * 이보다 작으면 줄여 봐야 얻는 것이 없습니다 — **이미 압축된 형식일 때만**.
+ *
+ * 이 문턱은 원래 JPEG 을 염두에 둔 것입니다. 휴대폰 사진은 이미 JPEG 으로
+ * 압축되어 있어서, 작은 파일을 다시 인코딩해 봐야 얻는 것이 얼마 없습니다.
+ *
+ * PNG 는 사정이 다릅니다. 무손실이라 크기와 상관없이 WebP 로 바꾸면 크게
+ * 줄어듭니다. 실제로 올라와 있던 267KB 짜리 PNG 예약 사진은 같은 화면 크기의
+ * WebP 로 67KB 였습니다(74% 절감). 그런데 267KB 는 이 문턱 아래라 손도 대지 않고
+ * 그대로 저장됐습니다. 화면 캡처나 안드로이드 기본 저장이 PNG 로 나오므로 드문
+ * 경우도 아닙니다.
+ *
+ * 그래서 PNG 는 크기와 상관없이 한 번 시도합니다. 아래에 "바꿔 봤더니 더 크면
+ * 원본을 쓴다"는 장치가 이미 있어서, 시도해서 손해 볼 일은 없습니다.
+ */
 const SKIP_UNDER_BYTES = 300 * 1024;
 
 async function shrink(file: File, maxEdge = MAX_EDGE): Promise<File> {
   if (file.type === "image/gif" || file.type === "image/svg+xml") return file;
-  if (file.size < SKIP_UNDER_BYTES) return file;
+  if (file.size < SKIP_UNDER_BYTES && file.type !== "image/png") return file;
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
   try {
     // EXIF 방향을 반영해서 읽습니다. 이것을 빼면 세로로 찍은 사진이 눕습니다.

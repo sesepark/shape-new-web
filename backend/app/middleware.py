@@ -10,13 +10,17 @@ from starlette.responses import JSONResponse, Response
 from app import cache
 from app.config import get_settings
 from app.security import COOKIE_NAME, session_owner
+from app.services import media_sweep
 
 API_PREFIX = "/api/v1"
 # Only these reads are safe to store on a shared CDN. Everything else — sessions,
 # notifications, member notices, reservations — must stay private, so the list is
 # an allowlist instead of a list of paths to exclude.
-PUBLIC_READS = ("/pages/", "/news", "/equipment/", "/roadmap", "/links", "/push/public-key", "/member-profiles", "/shape-up")
-PUBLIC_EXACT = ("/equipment",)
+# 앞머리로 여는 것과 주소 하나만 여는 것을 나눈다. `/roadmap` 은 반드시 뒤쪽이다.
+# 앞머리로 열어 두면 `/roadmap/me`(회원 본인의 일정)까지 걸려든다. 지금은 그 창구가
+# 로그인을 요구해서 새지 않지만, 공개 여부를 **인증 하나에만** 기대게 된다.
+PUBLIC_READS = ("/pages/", "/news", "/equipment/", "/links", "/push/public-key", "/member-profiles", "/shape-up")
+PUBLIC_EXACT = ("/equipment", "/roadmap")
 # Availability changes the moment a reservation is approved, so it gets a much
 # shorter shared cache than the editorial content.
 VOLATILE_READS = ("/availability",)
@@ -24,8 +28,11 @@ VOLATILE_READS = ("/availability",)
 
 logger = logging.getLogger(__name__)
 
-# 때가 된 예약 알림을 얼마나 자주 확인할지. 들어오는 요청에 얹어 도므로, 너무
-# 자주 보면 데이터베이스만 두드리고 너무 뜸하면 알림이 늦습니다.
+# 때가 된 예약 알림을 얼마나 자주 확인할지.
+#
+# 3분은 짧아 보이지만 **로그인한 회원의 요청에서만** 보기 때문에 값이 들지
+# 않습니다(아래 `maybe_sweep_alerts` 의 설명). 회원 요청은 어차피 `/auth/me` 로
+# 데이터베이스를 여니, 거기 얹히는 확인은 이미 깨어 있는 Neon 을 쓰는 셈입니다.
 SWEEP_EVERY = 180.0
 _last_sweep = 0.0
 # asyncio 는 태스크를 약한 참조로만 들고 있어서, 여기서 붙들지 않으면 도중에
@@ -54,6 +61,39 @@ async def _sweep_reservation_alerts() -> None:
             await deliver_push(devices, title, body=body, path="/mypage")
     except Exception as error:  # noqa: BLE001 - 알림 때문에 사이트가 흔들리면 안 된다
         logger.warning("예약 알림 확인 실패: %s", error)
+
+
+def maybe_sweep_alerts(signed_in: bool) -> None:
+    """때가 됐으면 뒤에서 예약 알림을 확인합니다. 요청은 기다리지 않습니다.
+
+    **로그인한 회원의 요청에서만 봅니다.** 예약을 가진 사람은 회원뿐이고, 회원
+    요청은 어차피 `/auth/me` 로 데이터베이스를 열어 Neon 을 깨웁니다. 그러니 거기
+    얹히는 확인은 추가 비용이 사실상 없습니다.
+
+    반대로 로그인하지 않은 방문과 검색 크롤러는 지금 Neon 을 **아예 건드리지
+    않습니다**(쿠키가 없으면 `/auth/me` 가 조회 없이 답하고, 공개 페이지는 캐시에서
+    나갑니다). 여기에 3분마다 조회를 얹으면 Neon 이 공개 트래픽이 이어지는 내내
+    깨어 있게 되어, 공개 캐시로 아낀 것이 그대로 사라집니다. 그래서 주기를 늘리는
+    대신 **보는 대상을 좁혔습니다.** 알림은 3분 안에 그대로 나갑니다.
+
+    남는 대가 하나: 아무 회원도 사이트에 없으면 알림이 기다립니다. 새벽에 끝난
+    예약의 사진 요청은 아침에 누가 들어와야 나갑니다. 크론 없이 도는 구조의
+    대가이고, `app/services/reservation_alerts.py` 에도 같은 설명이 있습니다.
+
+    고아 파일 정리(`media_sweep`)와 달리 서버가 뜬 직후 첫 요청에서도 곧바로
+    한 번 봅니다. 훑는 것이 인덱스 걸린 조회 셋뿐이라 가볍고, 무료 인스턴스는
+    자주 잠들었다 깨므로 깬 직후가 밀린 알림을 내보낼 첫 기회이기 때문입니다.
+    """
+    global _last_sweep
+    if not signed_in:
+        return
+    now = time.monotonic()
+    if now - _last_sweep < SWEEP_EVERY:
+        return
+    _last_sweep = now
+    task = asyncio.create_task(_sweep_reservation_alerts())
+    _sweeps.add(task)
+    task.add_done_callback(_sweeps.discard)
 
 
 def public_read(path: str) -> bool:
@@ -112,6 +152,7 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         # 때가 됐으면 아무도 안 쓰는 사진을 뒤에서 정리한다. 무료 요금제에는 크론이
         # 없고, 크론을 흉내 내려고 서버를 주기적으로 깨우면 Neon 이 그만큼 깨어
         # 있어야 한다. 사람이 쓰는 동안에만 한 시간에 한 번 본다.
+        media_sweep.maybe_sweep()
 
         path = request.url.path
         # 로그인한 사람의 요청은 공개 읽기라도 공유 캐시에 넣지 않는다.
@@ -120,6 +161,10 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         # 쿠키가 없는 요청(공개 페이지를 그리는 서버 쪽 호출)만 공유 캐시를 쓴다.
         signed_in = COOKIE_NAME in request.cookies
         cacheable = request.method == "GET" and not signed_in and public_read(path)
+
+        # 때가 된 예약 알림을 뒤에서 확인한다. 회원 요청에만 얹으므로 공개
+        # 트래픽은 여전히 데이터베이스를 건드리지 않는다.
+        maybe_sweep_alerts(signed_in)
 
         # 같은 조건에서 응답 자체도 잠시 들고 있는다. 공개 창구를 부르는 것은
         # 사실상 Next.js 재검증뿐인데, 그 호출 하나하나가 Neon 을 깨워 5분씩
@@ -160,16 +205,19 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
     async def _fill(self, request: Request, call_next, path: str, cache_key: str) -> Response:
         """실제로 내려가서 받아 오고, 200 이면 담아 둔다."""
         response = await call_next(request)
+        # 오류에는 공유 캐시 표시를 붙이지 않는다. 예전에는 헤더를 먼저 붙이고
+        # 상태를 나중에 봐서, 쿠키 없이 회원 전용 주소를 두드린 401 응답이
+        # `public, s-maxage=3600` 을 달고 나갔다. 앞에 공유 캐시가 붙는 순간
+        # 그 401 이 한 시간 동안 모두에게 나간다.
+        if response.status_code != 200:
+            response.headers.setdefault("Cache-Control", "private, no-store")
+            return response
         if any(part in path for part in VOLATILE_READS):
             window = self.settings.volatile_cache_seconds
             response.headers.setdefault("Cache-Control", f"public, max-age=0, s-maxage={window}, stale-while-revalidate=60")
         else:
             window = self.settings.public_cache_seconds
             response.headers.setdefault("Cache-Control", f"public, max-age=60, s-maxage={window}, stale-while-revalidate=600")
-        # 200 만 담는다. 오류를 담아 두면 백엔드가 잠깐 흔들린 것이 창 하나만큼
-        # 그대로 굳어 버린다.
-        if response.status_code != 200:
-            return response
         body = b"".join([chunk async for chunk in response.body_iterator])
         headers = [(key, value) for key, value in response.headers.items() if key.lower() != "content-length"]
         cache.set(cache_key, (200, body, headers), window, self.settings.cache_spread_seconds)

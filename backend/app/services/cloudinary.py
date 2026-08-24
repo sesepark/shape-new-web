@@ -53,14 +53,25 @@ def public_id_of(url: str) -> tuple[str, str] | None:
 
 
 async def destroy(url: str | None) -> bool:
-    """올린 파일 하나를 지웁니다. 지웠으면 True."""
-    settings = get_settings()
-    if not url or not all([settings.cloudinary_cloud_name, settings.cloudinary_api_key, settings.cloudinary_api_secret]):
+    """전달 주소로 올린 파일 하나를 지웁니다. 지웠으면 True."""
+    if not url:
         return False
     found = public_id_of(url)
     if not found:
         return False
     kind, public_id = found
+    return await destroy_id(public_id, kind)
+
+
+async def destroy_id(public_id: str, kind: str = "image") -> bool:
+    """이름으로 파일 하나를 지웁니다.
+
+    정리 스크립트는 Cloudinary 목록에서 이름을 그대로 받아 오므로 주소를 거치지
+    않습니다. 주소로 지우는 `destroy` 도 결국 여기로 옵니다.
+    """
+    settings = get_settings()
+    if not all([settings.cloudinary_cloud_name, settings.cloudinary_api_key, settings.cloudinary_api_secret]):
+        return False
     timestamp = int(time.time())
     # Cloudinary 는 정렬한 인자 문자열 뒤에 시크릿을 **붙여서** SHA-1 을 냅니다.
     # 같은 입력의 HMAC 을 보내면 서명이 틀렸다고 거절합니다.

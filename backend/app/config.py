@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # 만료돼 그 순간에 질의가 몰린다. Neon 은 5분을 놀아야 잠들므로 이 정도로
     # 흩어도 '한 번 깨어남' 은 그대로다.
     cache_spread_seconds: int = 30
+    # 아무도 안 쓰는 Cloudinary 파일을 얼마나 자주 정리할지. 0 이면 자동 정리를
+    # 끄고 `scripts/sweep_orphan_media.py` 로만 돌립니다.
+    media_sweep_seconds: int = 3600
+    # 올라온 지 이만큼 안 된 파일은 건드리지 않습니다. 사진은 저장 버튼보다 먼저
+    # 올라가므로, 방금 올렸지만 아직 저장하지 않은 파일과 고아를 구별할 수 없습니다.
+    media_orphan_grace_hours: int = 24
     rate_limit_read_per_minute: int = 120
     rate_limit_write_per_minute: int = 20
     max_request_bytes: int = 2_000_000

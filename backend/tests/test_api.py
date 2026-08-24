@@ -1922,3 +1922,79 @@ async def test_the_sweep_does_not_run_on_the_first_request_after_a_restart():
     before = media_sweep._last_run
     media_sweep.maybe_sweep()
     assert media_sweep._last_run == before
+
+
+async def test_reservation_alerts_are_only_swept_for_signed_in_members(client, session, monkeypatch):
+    """예약 알림 확인은 회원 요청에만 얹는다.
+
+    로그인하지 않은 방문과 검색 크롤러는 지금 Neon 을 아예 건드리지 않는다.
+    거기에 3분마다 조회를 얹으면 공개 캐시로 아낀 것이 그대로 사라진다.
+    """
+    from app import middleware
+
+    ran: list[int] = []
+
+    async def fake_sweep():
+        ran.append(1)
+
+    monkeypatch.setattr(middleware, "_sweep_reservation_alerts", fake_sweep)
+    monkeypatch.setattr(middleware, "_last_sweep", 0.0)
+
+    # 손님이 공개 페이지를 봐도 확인하지 않는다.
+    logout(client)
+    await client.get("/api/v1/equipment")
+    await asyncio.sleep(0)
+    assert ran == []
+
+    # 회원이 들어오면 확인한다.
+    member = await make_user(session, "alertsweep@example.com")
+    await login(client, member).get("/api/v1/notices")
+    await asyncio.sleep(0)
+    assert ran == [1]
+
+    # 그리고 3분 안에는 다시 보지 않는다.
+    await login(client, member).get("/api/v1/notices")
+    await asyncio.sleep(0)
+    assert ran == [1]
+    logout(client)
+
+
+async def test_member_only_paths_never_look_like_public_reads():
+    """회원 전용 주소가 공개 캐시 허용 목록에 걸리지 않는다.
+
+    `/roadmap` 을 앞머리로 열어 두면 `/roadmap/me`(본인 일정)까지 걸려들었다.
+    로그인을 요구하는 창구라 새지는 않았지만, 공개 여부가 인증 하나에만 기대게
+    된다. 허용 목록 자체가 맞아야 한다.
+    """
+    from app.middleware import public_read
+
+    assert public_read("/api/v1/roadmap") is True
+    assert public_read("/api/v1/roadmap/me") is False
+    # 옆 창구들도 함께 지킨다.
+    assert public_read("/api/v1/equipment") is True
+    # 회원 전용인 장비 권한 조회는 하이픈이라 걸리지 않는다. `/equipment/` 를
+    # 앞머리로 여는 것은 `/equipment/{id}/availability` 때문이므로, 앞으로
+    # `/equipment/` 아래에 회원 전용 창구를 만들면 안 된다.
+    assert public_read("/api/v1/equipment-permissions") is False
+    assert public_read("/api/v1/equipment/abc/availability") is True
+    assert public_read("/api/v1/notices") is False
+    assert public_read("/api/v1/notifications") is False
+    assert public_read("/api/v1/reservations/me") is False
+
+
+async def test_errors_are_never_marked_publicly_cacheable(client):
+    """오류 응답에 공유 캐시 표시가 붙지 않는다.
+
+    쿠키 없이 회원 전용 주소를 두드리면 401 이 돌아오는데, 예전에는 그 401 이
+    `public, s-maxage=3600` 을 달고 나갔다. 앞에 공유 캐시를 붙이는 순간 그
+    401 이 한 시간 동안 모두에게 나간다.
+    """
+    from app import cache
+
+    cache.clear()
+    logout(client)
+    for path in ("/api/v1/roadmap/me", "/api/v1/news/00000000-0000-0000-0000-000000000000"):
+        response = await client.get(path)
+        assert response.status_code != 200, path
+        assert "public" not in (response.headers.get("Cache-Control") or ""), path
+    assert cache.size() == 0
