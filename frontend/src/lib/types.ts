@@ -143,6 +143,13 @@ export interface EquipmentAvailability {
   units: { id: string; label: string; reservedStarts: string[] }[];
 }
 
+/** 장비를 함께 쓸 사람을 고를 때 보이는 최소한의 정보. 로그인한 회원에게만 옵니다. */
+export interface MemberPick {
+  id: string;
+  name: string;
+  imageUrl?: string | null;
+}
+
 export interface ReservationItem {
   id: string;
   equipmentUnitId: string;
@@ -156,6 +163,8 @@ export interface ReservationItem {
   afterPhotoUrl?: string | null;
   equipmentName: string;
   unitLabel: string;
+  /** 함께 쓰는 사람의 이름. 없으면 빈 목록입니다. */
+  companions?: string[];
 }
 
 export interface AdminReservationItem extends ReservationItem {
@@ -295,4 +304,6 @@ export interface ReservationCalendarItem {
   status: ReservationStatus;
   beforePhotoUrl?: string | null;
   afterPhotoUrl?: string | null;
+  /** 함께 쓰는 사람의 이름. */
+  companions?: string[];
 }

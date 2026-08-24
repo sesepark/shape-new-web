@@ -31,6 +31,7 @@ from app.schemas import (
     CommentRead,
     CommentWrite,
     MemberNoticeWrite,
+    MemberPick,
     NoticeDetailRead,
     NoticeRead,
     NotificationRead,
@@ -57,7 +58,8 @@ from app.security import (
 from app.services import cloudinary
 from app.services.content import sanitize_html
 from app.services.notifications import deliver_push, publish_notice_notifications, publish_owner_notifications
-from app.services.reservations import cancel, create_pending, read_models
+from app.services.reservation_alerts import tell_user
+from app.services.reservations import cancel, companion_names, create_pending, read_models
 from app.services.revalidate import refresh
 
 router = APIRouter(tags=["member"])
@@ -300,6 +302,21 @@ CALENDAR_STATUSES = (
 )
 
 
+@router.get("/members/directory", response_model=list[MemberPick])
+async def member_directory(_: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """장비를 함께 쓸 사람을 고를 때 쓰는 회원 목록.
+
+    **로그인한 회원에게만** 보입니다. 이름과 사진만 담고 이메일은 넣지 않습니다 —
+    누구를 고를지 알아보는 데 필요한 만큼만입니다. 공개 부원 페이지의
+    `/member-profiles` 는 카드에 연결된 사람만 나오므로, 이제 막 가입해 카드가
+    없는 회원을 고를 수 없어 이 창구를 따로 둡니다.
+    """
+    people = (await db.scalars(
+        select(User).where(User.status.in_(READING_STATUSES), User.deleted_at.is_(None)).order_by(User.name)
+    )).all()
+    return [MemberPick(id=person.id, name=person.name, image_url=person.image_url) for person in people]
+
+
 @router.get("/reservations/calendar", response_model=list[ReservationCalendarItem])
 async def reservation_calendar(
     month: str = Query(pattern=r"^\d{4}-\d{2}$", description="조회할 달 (YYYY-MM)"),
@@ -329,6 +346,7 @@ async def reservation_calendar(
         person.id: person.name
         for person in (await db.scalars(select(User).where(User.id.in_({item.user_id for item in items})))).all()
     }
+    together = await companion_names(db, items)
     return [
         ReservationCalendarItem(
             id=item.id,
@@ -338,6 +356,7 @@ async def reservation_calendar(
             user_name=people.get(item.user_id, "회원"), purpose=item.purpose,
             starts_at=item.starts_at, ends_at=item.ends_at, status=item.status,
             before_photo_url=item.before_photo_url, after_photo_url=item.after_photo_url,
+            companions=together.get(item.id, []),
         )
         for item in items
     ]
@@ -358,9 +377,20 @@ async def request_reservation(payload: ReservationCreate, user: User = Depends(a
     when = reservation.starts_at.astimezone(SEOUL).strftime("%m월 %d일 %H:%M")
     title = f"새 예약 신청 · {read.equipment_name} {read.unit_label} · {when}"
     devices = await publish_owner_notifications(db, title, "/admin")
+
+    # 함께 쓰기로 이름이 올라간 사람에게도 알립니다. 모르는 사이에 이름이 올라가
+    # 있으면 곤란하고, 시간에 맞춰 와야 하는 사람이기도 합니다.
+    together = payload.companion_ids or []
+    mate_devices: list[dict] = []
+    mate_title = f"함께 쓰는 예약에 이름이 올라갔습니다 · {read.equipment_name} {read.unit_label} · {when}"
+    for mate in {companion for companion in together if companion != user.id}:
+        mate_devices += await tell_user(db, mate, mate_title)
+
     await db.commit()
     # 푸시는 저장이 끝난 뒤에 보냅니다. 저장이 실패했는데 알림만 가는 일을 막습니다.
     await deliver_push(devices, title, body=f"{user.name} 님이 예약을 신청했습니다. 승인해 주세요.", path="/admin")
+    if mate_devices:
+        await deliver_push(mate_devices, mate_title, body=f"{user.name} 님이 신청했습니다.", path="/mypage")
     return read
 
 
@@ -607,16 +637,24 @@ async def own_shape_up(db: AsyncSession, post_id: UUID, user: User) -> ShapeUpPo
 @router.patch("/shape-up/{post_id}", response_model=ShapeUpDetailRead)
 async def edit_shape_up(post_id: UUID, payload: ShapeUpWrite, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     item = await own_shape_up(db, post_id, user)
+    before_cover = item.cover_image
     for key, value in shape_up_payload(payload).items():
         setattr(item, key, value)
+    replaced = before_cover if before_cover and before_cover != item.cover_image else None
     await db.commit(); await db.refresh(item)
     refresh("shape-up", [f"/shape-up/{item.id}"])
+    if replaced:
+        await cloudinary.destroy(replaced)
     return (await shape_up_reads(db, [item], user, True, model=ShapeUpDetailRead))[0]
 
 
 @router.delete("/shape-up/{post_id}", status_code=204)
 async def remove_shape_up(post_id: UUID, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     item = await own_shape_up(db, post_id, user)
+    # 본문에 박힌 사진은 여기서 다루지 않는다. 같은 사진이 다른 글에도 붙어 있을
+    # 수 있어 모든 글을 훑어 본 뒤 판단해야 하고, 그 일은 정리 스크립트가 한다.
+    cover = item.cover_image
     await db.delete(item)
     await db.commit()
     refresh("shape-up", [f"/shape-up/{post_id}"])
+    await cloudinary.destroy(cover)

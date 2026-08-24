@@ -189,6 +189,21 @@ class Reservation(Base, Timestamped):
     photo_notified_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
+class ReservationCompanion(Base):
+    """장비 하나를 함께 쓰는 사람.
+
+    신청한 사람은 `Reservation.user_id` 에 그대로 있고, 여기에는 함께 쓰는 사람만
+    담습니다. 예약 현황만 보고 실제로 누가 함께 쓰는지 알 수 있어야 사고나 파손이
+    있을 때 물어볼 곳이 있습니다.
+    """
+
+    __tablename__ = "reservation_companions"
+    __table_args__ = (UniqueConstraint("reservation_id", "user_id", name="uq_reservation_companion"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    reservation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reservations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+
 class ReservationSlot(Base):
     __tablename__ = "reservation_slots"
     __table_args__ = (UniqueConstraint("equipment_unit_id", "slot_start", name="uq_reservation_slot"),)

@@ -245,6 +245,8 @@ class ReservationCreate(InputModel):
     starts_at: datetime
     ends_at: datetime
     purpose: str = Field(min_length=3, max_length=2000)
+    # 함께 쓰는 부원. 신청한 사람은 여기 넣지 않습니다(이미 신청자입니다).
+    companion_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
     @field_validator("ends_at")
     @classmethod
@@ -267,6 +269,8 @@ class ReservationRead(ORMModel):
     after_photo_url: str | None = None
     equipment_name: str = ""
     unit_label: str = ""
+    # 함께 쓰는 사람의 이름. 예약 현황과 마이페이지에 그대로 보입니다.
+    companions: list[str] = []
 
 
 class AdminReservationRead(ReservationRead):
@@ -392,6 +396,14 @@ class CommentRead(ORMModel):
     can_delete: bool = False
 
 
+class MemberPick(ORMModel):
+    """장비를 함께 쓸 사람을 고를 때 보이는 최소한의 정보."""
+
+    id: UUID
+    name: str
+    image_url: str | None = None
+
+
 class ReservationCalendarItem(ORMModel):
     id: UUID
     # 예약 현황 화면에서 "내 예약"을 알아보고 사용 전후 사진을 바로 올리게 합니다.
@@ -405,6 +417,8 @@ class ReservationCalendarItem(ORMModel):
     status: ReservationStatus
     before_photo_url: str | None = None
     after_photo_url: str | None = None
+    # 함께 쓰는 사람. 예약 현황에서 누가 같이 오는지 보입니다.
+    companions: list[str] = []
 
 
 class AdminNoticeRead(ORMModel):

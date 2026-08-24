@@ -58,6 +58,7 @@ from app.schemas import (
     UserDecision,
 )
 from app.security import READING_STATUSES, any_manager, owner_only, require_permission
+from app.services import cloudinary
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
 from app.services.member_cards import ensure_card
@@ -156,13 +157,18 @@ async def update_news(item_id: UUID, payload: NewsWrite, _: User = Depends(requi
     item = await db.get(NewsPost, item_id)
     if not item:
         raise HTTPException(404, "뉴스를 찾을 수 없습니다.")
+    before = item.cover_image
     for key, value in (await news_payload(payload)).items():
         setattr(item, key, value)
+    replaced = before if before and before != item.cover_image else None
     # 관리자가 날짜를 고쳤으면 그대로 따른다. 예전에는 한 번 정해진 발행일을
     # 다시 바꿀 방법이 없어서, 날짜를 잘못 넣으면 지우고 새로 쓸 수밖에 없었다.
     item.published_at = published_date(payload, previous=item.published_at)
     await db.commit()
     refresh("news", [f"/news/{item_id}"])
+    # 대표 사진을 갈아 끼웠으면 옛 사진은 아무도 가리키지 않는다.
+    if replaced:
+        await cloudinary.destroy(replaced)
     return {"ok": True}
 
 
@@ -193,8 +199,13 @@ async def refresh_news_preview(item_id: UUID, _: User = Depends(require_permissi
 
 @router.delete("/news/{item_id}", status_code=204)
 async def delete_news(item_id: UUID, _: User = Depends(require_permission("news:manage")), db: AsyncSession = Depends(get_db)):
+    # 지우기 전에 대표 사진 주소를 챙긴다. 본문에 박힌 사진까지는 여기서 다루지
+    # 않는다 — 같은 사진이 다른 글에도 붙어 있을 수 있어, 모든 글을 훑어 보고
+    # 판단하는 정리 스크립트(`scripts/sweep_orphan_media.py`)에 맡긴다.
+    cover = await db.scalar(select(NewsPost.cover_image).where(NewsPost.id == item_id))
     await db.execute(delete(NewsPost).where(NewsPost.id == item_id)); await db.commit()
     refresh("news", [f"/news/{item_id}"])
+    await cloudinary.destroy(cover)
 
 
 # --------------------------------------------------------------------- notices
@@ -282,6 +293,7 @@ async def update_equipment(equipment_id: UUID, payload: EquipmentWrite, _: User 
     if not item:
         raise HTTPException(404, "장비를 찾을 수 없습니다.")
     was = item.status
+    before_image = item.image_url
     for key, value in payload.model_dump().items():
         setattr(item, key, value)
     # 점검 중이나 운영 중지로 바뀌면, 그 시간에 오려던 사람이 헛걸음합니다.
@@ -298,6 +310,9 @@ async def update_equipment(equipment_id: UUID, payload: EquipmentWrite, _: User 
         await db.rollback()
         raise HTTPException(409, "같은 이름의 장비가 이미 있습니다.") from exc
     refresh("equipment", [f"/equipment/{equipment_id}"])
+    # 장비 사진은 자주 갈아 끼우는 자리라 옛 사진이 가장 많이 쌓인다.
+    if before_image and before_image != item.image_url:
+        await cloudinary.destroy(before_image)
     if title:
         await deliver_push(devices, title, body=body, path="/mypage")
     return {"ok": True}
@@ -327,9 +342,11 @@ async def reorder_equipment(payload: OrderWrite, _: User = Depends(require_permi
 
 @router.delete("/equipment/{equipment_id}", status_code=204)
 async def delete_equipment(equipment_id: UUID, _: User = Depends(require_permission("equipment:manage")), db: AsyncSession = Depends(get_db)):
+    image = await db.scalar(select(Equipment.image_url).where(Equipment.id == equipment_id))
     try:
         await db.execute(delete(Equipment).where(Equipment.id == equipment_id)); await db.commit()
         refresh("equipment", [f"/equipment/{equipment_id}"])
+        await cloudinary.destroy(image)
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(409, "예약 이력이 있는 장비는 삭제할 수 없습니다. 운영 중지 상태로 변경해 주세요.") from exc

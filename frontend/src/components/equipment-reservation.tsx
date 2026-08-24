@@ -8,7 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { API_URL } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { media, mediaSquare, optimizable } from "@/lib/media";
-import type { EquipmentAvailability, EquipmentItem } from "@/lib/types";
+import type { EquipmentAvailability, EquipmentItem, MemberPick } from "@/lib/types";
 
 function localDay() { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10); }
 const timeLabel = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
@@ -62,6 +62,11 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   const [startHour, setStartHour] = useState("");
   const [endHour, setEndHour] = useState("");
   const [purpose, setPurpose] = useState("");
+  // 장비 하나를 여럿이 함께 쓰는 경우. 이름이 남아야 사고나 파손이 있을 때
+  // 물어볼 곳이 있고, 함께 오는 사람도 알림을 받습니다.
+  const [companions, setCompanions] = useState<MemberPick[]>([]);
+  const [people, setPeople] = useState<MemberPick[]>([]);
+  const [mateQuery, setMateQuery] = useState("");
   const [stage, setStage] = useState(1);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(Boolean(equipment.length));
@@ -96,6 +101,16 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         const rows = (await response.json()) as EquipmentPermission[];
         setPermissions(Object.fromEntries(rows.map((row) => [row.equipmentId, row])));
       })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [access]);
+
+  // 함께 쓸 사람을 고르려면 회원 목록이 필요합니다. 로그인한 회원에게만 옵니다.
+  useEffect(() => {
+    if (access !== "member") return;
+    const controller = new AbortController();
+    fetch(`${API_URL}/members/directory`, { credentials: "include", cache: "no-store", signal: controller.signal })
+      .then(async (response) => { if (response.ok) setPeople((await response.json()) as MemberPick[]); })
       .catch(() => undefined);
     return () => controller.abort();
   }, [access]);
@@ -193,7 +208,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     setLoading(true); setMessage("");
     const iso = (time: string) => new Date(`${day}T${time}:00+09:00`).toISOString();
     try {
-      const response = await fetch(`${API_URL}/reservations`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ equipmentUnitId: unitId, startsAt: iso(startHour), endsAt: iso(endHour), purpose: purpose.trim() }) });
+      const response = await fetch(`${API_URL}/reservations`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ equipmentUnitId: unitId, startsAt: iso(startHour), endsAt: iso(endHour), purpose: purpose.trim(), companionIds: companions.map((mate) => mate.id) }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setMessage(data.detail ?? "예약을 신청하지 못했습니다."); return; }
       setBooked((current) => [...current, {
@@ -229,7 +244,54 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     {access === "viewer" && <p className="booking-signin" role="status"><Lock size={15} />보기 전용 계정입니다. 예약 현황은 확인하실 수 있지만 신청은 활동 중인 회원만 할 수 있습니다.</p>}
     <section className="booking-equipment" ref={equipmentRef} aria-labelledby="equipment-choice-title"><div className="booking-section-head"><p className="meta">01. EQUIPMENT</p><h3 id="equipment-choice-title">장비 선택</h3><span>예약할 장비와 개별 호기를 먼저 선택하세요.</span></div><div className="booking-equipment-grid">{equipment.map((item) => { const { ok, reason } = eligibility(item); return <button className={`booking-equipment-card${item.id === equipmentId ? " selected" : ""}${ok ? "" : " disabled"}`} type="button" disabled={!ok} onClick={() => chooseEquipment(item.id)} key={item.id}>{item.imageUrl ? <Image src={mediaSquare(item.imageUrl, 800)} sizes="(max-width: 900px) 45vw, 340px" quality={88} alt="" width={640} height={360} unoptimized={!optimizable(item.imageUrl)} /> : <span className="booking-device-icon"><Wrench size={34} /></span>}<span className="booking-card-category">{item.category}</span><strong>{item.name}</strong><small>{item.availableUnits}개 호기 · {ok ? "예약 가능" : reason}</small>{!ok && reason.startsWith("교육 필요") && <span className="booking-card-lock"><Lock size={13} /> 교육 이수 후 신청할 수 있습니다</span>}</button>; })}</div></section>
     <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title"><div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div><div className="booking-schedule-grid"><article className="booking-date-card"><h4>예약 날짜</h4><label><span>예약 가능 날짜</span><input type="date" min={localDay()} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }}  /></label><p><CalendarDays size={16} />{dateLabel(day)}</p></article><article className="booking-time-card" aria-busy={loading}><h4>예약 시간</h4><div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div><p className="slot-help">한 칸을 누르면 그 시간이 잡히고, 뒤쪽 칸을 다시 누르면 거기까지 늘어납니다. <i>회색은 이미 승인된 예약이거나 지난 시간입니다.</i></p><div className="booking-slots">{times.map((time, index) => { const inRange = Boolean(startHour && endHour && time >= startHour && time < endHour); const gone = past(day, time); return <button type="button" disabled={reserved.has(time) || gone} title={gone ? "이미 지난 시간입니다" : undefined} className={`${startHour === time ? "start" : ""}${inRange ? " range" : ""}${gone ? " gone" : ""}`} onClick={() => chooseSlot(time, index)} key={time}>{time} - {endOf(index)}</button>; })}</div>{!availability && <p className="form-note">{loading ? "예약 현황을 불러오는 중입니다." : "예약 현황이 없습니다."}</p>}</article></div></section>
-    <section className="booking-request" aria-labelledby="request-title"><div className="booking-section-head"><p className="meta">03. REQUEST</p><h3 id="request-title">신청 정보</h3><span>신청자 정보는 로그인한 계정으로 자동 기록됩니다.</span></div><div className="booking-summary"><div><span>선택 장비</span><strong>{selected?.name ?? "장비를 선택해 주세요"}</strong></div><div><span>선택 일정</span><strong>{startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "시간을 선택해 주세요"}</strong></div><div><span>선택 호기</span><strong>{selectedUnit?.label ?? "호기를 선택해 주세요"}</strong></div></div><label className="booking-purpose"><span>사용 목적 및 작업 내용</span><textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={2000} placeholder="예: 휴머노이드 로봇 외장 부품 시제품 제작 / 사용 재료와 안전 유의사항" /></label><div className="booking-submit-row"><p>신청 후 운영진이 검토합니다. 승인 전에는 예약이 확정되지 않습니다. 여러 장비를 같은 시간에 함께 쓸 수 있습니다.</p><div className="booking-submit-buttons">{stage === 4 && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}<button className="button" type="button" disabled={loading || stage === 4} onClick={submit}>{stage === 4 ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button></div></div>{booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}</section>
+    <section className="booking-request" aria-labelledby="request-title"><div className="booking-section-head"><p className="meta">03. REQUEST</p><h3 id="request-title">신청 정보</h3><span>신청자 정보는 로그인한 계정으로 자동 기록됩니다.</span></div><div className="booking-summary"><div><span>선택 장비</span><strong>{selected?.name ?? "장비를 선택해 주세요"}</strong></div><div><span>선택 일정</span><strong>{startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "시간을 선택해 주세요"}</strong></div><div><span>선택 호기</span><strong>{selectedUnit?.label ?? "호기를 선택해 주세요"}</strong></div></div><label className="booking-purpose"><span>사용 목적 및 작업 내용</span><textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={2000} placeholder="예: 휴머노이드 로봇 외장 부품 시제품 제작 / 사용 재료와 안전 유의사항" /></label>
+      {/* 장비 하나를 여럿이 함께 쓰는 경우. 이름이 남아야 사고나 파손이 있을 때
+          물어볼 곳이 있고, 함께 오는 사람도 알림을 받습니다. */}
+      <div className="booking-companions">
+        <span className="booking-field-label">함께 쓰는 부원 <i>(선택)</i></span>
+        {companions.length > 0 && (
+          <ul className="companion-chips">
+            {companions.map((mate) => (
+              <li key={mate.id}>
+                <b>{mate.name}</b>
+                <button type="button" aria-label={`${mate.name} 빼기`} onClick={() => setCompanions((current) => current.filter((row) => row.id !== mate.id))}>×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <input
+          type="search"
+          value={mateQuery}
+          placeholder="이름으로 부원 찾기"
+          disabled={access !== "member"}
+          onChange={(event) => setMateQuery(event.target.value)}
+        />
+        {mateQuery.trim() && (
+          <ul className="companion-options">
+            {people
+              .filter((person) => person.name.toLowerCase().includes(mateQuery.trim().toLowerCase()))
+              .filter((person) => !companions.some((mate) => mate.id === person.id))
+              .slice(0, 6)
+              .map((person) => (
+                <li key={person.id}>
+                  <button type="button" onClick={() => { setCompanions((current) => [...current, person]); setMateQuery(""); }}>
+                    {person.imageUrl
+                      ? <Image src={media(person.imageUrl, 80, "eco")} alt="" width={26} height={26} unoptimized={!optimizable(person.imageUrl)} />
+                      : <span className="pick-face" aria-hidden="true">{person.name.slice(0, 1)}</span>}
+                    {person.name}
+                  </button>
+                </li>
+              ))}
+            {people.filter((person) => person.name.toLowerCase().includes(mateQuery.trim().toLowerCase())).length === 0 && (
+              <li className="companion-empty">찾는 이름이 없습니다.</li>
+            )}
+          </ul>
+        )}
+        <small className="field-hint">
+          함께 장비를 쓰는 부원을 넣어 주세요. 넣은 사람에게도 알림이 갑니다.
+          <b> 신청자 본인은 넣지 않아도 됩니다.</b> 필수 교육은 신청자에게만 따집니다.
+        </small>
+      </div><div className="booking-submit-row"><p>신청 후 운영진이 검토합니다. 승인 전에는 예약이 확정되지 않습니다. 여러 장비를 같은 시간에 함께 쓸 수 있습니다.</p><div className="booking-submit-buttons">{stage === 4 && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}<button className="button" type="button" disabled={loading || stage === 4} onClick={submit}>{stage === 4 ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button></div></div>{booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}</section>
     {message && <p className={`booking-message${stage === 4 ? " success" : ""}`} role="status">{message}</p>}
   </div>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Camera, ChevronLeft, ChevronRight, Clock3, User, Wrench, X } from "lucide-react";
+import { CalendarDays, Camera, ChevronLeft, ChevronRight, Clock3, User, Users, Wrench, X } from "lucide-react";
 import Image from "next/image";
 import { media, optimizable } from "@/lib/media";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -161,10 +161,10 @@ export function ReservationCalendarView() {
                   <ul>
                     {bookings.map((booking) => (
                       <li className={booking.status.toLowerCase()} data-tone={tone.get(booking.equipmentName) ?? 0} key={`${booking.id}-${day}`}>
-                        <button type="button" onClick={() => setActive(booking)} title={`${booking.equipmentName} ${booking.unitLabel} · ${booking.userName} · ${statusLabel[booking.status]}`}>
+                        <button type="button" onClick={() => setActive(booking)} title={`${booking.equipmentName} ${booking.unitLabel} · ${booking.userName}${booking.companions?.length ? ` 외 ${booking.companions.length}명` : ""} · ${statusLabel[booking.status]}`}>
                           <b>{range(booking)}</b>
                           <span>{booking.unitLabel || booking.equipmentName}</span>
-                          <i>{booking.userName}</i>
+                          <i>{booking.userName}{booking.companions?.length ? ` 외 ${booking.companions.length}명` : ""}</i>
                         </button>
                       </li>
                     ))}
@@ -195,6 +195,11 @@ export function ReservationCalendarView() {
               <div><dt><CalendarDays size={16} /> 날짜</dt><dd>{fullDate.format(new Date(active.startsAt))}</dd></div>
               <div><dt><Clock3 size={16} /> 시간</dt><dd>{range(active)}</dd></div>
               <div><dt><User size={16} /> 신청자</dt><dd>{active.userName}</dd></div>
+              {/* 함께 쓰는 사람이 있으면 자세히 보기에서 이름을 모두 보여 줍니다.
+                  사고나 파손이 있을 때 누구에게 물어봐야 하는지가 여기 남습니다. */}
+              {active.companions && active.companions.length > 0 && (
+                <div><dt><Users size={16} /> 함께 쓰는 부원</dt><dd>{active.companions.join(", ")}</dd></div>
+              )}
             </dl>
             <section className="reservation-purpose-box">
               <h4>사용 목적</h4>

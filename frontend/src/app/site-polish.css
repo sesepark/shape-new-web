@@ -3613,3 +3613,104 @@ html:has(.shape-home) { scroll-padding-top: 0; }
     font-size: max(16px, 1em);
   }
 }
+
+/* ==========================================================================
+   장비를 함께 쓰는 부원 고르기
+   --------------------------------------------------------------------------
+   장비 하나를 여럿이 함께 쓰는 경우가 있습니다. 신청한 사람만 남으면 사고나
+   파손이 있을 때 누구에게 물어봐야 하는지 알 수 없습니다. 이름으로 찾아 넣고,
+   넣은 사람은 이름표로 남습니다.
+   ========================================================================== */
+
+.booking-companions { position: relative; display: grid; gap: 8px; }
+
+.booking-field-label { font-size: 14px; font-weight: 800; }
+
+.booking-field-label i { color: #8a9099; font-style: normal; font-weight: 700; }
+
+.companion-chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.companion-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  background: #eef2fb;
+  border: 1px solid #d7e0f5;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.companion-chips button {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #5a6479;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.companion-chips button:hover { background: var(--blue); color: #fff; }
+
+.companion-options {
+  position: absolute;
+  z-index: 12;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 5px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dce1ea;
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgba(18, 32, 66, .14);
+}
+
+.companion-options button {
+  width: 100%;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.companion-options button:hover { background: #eef2fb; }
+
+.companion-options img,
+.companion-options .pick-face { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+
+.companion-empty { padding: 8px 10px; color: #8a9099; font-size: 13px; }
+
+/* 예약 카드에 함께 쓰는 사람 한 줄 */
+.reservation-companions {
+  margin: 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #5a6479;
+  font-size: 13px;
+}

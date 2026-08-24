@@ -10,11 +10,14 @@ from app.models import (
     EquipmentLicenseRequirement,
     EquipmentUnit,
     Reservation,
+    ReservationCompanion,
     ReservationSlot,
     ReservationStatus,
+    User,
     UserLicense,
 )
 from app.schemas import ReservationCreate, ReservationRead
+from app.security import READING_STATUSES
 
 CANCELLABLE = {ReservationStatus.PENDING, ReservationStatus.APPROVED}
 
@@ -39,13 +42,37 @@ async def unit_context(db: AsyncSession, reservations) -> dict:
     return {row[0]: (row[1], row[2]) for row in rows}
 
 
+async def companion_names(db: AsyncSession, reservations) -> dict:
+    """예약마다 '함께 쓰는 사람' 이름 목록.
+
+    예약 수만큼 질의하지 않도록 한 번에 읽어 옵니다. 목록 화면은 예약이 수십 건씩
+    나오는 자리라, 하나씩 물어보면 그만큼 데이터베이스를 두드립니다.
+    """
+    ids = [item.id for item in reservations]
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(ReservationCompanion.reservation_id, User.name)
+        .join(User, User.id == ReservationCompanion.user_id)
+        .where(ReservationCompanion.reservation_id.in_(ids))
+        .order_by(User.name)
+    )).all()
+    out: dict = {}
+    for reservation_id, name in rows:
+        out.setdefault(reservation_id, []).append(name)
+    return out
+
+
 async def read_models(db: AsyncSession, reservations, model=ReservationRead, extra=None):
     context = await unit_context(db, reservations)
+    together = await companion_names(db, reservations)
     result = []
     for item in reservations:
         label, equipment_name = context.get(item.equipment_unit_id, ("", ""))
         fields = model.model_validate(item).model_dump()
         fields.update(unit_label=label, equipment_name=equipment_name, **(extra(item) if extra else {}))
+        if "companions" in model.model_fields:
+            fields["companions"] = together.get(item.id, [])
         result.append(model(**fields))
     return result
 
@@ -97,11 +124,38 @@ async def create_pending(db: AsyncSession, user_id, payload: ReservationCreate) 
         # 새로 만들지 않고, 새 신청이 아니라는 것도 함께 알린다. 운영진에게 같은
         # 알림이 두 번 가지 않게 하기 위해서다.
         return existing, False
-    reservation = Reservation(user_id=user_id, **payload.model_dump())
+    fields = payload.model_dump()
+    companions = fields.pop("companion_ids", []) or []
+    reservation = Reservation(user_id=user_id, **fields)
     db.add(reservation)
+    await db.flush()
+    await set_companions(db, reservation, companions, user_id)
     await db.commit()
     await db.refresh(reservation)
     return reservation, True
+
+
+async def set_companions(db: AsyncSession, reservation: Reservation, wanted, requester_id) -> list[User]:
+    """함께 쓰는 사람을 정합니다.
+
+    신청한 사람은 이미 신청자이므로 빼고, **승인된 회원만** 담습니다. 이름만 적어
+    두는 것이 아니라 계정을 잇는 이유는, 사고나 파손이 있을 때 실제로 연락할 곳이
+    있어야 하고 그 사람에게도 알림을 보내야 하기 때문입니다.
+
+    라이선스는 신청한 사람에게만 따집니다. 함께 쓰는 사람까지 막으면 배우러 온
+    사람이 옆에서 볼 수도 없습니다.
+    """
+    unique = {companion for companion in wanted if companion != requester_id}
+    if not unique:
+        return []
+    people = list((await db.scalars(
+        select(User).where(User.id.in_(unique), User.status.in_(READING_STATUSES), User.deleted_at.is_(None))
+    )).all())
+    if len(people) != len(unique):
+        raise HTTPException(422, "함께 쓰는 사람 중 승인되지 않은 계정이 있습니다.")
+    db.add_all([ReservationCompanion(reservation_id=reservation.id, user_id=person.id) for person in people])
+    await db.flush()
+    return people
 
 
 async def approve(db: AsyncSession, reservation: Reservation) -> Reservation:

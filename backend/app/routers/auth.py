@@ -21,6 +21,7 @@ from app.schemas import (
     SessionUser,
 )
 from app.security import COOKIE_NAME, create_session_token, current_user, optional_user, reading_user
+from app.services import cloudinary
 from app.services.member_cards import ensure_card
 from app.services.revalidate import refresh
 
@@ -319,10 +320,16 @@ async def release_member_card(user: User = Depends(reading_user), db: AsyncSessi
 
 @router.patch("/me", response_model=SessionUser)
 async def update_me(payload: ProfileWrite, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    before_image = user.image_url
     user.name = payload.name
     user.image_url = payload.image_url or None
     user.introduction = (payload.introduction or "").strip() or None
     await db.commit(); await db.refresh(user)
+    # 얼굴 사진을 바꿨으면 옛 사진은 지운다. 남겨 두면 본인이 내린 사진이
+    # 공개 주소로 계속 열린다. 구글 계정 사진처럼 우리가 올린 것이 아닌
+    # 주소는 `destroy` 가 알아서 그냥 넘어간다.
+    if before_image and before_image != user.image_url:
+        await cloudinary.destroy(before_image)
     return await session_for(db, user)
 
 

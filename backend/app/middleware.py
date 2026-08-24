@@ -109,6 +109,10 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
             if len(self.buckets) > 2_000:
                 self.buckets = defaultdict(deque, {name: values for name, values in self.buckets.items() if values and values[-1] > now - 60})
 
+        # 때가 됐으면 아무도 안 쓰는 사진을 뒤에서 정리한다. 무료 요금제에는 크론이
+        # 없고, 크론을 흉내 내려고 서버를 주기적으로 깨우면 Neon 이 그만큼 깨어
+        # 있어야 한다. 사람이 쓰는 동안에만 한 시간에 한 번 본다.
+
         path = request.url.path
         # 로그인한 사람의 요청은 공개 읽기라도 공유 캐시에 넣지 않는다.
         # /shape-up 처럼 같은 주소인데 보는 사람에 따라 canEdit 이 달라지는 응답이

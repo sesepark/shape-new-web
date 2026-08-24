@@ -1791,3 +1791,134 @@ async def test_approval_license_and_maintenance_reach_the_member(client, session
     assert changed.status_code == 200, changed.text
     alerts = (await login(client, member).get("/api/v1/notifications")).json()
     assert any("점검 중" in row["title"] for row in alerts), alerts
+
+
+async def test_a_reservation_can_name_who_uses_it_together(client, session):
+    """장비 하나를 여럿이 함께 쓰는 경우를 담는다.
+
+    예약 현황만 보고는 실제로 누가 함께 쓰는지 알 수 없었다. 사고나 파손이 있을 때
+    누구에게 물어봐야 하는지도 알 수 없다.
+    """
+    from app.models import Equipment, EquipmentUnit, UserStatus
+
+    asker = await make_user(session, "asks@example.com")
+    mate = await make_user(session, "mate@example.com")
+    mate.name = "함께쓰는사람"
+    outsider = await make_user(session, "pending@example.com")
+    outsider.status = UserStatus.PENDING
+    equipment = Equipment(name="공동 사용 장비", category="공용")
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    await session.commit()
+
+    starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+    body = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+            "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "함께 실험"}
+
+    http = login(client, asker)
+    # 승인되지 않은 계정은 넣을 수 없다.
+    refused = await http.post("/api/v1/reservations", json={**body, "companionIds": [str(outsider.id)]})
+    assert refused.status_code == 422, refused.text
+
+    made = await http.post("/api/v1/reservations", json={**body, "companionIds": [str(mate.id), str(asker.id)]})
+    assert made.status_code == 201, made.text
+    # 신청한 본인은 '함께 쓰는 사람' 에 들어가지 않는다.
+    assert made.json()["companions"] == ["함께쓰는사람"]
+
+    # 마이페이지와 예약 현황에도 그대로 보인다.
+    mine = (await http.get("/api/v1/reservations/me")).json()
+    assert mine[0]["companions"] == ["함께쓰는사람"]
+    month = starts.strftime("%Y-%m")
+    calendar = (await http.get(f"/api/v1/reservations/calendar?month={month}")).json()
+    assert any(row["companions"] == ["함께쓰는사람"] for row in calendar), calendar
+
+    # 이름이 올라간 사람에게 알림이 간다.
+    alerts = (await login(client, mate).get("/api/v1/notifications")).json()
+    assert any("함께 쓰는 예약" in row["title"] for row in alerts), alerts
+
+    # 고를 수 있는 회원 목록은 로그인한 회원에게만 보인다.
+    # (login() 이 공용 클라이언트의 쿠키를 바꾸므로 여기서 비우고 확인한다)
+    client.cookies.clear()
+    assert (await client.get("/api/v1/members/directory")).status_code == 401
+    listed = (await login(client, asker).get("/api/v1/members/directory")).json()
+    assert any(row["name"] == "함께쓰는사람" for row in listed)
+    assert all("email" not in row for row in listed)
+
+
+# ------------------------------------------------ 아무도 안 쓰는 사진 정리하기
+
+
+async def test_the_sweep_sees_every_place_a_photo_can_be_referenced(session):
+    """본문에 박힌 사진까지 '쓰이는 중' 으로 본다."""
+    from app.models import Equipment, NewsPost, ShapeUpPost
+    from app.services.media_sweep import referenced
+
+    base = "https://res.cloudinary.com/demo/image/upload"
+    author = await make_user(session, "sweepref@example.com")
+    session.add_all([
+        Equipment(name="장비", category="시험", image_url=f"{base}/v1/shape/equipment/1/gear.jpg"),
+        NewsPost(title="소식", summary="", category="활동", is_published=True,
+                 published_at=datetime.now(UTC), cover_image=f"{base}/v1/shape/news/1/cover.webp",
+                 content_html=f'<p><img src="{base}/f_auto,q_auto,c_limit,w_1400/v1/shape/news/1/body.webp"></p>'),
+        ShapeUpPost(author_id=author.id, title="결과물", summary="", cohort="1기", team_name="가팀",
+                    is_published=True, cover_image=f"{base}/v1/shape/shapeup/1/cover.webp"),
+    ])
+    await session.commit()
+
+    used = await referenced(session)
+    assert "shape/equipment/1/gear" in used
+    assert "shape/news/1/cover" in used
+    # 본문 안의 사진도, 변환 지시가 붙어 있어도 알아본다.
+    assert "shape/news/1/body" in used
+    assert "shape/shapeup/1/cover" in used
+
+
+async def test_reservation_photos_and_fresh_uploads_are_never_swept(session, monkeypatch):
+    """예약 사진은 활동 기록이라 남기고, 방금 올라온 것은 아직 판단하지 않는다."""
+    from app.services import media_sweep
+
+    now = datetime.now(UTC)
+    listed = [
+        # 예약 사진 — 아무도 안 가리켜도 남긴다.
+        {"public_id": "shape/reservation/u1/before", "bytes": 1000, "created_at": (now - timedelta(days=30)).isoformat()},
+        # 방금 올라온 것 — 아직 저장을 안 눌렀을 수 있다.
+        {"public_id": "shape/news/1/justnow", "bytes": 2000, "created_at": (now - timedelta(minutes=5)).isoformat()},
+        # 오래됐고 아무도 안 쓴다 — 이것만 지운다.
+        {"public_id": "shape/equipment/1/leftover", "bytes": 3000, "created_at": (now - timedelta(days=3)).isoformat()},
+    ]
+
+    async def fake_listed(_client, kind):
+        return listed if kind == "image" else []
+
+    monkeypatch.setattr(media_sweep, "_listed", fake_listed)
+    found = await media_sweep.find(session, grace_hours=24)
+    assert [item["public_id"] for item in found] == ["shape/equipment/1/leftover"]
+
+
+async def test_a_referenced_photo_is_never_swept(session, monkeypatch):
+    """쓰이고 있는 사진은 오래됐어도 건드리지 않는다."""
+    from app.models import Equipment
+    from app.services import media_sweep
+
+    old = (datetime.now(UTC) - timedelta(days=90)).isoformat()
+    session.add(Equipment(name="쓰는 장비", category="시험",
+                          image_url="https://res.cloudinary.com/demo/image/upload/v1/shape/equipment/9/live.webp"))
+    await session.commit()
+
+    async def fake_listed(_client, kind):
+        return [{"public_id": "shape/equipment/9/live", "bytes": 500, "created_at": old}] if kind == "image" else []
+
+    monkeypatch.setattr(media_sweep, "_listed", fake_listed)
+    assert await media_sweep.find(session, grace_hours=0) == []
+
+
+async def test_the_sweep_does_not_run_on_the_first_request_after_a_restart():
+    """찬 시작 직후에 정리까지 얹히지 않는다."""
+    from app.services import media_sweep
+
+    # 뜬 시각을 시작점으로 잡으므로, 방금 뜬 서버는 아직 때가 아니다.
+    before = media_sweep._last_run
+    media_sweep.maybe_sweep()
+    assert media_sweep._last_run == before

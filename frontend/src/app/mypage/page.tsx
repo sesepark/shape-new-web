@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { BellRing, CalendarClock, Check, ChevronRight, ClipboardCheck, Clock3, Eye, ShieldCheck, X } from "lucide-react";
+import { BellRing, CalendarClock, Check, ChevronRight, ClipboardCheck, Clock3, Eye, ShieldCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { AutoTextarea } from "@/components/auto-textarea";
@@ -86,6 +86,10 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
         <h4>{reservation.purpose}</h4>
         <p><Clock3 size={14} />{clock.format(starts)} – {clock.format(new Date(reservation.endsAt))}</p>
         <p className="reservation-target">{reservation.equipmentName || "장비"}{reservation.unitLabel ? ` · ${reservation.unitLabel}` : ""}</p>
+        {/* 함께 쓰는 사람이 있으면 누구인지 보여 줍니다. */}
+        {reservation.companions && reservation.companions.length > 0 && (
+          <p className="reservation-companions"><Users size={14} /> 함께 쓰는 부원: {reservation.companions.join(", ")}</p>
+        )}
         {reservation.rejectionReason && <p className="reservation-reason">사유: {reservation.rejectionReason}</p>}
         {(reservation.status === "APPROVED" || reservation.status === "IN_USE") ? (
           <ReservationPhotoStep reservation={reservation} onDone={onChange} />
