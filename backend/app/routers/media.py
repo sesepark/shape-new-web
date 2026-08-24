@@ -18,7 +18,35 @@ MANAGED_UPLOAD_PERMISSIONS = {"equipment": "equipment:manage", "news": "news:man
 
 
 RAW_MAX_BYTES = 10 * 1024 * 1024
-RAW_EXTENSIONS = ("pdf", "hwp", "hwpx", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "txt", "md", "zip")
+# 자료실에 올릴 수 있는 파일 형식.
+#
+# 처음에는 문서 몇 가지만 받았는데, 실제로 오가는 자료는 그보다 넓습니다. URDF 와
+# 런치 파일, 학습 로그와 점군, 실험 영상, 노트북과 설정 파일이 다 자료실에 올라올
+# 만한 것들입니다. 형식이 막혀 있으면 각자 개인 드라이브로 흩어지고, 그러면 다음
+# 기수에 아무것도 남지 않습니다.
+#
+# 웹 페이지로 열릴 수 있는 형식(html·htm·svg)과 실행 파일(exe·dll·bat 따위)은
+# 일부러 뺐습니다. 내려받아 여는 파일과 브라우저가 바로 실행하는 파일은 다릅니다.
+RAW_EXTENSIONS = (
+    # 문서
+    "pdf", "hwp", "hwpx", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    "odt", "ods", "odp", "rtf", "epub", "txt", "md", "csv", "tsv",
+    # 압축
+    "zip", "7z", "tar", "gz", "tgz", "bz2", "xz", "rar",
+    # 코드·설정·노트북
+    "py", "ipynb", "json", "yaml", "yml", "toml", "xml", "cfg", "ini",
+    "c", "h", "cpp", "hpp", "cc", "cu", "rs", "go", "js", "ts", "sh", "bash",
+    "cmake", "launch", "urdf", "xacro", "sdf", "rviz", "srdf", "proto",
+    # 데이터·모델·로그
+    "bag", "mcap", "db3", "npy", "npz", "pt", "pth", "onnx", "safetensors",
+    "pcd", "ply", "las", "parquet", "log",
+    # 3D·설계
+    "stl", "obj", "dae", "fbx", "glb", "gltf", "step", "stp", "iges", "igs",
+    "dxf", "dwg", "f3d", "sldprt", "sldasm", "3mf",
+    # 그림·소리·영상
+    "png", "jpg", "jpeg", "webp", "gif", "heic", "bmp", "tif", "tiff",
+    "mp3", "wav", "m4a", "flac", "mp4", "mov", "webm", "mkv", "avi",
+)
 
 
 @router.post("/file-signature")

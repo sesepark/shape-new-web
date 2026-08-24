@@ -94,7 +94,9 @@ function UploadForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
             <label className="resource-dropzone">
               <Upload size={18} />
               <span>{busy ? "올리는 중…" : "파일 선택"}</span>
-              <small>PDF · 한글 · 오피스 · 압축 파일 · 최대 10MB</small>
+              {/* 받는 형식은 서버가 정합니다. 여기 다 적으면 백 가지가 넘어
+                  오히려 읽히지 않으므로, 자주 쓰는 갈래만 적습니다. */}
+              <small>문서 · 압축 · 코드 · 데이터 · 3D · 사진과 영상 · 최대 10MB</small>
               <input className="sr-only" type="file" disabled={busy} onChange={(event) => { const chosen = event.target.files?.[0]; if (chosen) void pick(chosen); event.target.value = ""; }} />
             </label>
           )}

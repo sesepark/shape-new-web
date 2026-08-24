@@ -78,24 +78,32 @@ export async function uploadImage(file: File, purpose: UploadPurpose): Promise<{
 }
 
 
-const DOCUMENT_EXTENSIONS = ["pdf", "hwp", "hwpx", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "txt", "md", "zip"];
-
 /**
- * Documents go to Cloudinary's `raw` endpoint, which keeps the original file
- * untouched. Images have their own signed path; this one is for 자료실.
+ * 자료실에 올리는 파일.
+ *
+ * 어떤 형식을 받을지는 **서버가 정합니다.** 예전에는 같은 목록을 화면에도 적어
+ * 두어, 서버에서 형식을 늘려도 화면이 막는 일이 생겼습니다. 이제 서명을 받아 올
+ * 때 함께 오는 목록(`allowedExtensions`)으로 확인합니다. 형식이 틀리면 올리기
+ * 전에 걸러지므로 큰 파일이 헛되이 나가지 않습니다.
+ *
+ * Cloudinary 의 `raw` 자리에 올려 원본을 그대로 둡니다. 사진은 자기 길이 따로
+ * 있고, 이 길은 자료실 전용입니다.
  */
 export async function uploadDocument(file: File): Promise<{ url?: string; name?: string; size?: number; error?: string }> {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-  if (!DOCUMENT_EXTENSIONS.includes(extension)) {
-    return { error: `${DOCUMENT_EXTENSIONS.join(", ")} 형식만 올릴 수 있습니다.` };
-  }
-  if (file.size > MAX_BYTES) return { error: "파일은 10MB 이하만 올릴 수 있습니다." };
   try {
     const signature = await fetch(`${API_URL}/media/file-signature`, { method: "POST", credentials: "include" });
     if (signature.status === 401 || signature.status === 403) return { error: "로그인한 회원만 자료를 올릴 수 있습니다." };
     if (signature.status === 503) return { error: "파일 저장소 설정이 아직 완료되지 않았습니다." };
     if (!signature.ok) return { error: "업로드 설정을 불러오지 못했습니다." };
     const data = await signature.json();
+    const allowed: string[] = Array.isArray(data.allowedExtensions) ? data.allowedExtensions : [];
+    if (allowed.length && !allowed.includes(extension)) {
+      return { error: `${extension ? `.${extension} 는 ` : ""}올릴 수 없는 형식입니다. 압축해서 올려 주세요.` };
+    }
+    const limit: number = typeof data.maxFileSize === "number" ? data.maxFileSize : MAX_BYTES;
+    if (file.size > limit) return { error: `파일은 ${Math.round(limit / 1024 / 1024)}MB 이하만 올릴 수 있습니다.` };
+
     const form = new FormData();
     form.append("file", file);
     form.append("api_key", data.apiKey);

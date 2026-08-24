@@ -1269,3 +1269,21 @@ async def test_owners_are_told_about_a_new_reservation_request(client, session):
     })
     assert again.status_code == 201
     assert len((await login(client, owner).get("/api/v1/notifications")).json()) == 1
+
+
+async def test_the_resource_library_takes_many_file_kinds(client, session):
+    """자료실은 문서만이 아니라 실제로 오가는 자료를 받는다.
+
+    형식이 막혀 있으면 각자 개인 드라이브로 흩어지고, 그러면 다음 기수에 아무것도
+    남지 않는다. 다만 브라우저가 바로 실행하는 형식은 받지 않는다.
+    """
+    user = await make_user(session)
+    signed = await login(client, user).post("/api/v1/media/file-signature")
+    # Cloudinary 설정이 없는 시험 환경에서는 503 이 정상이므로 목록만 본다.
+    from app.routers.media import RAW_EXTENSIONS
+
+    for wanted in ("urdf", "ipynb", "bag", "stl", "mp4", "parquet", "7z", "step"):
+        assert wanted in RAW_EXTENSIONS, wanted
+    for blocked in ("html", "htm", "svg", "exe", "dll", "bat"):
+        assert blocked not in RAW_EXTENSIONS, blocked
+    assert signed.status_code in {200, 503}
