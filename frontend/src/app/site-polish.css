@@ -2982,3 +2982,9 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   from { opacity: 0; transform: scale(.86); }
   to { opacity: 1; transform: none; }
 }
+
+/* 게시판 '이전 글 더 보기'. 목록 아래 가운데에 둡니다. */
+.board-more {
+  margin: 16px auto 0;
+  display: block;
+}

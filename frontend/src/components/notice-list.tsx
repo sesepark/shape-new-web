@@ -9,6 +9,8 @@ import { date } from "@/lib/format";
 import type { NoticeCategory, NoticeItem } from "@/lib/types";
 
 const categories = ["전체", "공지", "질문", "정보", "일반"] as const;
+/** 서버가 한 번에 보내 주는 글 수. 백엔드의 NOTICE_PAGE 와 같아야 합니다. */
+const PAGE = 30;
 
 export function NoticeList() {
   const { session } = useSession();
@@ -16,14 +18,38 @@ export function NoticeList() {
   const readOnly = session?.status === "VIEWER";
   const [items, setItems] = useState<NoticeItem[] | null>(null);
   const [category, setCategory] = useState<(typeof categories)[number]>("전체");
+  // 목록은 한 번에 30개만 받습니다. 글이 쌓여도 목록을 여는 비용이 함께
+  // 자라지 않도록, 더 오래된 글은 눌러서 이어 받습니다.
+  const [more, setMore] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     void board("/notices", { signal: controller.signal })
-      .then(async (response) => setItems(response.ok ? ((await response.json()) as NoticeItem[]) : []))
+      .then(async (response) => {
+        const rows = response.ok ? ((await response.json()) as NoticeItem[]) : [];
+        setItems(rows);
+        setMore(rows.length >= PAGE);
+      })
       .catch(() => setItems([]));
     return () => controller.abort();
   }, []);
+
+  async function loadOlder() {
+    const oldest = items?.[items.length - 1]?.publishedAt;
+    if (!oldest) return;
+    setLoading(true);
+    const response = await board(`/notices?before=${encodeURIComponent(oldest)}`).catch(() => null);
+    setLoading(false);
+    if (!response?.ok) return;
+    const rows = (await response.json()) as NoticeItem[];
+    setMore(rows.length >= PAGE);
+    // 상단 고정 글은 날짜와 상관없이 맨 앞에 오므로 다시 딸려 올 수 있습니다.
+    setItems((current) => {
+      const seen = new Set((current ?? []).map((item) => item.id));
+      return [...(current ?? []), ...rows.filter((item) => !seen.has(item.id))];
+    });
+  }
 
   const visible = (items ?? []).filter((item) => category === "전체" || item.category === category);
 
@@ -76,6 +102,11 @@ export function NoticeList() {
           <h2>{category === "전체" ? "등록된 게시글이 없습니다" : `${category} 게시글이 없습니다`}</h2>
           <p>첫 글을 남겨 보세요. 새 공지는 이 화면과 구독한 알림으로 함께 전달됩니다.</p>
         </div>
+      )}
+      {more && visible.length > 0 && (
+        <button type="button" className="button secondary board-more" disabled={loading} onClick={() => void loadOlder()}>
+          {loading ? "불러오는 중…" : "이전 글 더 보기"}
+        </button>
       )}
     </div>
   );

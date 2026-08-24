@@ -1170,3 +1170,34 @@ async def test_old_posts_are_delivered_smaller_too(client, session):
     listed = (await client.get("/api/v1/news?limit=5")).json()
     detail = (await client.get(f"/api/v1/news/{listed[0]['id']}")).json()
     assert "f_auto,q_auto,c_limit,w_1400/v1/old.jpg" in detail["contentHtml"]
+
+
+async def test_the_board_list_stays_light(client, session):
+    """게시판 목록은 본문을 싣지 않고, 한 번에 30개까지만 보낸다.
+
+    예전에는 게시된 글을 전부, 본문까지 담아 보냈다. 회원 전용이라 공유 캐시도
+    못 태우므로 글이 쌓일수록 목록을 여는 사람마다 무거운 응답이 나갔다.
+    """
+    from app.models import Notice
+
+    user = await make_user(session)
+    for index in range(33):
+        session.add(Notice(
+            title=f"글 {index:02d}", category="일반", content_html="<p>본문</p>",
+            author_id=user.id, is_published=True, is_pinned=False,
+            published_at=datetime(2026, 8, 1, tzinfo=UTC) + timedelta(minutes=index),
+        ))
+    await session.commit()
+
+    http = login(client, user)
+    first = (await http.get("/api/v1/notices")).json()
+    assert len(first) == 30
+    assert "contentHtml" not in first[0]
+
+    # 나머지는 마지막 글보다 앞선 것부터 이어 받는다.
+    older = (await http.get(f"/api/v1/notices?before={first[-1]['publishedAt']}")).json()
+    assert [row["title"] for row in older] == ["글 02", "글 01", "글 00"]
+
+    # 본문은 글을 눌렀을 때 온다.
+    detail = (await http.get(f"/api/v1/notices/{first[0]['id']}")).json()
+    assert detail["contentHtml"] == "<p>본문</p>"

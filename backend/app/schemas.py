@@ -330,17 +330,25 @@ class LinkWrite(InputModel):
 
 
 class NoticeRead(ORMModel):
+    """게시판 목록에 나가는 한 줄.
+
+    본문(`content_html`)은 **일부러 빼 두었습니다.** 목록 화면은 제목·분류·글쓴이
+    ·날짜·댓글 수만 그리는데, 본문까지 실어 보내면 글이 쌓일수록 목록 응답만
+    수십 KB 로 불어납니다. 게시판은 회원 전용이라 공유 캐시도 못 태워, 그 무게가
+    누가 목록을 열 때마다 그대로 나갑니다. 본문은 글을 눌렀을 때 상세에서 옵니다.
+    """
+
     id: UUID
     title: str
     category: str
     is_pinned: bool
     published_at: datetime
-    content_html: DeliveredHtml = ""
     author_name: str = ""
     comment_count: int = 0
 
 
 class NoticeDetailRead(NoticeRead):
+    content_html: DeliveredHtml = ""
     author_id: UUID | None = None
     can_edit: bool = False
 

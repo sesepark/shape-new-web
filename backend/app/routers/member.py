@@ -123,9 +123,30 @@ async def notice_reads(db: AsyncSession, notices: list[Notice], model=NoticeRead
     ]
 
 
+# 게시판 목록에 한 번에 실어 보내는 글 수. 글이 쌓여도 응답 크기가 함께
+# 자라지 않도록 막아 두는 자리다. 넘치는 글은 `before` 로 이어 받는다.
+NOTICE_PAGE = 30
+
+
 @router.get("/notices", response_model=list[NoticeRead])
-async def notices(_: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
-    items = (await db.scalars(select(Notice).where(Notice.is_published.is_(True)).order_by(Notice.is_pinned.desc(), Notice.published_at.desc()))).all()
+async def notices(
+    _: User = Depends(reading_user),
+    db: AsyncSession = Depends(get_db),
+    before: datetime | None = Query(default=None, description="이 시각보다 앞선 글부터 이어 받습니다."),
+    limit: int = Query(default=NOTICE_PAGE, ge=1, le=NOTICE_PAGE),
+):
+    """게시판 목록.
+
+    예전에는 게시된 글을 **전부** 본문까지 담아 보냈습니다. 회원 전용이라 공유
+    캐시도 태울 수 없어서, 글이 쌓일수록 목록을 여는 사람마다 그만큼 무거운
+    응답이 나갔습니다. 지금은 한 번에 30개까지, 본문은 빼고 보냅니다.
+    """
+    query = select(Notice).where(Notice.is_published.is_(True))
+    if before is not None:
+        query = query.where(Notice.published_at < before)
+    items = (await db.scalars(
+        query.order_by(Notice.is_pinned.desc(), Notice.published_at.desc()).limit(limit)
+    )).all()
     return await notice_reads(db, list(items))
 
 

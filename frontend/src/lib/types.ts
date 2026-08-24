@@ -247,18 +247,25 @@ export interface RelatedLink {
 
 export type NoticeCategory = "공지" | "질문" | "정보" | "일반";
 
+/**
+ * 게시판 목록에 나오는 한 줄.
+ *
+ * 본문은 들어 있지 않습니다. 목록은 제목·분류·글쓴이·날짜·댓글 수만 그리는데,
+ * 본문까지 받으면 글이 쌓일수록 목록만 무거워집니다. 본문은 글을 눌렀을 때
+ * `NoticeDetail` 로 옵니다.
+ */
 export interface NoticeItem {
   id: string;
   title: string;
   category: NoticeCategory;
   publishedAt: string;
   isPinned: boolean;
-  contentHtml: string;
   authorName: string;
   commentCount: number;
 }
 
 export interface NoticeDetail extends NoticeItem {
+  contentHtml: string;
   authorId?: string | null;
   canEdit: boolean;
 }
