@@ -1676,3 +1676,92 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   .home-fields { margin: 24px 0 22px; }
   .home-fields small { font-size: 11.5px; }
 }
+
+/* ==========================================================================
+   라이선스 카드 — 이름에 맞는 얼굴
+   --------------------------------------------------------------------------
+   은색 바탕과 기울임, 무지개 반사는 그대로 둡니다. 카드가 여러 장 쌓였을 때
+   무엇에 대한 카드인지 갈리도록, 종류마다 아이콘과 강조색과 코드가 달라집니다.
+   강조색은 `--license-accent` 로 들어오고(`license-card.tsx`), 은색을 덮지
+   않도록 반사광과 아이콘, 얇은 선에만 씁니다.
+   ========================================================================== */
+
+.license-card { justify-content: flex-start; gap: 0; }
+
+.license-card-head {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.license-card-head i {
+  padding: 3px 8px;
+  color: rgb(var(--license-accent, 108, 122, 148));
+  background: rgba(255, 255, 255, .62);
+  border: 1px solid rgba(var(--license-accent, 108, 122, 148), .45);
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.license-card-mark {
+  margin: 20px 0 14px;
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  color: rgb(var(--license-accent, 108, 122, 148));
+  background: rgba(255, 255, 255, .55);
+  border: 1px solid rgba(255, 255, 255, .85);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 2px #fff, 0 4px 10px rgba(20, 27, 40, .14);
+}
+
+/* 이름이 길면 두 줄까지 쓰고, 남은 자리는 아래 정보가 가져간다. */
+.license-card strong {
+  max-width: 100%;
+  margin-bottom: 10px;
+  font-size: clamp(24px, 4.6vw, 31px);
+  word-break: keep-all;
+}
+
+.license-card small {
+  margin-bottom: auto;
+  padding: 3px 9px;
+  color: #1d4d33;
+  background: rgba(42, 199, 138, .3);
+  border-radius: 999px;
+}
+
+.license-card small.pending { color: #5d3410; background: rgba(255, 168, 44, .34); }
+
+.license-card em {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-top: 16px;
+}
+
+.license-card em b {
+  color: rgb(var(--license-accent, 108, 122, 148));
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+
+/* 반사광에도 그 카드의 색이 섞이게 한다. 은색이 주인공인 것은 그대로다. */
+.license-card::after {
+  background: radial-gradient(
+    ellipse 34% 56% at var(--px) var(--py),
+    rgba(var(--license-accent, 89, 239, 255), .78),
+    rgba(255, 115, 207, .32) 34%,
+    rgba(255, 237, 125, .24) 55%,
+    transparent 78%
+  );
+}
