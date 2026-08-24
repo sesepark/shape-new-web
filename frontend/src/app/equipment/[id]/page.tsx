@@ -125,7 +125,10 @@ export default async function EquipmentDetailPage({
               <dt>
                 <CheckCircle2 size={17} /> 사전 조건
               </dt>
-              <dd>{equipment.requiredLicenses.join(", ") || "운영진 확인"}</dd>
+              {/* 라이선스를 걸지 않은 장비는 승인된 회원이면 누구나 예약합니다.
+                  예전에는 '운영진 확인' 이라고만 적어 두어, 물어봐야 하는 줄
+                  알고 신청을 미루게 됐습니다. */}
+              <dd>{equipment.requiredLicenses.join(", ") || "라이선스 필요 없음"}</dd>
             </div>
           </dl>
           {equipment.status === "ACTIVE" ? (

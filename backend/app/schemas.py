@@ -190,7 +190,7 @@ class EquipmentWrite(InputModel):
     description: str = ""
     image_url: str | None = None
     status: EquipmentStatus = EquipmentStatus.ACTIVE
-    reservation_unit_minutes: int = Field(default=30, ge=30, le=120, multiple_of=30)
+    reservation_unit_minutes: int = Field(default=60, ge=30, le=120, multiple_of=30)
     sort_order: int = Field(default=0, ge=0, le=999)
 
 
@@ -496,6 +496,7 @@ class NotificationRead(ORMModel):
     title: str
     is_read: bool
     notice_id: UUID | None = None
+    url: str | None = None
     created_at: datetime
 
 

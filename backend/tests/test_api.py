@@ -1223,3 +1223,49 @@ async def test_the_home_page_is_editable(client, session):
 
     # 목록에 없는 slug 는 여전히 받지 않는다.
     assert (await http.put("/api/v1/admin/pages/hacked", json=body)).status_code == 404
+
+
+async def test_owners_are_told_about_a_new_reservation_request(client, session):
+    """예약 신청이 들어오면 운영진(owner)에게 알림이 남는다.
+
+    신청은 운영진이 승인해야 진행되는데, 예전에는 아무 표시가 없어 관리자 화면을
+    직접 열어 보기 전에는 기다리는 신청이 있는지 알 수 없었다.
+    """
+    owner = await make_user(session, "owner-alert@example.com", owner=True)
+    other = await make_user(session, "plain@example.com")
+    # 라이선스를 걸지 않은 장비는 누구나 예약할 수 있다.
+    equipment = Equipment(name="라이선스 없는 장비", category="공용")
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    await session.commit()
+    starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+
+    http = login(client, other)
+    made = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id),
+        "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(),
+        "purpose": "실험 준비",
+    })
+    assert made.status_code == 201, made.text
+
+    alerts = (await login(client, owner).get("/api/v1/notifications")).json()
+    assert len(alerts) == 1, alerts
+    assert equipment.name in alerts[0]["title"]
+    # 누르면 예약을 승인하는 화면으로 갑니다. 게시판 공지와 갈 곳이 다릅니다.
+    assert alerts[0]["url"] == "/admin"
+
+    # 신청한 본인에게는 가지 않는다.
+    assert (await login(client, other).get("/api/v1/notifications")).json() == []
+
+    # 같은 신청을 두 번 보내도 알림은 하나다.
+    again = await login(client, other).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id),
+        "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(),
+        "purpose": "실험 준비",
+    })
+    assert again.status_code == 201
+    assert len((await login(client, owner).get("/api/v1/notifications")).json()) == 1

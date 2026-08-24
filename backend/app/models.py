@@ -147,7 +147,9 @@ class Equipment(Base, Timestamped):
     description: Mapped[str] = mapped_column(Text, default="")
     image_url: Mapped[str | None] = mapped_column(String(1000))
     status: Mapped[EquipmentStatus] = mapped_column(Enum(EquipmentStatus), default=EquipmentStatus.ACTIVE)
-    reservation_unit_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    # 예약 단위는 60분이 기본이다. 30분으로 두면 장비마다 다른 단위가 섞여
+    # 시간표가 들쭉날쭉해지고, 실제 사용도 대부분 한 시간 단위로 이뤄진다.
+    reservation_unit_minutes: Mapped[int] = mapped_column(Integer, default=60)
     open_hour: Mapped[int] = mapped_column(Integer, default=0)
     close_hour: Mapped[int] = mapped_column(Integer, default=24)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -291,6 +293,9 @@ class Notification(Base, Timestamped):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     notice_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("notices.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(String(200))
+    # 알림을 눌렀을 때 갈 곳. 게시판 공지는 비워 두고 /notices 로 갑니다.
+    # 예약 신청처럼 다른 화면으로 가야 하는 알림만 채웁니다.
+    url: Mapped[str | None] = mapped_column(String(300))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

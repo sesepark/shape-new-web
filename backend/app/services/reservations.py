@@ -64,7 +64,8 @@ async def assert_eligible(db: AsyncSession, user_id, unit_id) -> EquipmentUnit:
     return unit
 
 
-async def create_pending(db: AsyncSession, user_id, payload: ReservationCreate) -> Reservation:
+async def create_pending(db: AsyncSession, user_id, payload: ReservationCreate) -> tuple[Reservation, bool]:
+    """예약을 신청한다. (예약, 새로 만들었는지) 를 돌려준다."""
     if payload.starts_at >= payload.ends_at or payload.starts_at.minute not in {0, 30}:
         raise HTTPException(422, "예약 시간 범위를 확인해 주세요.")
     now = datetime.now(UTC)
@@ -92,12 +93,15 @@ async def create_pending(db: AsyncSession, user_id, payload: ReservationCreate) 
         Reservation.status == ReservationStatus.PENDING,
     ))
     if existing:
-        return existing
+        # 같은 신청을 두 번 보낸 경우다(느린 연결에서 단추를 두 번 누르면 생긴다).
+        # 새로 만들지 않고, 새 신청이 아니라는 것도 함께 알린다. 운영진에게 같은
+        # 알림이 두 번 가지 않게 하기 위해서다.
+        return existing, False
     reservation = Reservation(user_id=user_id, **payload.model_dump())
     db.add(reservation)
     await db.commit()
     await db.refresh(reservation)
-    return reservation
+    return reservation, True
 
 
 async def approve(db: AsyncSession, reservation: Reservation) -> Reservation:

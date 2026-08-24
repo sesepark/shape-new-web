@@ -55,7 +55,7 @@ from app.security import (
     reading_user,
 )
 from app.services.content import sanitize_html
-from app.services.notifications import deliver_push, publish_notice_notifications
+from app.services.notifications import deliver_push, publish_notice_notifications, publish_owner_notifications
 from app.services.reservations import cancel, create_pending, read_models
 from app.services.revalidate import refresh
 
@@ -344,8 +344,23 @@ async def reservation_calendar(
 
 @router.post("/reservations", response_model=ReservationRead, status_code=201)
 async def request_reservation(payload: ReservationCreate, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
-    reservation = await create_pending(db, user.id, payload)
-    return (await read_models(db, [reservation]))[0]
+    """장비 예약을 신청합니다.
+
+    신청은 운영진이 승인해야 진행되므로, 신청이 들어오면 운영진에게 알립니다.
+    예전에는 아무 표시가 없어서 관리자 화면을 직접 열어 보기 전에는 기다리는
+    신청이 있는지 알 수 없었습니다.
+    """
+    reservation, created = await create_pending(db, user.id, payload)
+    read = (await read_models(db, [reservation]))[0]
+    if not created:
+        return read
+    when = reservation.starts_at.astimezone(SEOUL).strftime("%m월 %d일 %H:%M")
+    title = f"새 예약 신청 · {read.equipment_name} {read.unit_label} · {when}"
+    devices = await publish_owner_notifications(db, title, "/admin")
+    await db.commit()
+    # 푸시는 저장이 끝난 뒤에 보냅니다. 저장이 실패했는데 알림만 가는 일을 막습니다.
+    await deliver_push(devices, title, body=f"{user.name} 님이 예약을 신청했습니다. 승인해 주세요.", path="/admin")
+    return read
 
 
 async def owned_reservation(db: AsyncSession, reservation_id: UUID, user: User) -> Reservation:

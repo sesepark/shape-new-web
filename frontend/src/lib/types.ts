@@ -234,6 +234,8 @@ export interface NotificationItem {
   title: string;
   isRead: boolean;
   noticeId?: string | null;
+  /** 알림을 눌렀을 때 갈 곳. 비어 있으면 게시판으로 갑니다. */
+  url?: string | null;
   createdAt: string;
 }
 

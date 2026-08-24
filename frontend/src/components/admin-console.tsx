@@ -1717,7 +1717,7 @@ function EquipmentForm() {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [unit, setUnit] = useState(30);
+  const [unit, setUnit] = useState(60);
   const [status, setStatus] = useState("ACTIVE");
   const [sortOrder, setSortOrder] = useState(0);
   const [licenseIds, setLicenseIds] = useState<string[]>([]);
@@ -1741,7 +1741,7 @@ function EquipmentForm() {
     setCategory("");
     setDescription("");
     setImageUrl("");
-    setUnit(30);
+    setUnit(60);
     setStatus("ACTIVE");
     setSortOrder(0);
     setLicenseIds([]);
@@ -1841,6 +1841,19 @@ function EquipmentForm() {
       </div>
       <fieldset className="license-picker">
         <legend>예약에 필요한 라이선스</legend>
+        {/*
+          아무것도 고르지 않은 상태가 곧 '라이선스 필요 없음' 입니다. 그런데 빈
+          목록만 보면 아직 안 고른 것인지 필요 없다는 뜻인지 알 수 없어, 뜻을
+          눈에 보이게 적어 둡니다. 이 칸을 켜면 고른 라이선스가 모두 풀립니다.
+        */}
+        <label className="toggle-field license-free">
+          <input
+            type="checkbox"
+            checked={licenseIds.length === 0}
+            onChange={(event) => { if (event.target.checked) setLicenseIds([]); }}
+          />
+          <span><b>라이선스 필요 없음</b> — 승인된 회원이면 누구나 예약할 수 있습니다.</span>
+        </label>
         {licenses.length ? (
           licenses.map((license) => (
             <label key={license.id} className="toggle-field">

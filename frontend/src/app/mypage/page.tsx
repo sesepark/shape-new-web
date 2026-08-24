@@ -379,7 +379,8 @@ function NoticeAlerts() {
         <ul className="alert-list">
           {items.slice(0, 8).map((item) => (
             <li key={item.id} className={item.isRead ? "" : "unread"}>
-              <Link href="/notices">{item.title}</Link>
+              {/* 게시판 공지는 게시판으로, 예약 신청 알림은 관리자 화면으로 갑니다. */}
+              <Link href={item.url || "/notices"}>{item.title}</Link>
               <time>{stamp.format(new Date(item.createdAt))}</time>
             </li>
           ))}

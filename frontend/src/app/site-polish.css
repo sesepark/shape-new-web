@@ -402,13 +402,14 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 /* ── 언론보도 목록 ──────────────────────────────────────────
    PageShell 안으로 들어오면서 자체 히어로가 사라졌으므로, 검색창과
    소셜 버튼을 한 줄로 묶어 제목 바로 아래에 붙입니다. */
-.press-directory-tools { margin:0 0 34px; display:flex; align-items:center; gap:16px; }
-.press-directory-tools .press-search { flex:1; min-width:0; max-width:720px; }
-.press-directory-tools .press-socials { flex:0 0 auto; }
+/* 검색창을 가운데에 놓고, 깃허브·인스타그램 아이콘은 그 아래 줄 가운데에
+   둡니다. 한 줄에 나란히 두면 검색창이 왼쪽으로 밀려 가운데가 비어 보였습니다. */
+.press-directory-tools { margin:0 0 34px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+.press-directory-tools .press-search { width:100%; min-width:0; max-width:720px; }
+.press-directory-tools .press-socials { flex:0 0 auto; justify-content:center; }
 @media (max-width:680px) {
-  .press-directory-tools { flex-direction:column; align-items:stretch; gap:14px; }
+  .press-directory-tools { gap:14px; }
   .press-directory-tools .press-search { max-width:none; }
-  .press-directory-tools .press-socials { justify-content:flex-start; }
   .press-socials a { width:44px; height:44px; }
   .press-socials a svg { width:20px; height:20px; }
 }
@@ -798,8 +799,9 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 @media (max-width:680px) { .member-photo > span { font-size:24px; } }
 
 /* ── SHAPE-UP 결과물 ────────────────────────────────────────── */
-.shape-up-head { margin-bottom:28px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
-.shape-up-head .lead { flex:1 1 420px; margin:0; }
+/* 소개 문단을 가운데에 놓습니다. 글쓰기 단추는 그 아래 줄에 둡니다. */
+.shape-up-head { margin-bottom:28px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+.shape-up-head .lead { max-width:760px; margin:0; text-align:center; text-wrap:balance; word-break:keep-all; }
 .shape-up-head .button.small { display:inline-flex; align-items:center; gap:6px; }
 .shape-up-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:26px; }
 .shape-up-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid #e1e5ec; border-radius:16px; background:#fff; transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease; }
@@ -830,7 +832,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .member-row button { padding:0 10px; border:1px solid #e2e6ee; border-radius:8px; background:#fff; color:#b62446; cursor:pointer; }
 @media (max-width:680px) {
   .shape-up-grid { grid-template-columns:1fr; gap:18px; }
-  .shape-up-head { align-items:stretch; flex-direction:column; }
+  .shape-up-head { align-items:stretch; }
   .shape-up-head .button.small { justify-content:center; }
 }
 
@@ -3076,3 +3078,15 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   font-size: 12px;
   font-weight: 800;
 }
+
+/* 장비에 라이선스를 걸지 않겠다는 뜻을 눈에 보이게 적어 두는 칸.
+   빈 목록만 보면 아직 안 고른 것인지 필요 없다는 뜻인지 알 수 없습니다. */
+.license-picker .license-free {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: #f2f6ff;
+  border: 1px solid #d7e2fb;
+  border-radius: 9px;
+}
+
+.license-picker .license-free b { color: var(--blue); }
