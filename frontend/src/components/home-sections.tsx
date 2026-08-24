@@ -1,11 +1,13 @@
 "use client";
 
 import { Fragment } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { HomeRobotStage } from "@/components/home-robot-stage";
 import { ShapeWordmark } from "@/components/shape-wordmark";
 import { lines, type HomeContent } from "@/lib/home-content";
+import { media, optimizable } from "@/lib/media";
 import type { RoadmapItem } from "@/lib/types";
 
 /**
@@ -81,6 +83,21 @@ export function HomePillars({ home }: { home: HomeContent }) {
           {home.stages.map((stage) => (
             <article key={stage.number}>
               <span>{stage.number}</span>
+              {/* 사진은 넣어도 되고 안 넣어도 됩니다. 넣으면 글 위에 같은 크기의
+                  둥근 사각형으로 놓입니다. */}
+              {stage.imageUrl && (
+                <div className="home-pillar-photo">
+                  <Image
+                    src={media(stage.imageUrl, 640, "high")}
+                    alt=""
+                    width={640}
+                    height={640}
+                    sizes="(max-width: 900px) 40vw, 260px"
+                    quality={88}
+                    unoptimized={!optimizable(stage.imageUrl)}
+                  />
+                </div>
+              )}
               <small>{stage.label}</small>
               <h3>{stage.title}</h3>
               <p>{stage.body}</p>

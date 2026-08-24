@@ -1099,6 +1099,14 @@ function HomeForm({ section }: { section: "히어로" | "인트로" | "단계" |
               </div>
               <HomeText label="설명" rows={3} value={stage.body} onChange={(value) => patch("stages", editRow(content.stages, index, { body: value }))} />
               <HomeText label="연결 주소" value={stage.href} onChange={(value) => patch("stages", editRow(content.stages, index, { href: value }))} />
+              {/* 사진은 세 칸 모두 같은 크기의 둥근 사각형으로 놓입니다.
+                  비워 두면 그 칸만 글로 나옵니다. */}
+              <ImageUploadField
+                purpose="news"
+                label="카드 사진 (선택)"
+                value={stage.imageUrl ?? ""}
+                onChange={(value) => patch("stages", editRow(content.stages, index, { imageUrl: value || undefined }))}
+              />
             </fieldset>
           ))}
         </>

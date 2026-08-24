@@ -3496,3 +3496,51 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   .admin-item-grip { display: none; }
   .admin-item-move button { width: 30px; height: 30px; }
 }
+
+/* ==========================================================================
+   홈 '단계' 카드 안의 사진
+   --------------------------------------------------------------------------
+   세 칸이 나란히 놓이는 자리라 사진 크기가 제각각이면 카드 높이가 흔들립니다.
+   고정 크기의 정사각(둥근 모서리)으로 놓고, 비율이 다른 사진은 가운데를 기준으로
+   잘라 채웁니다. 사진이 없는 칸은 그 자리를 비우지 않고 글이 위로 올라옵니다.
+   ========================================================================== */
+
+.home-pillars .home-pillar-photo {
+  /* 카드는 글이 아래에 모이도록 짜여 있습니다(small 이 margin-top:auto).
+     사진도 그 무리에 넣어야 번호와 사진 사이가 휑하게 벌어지지 않습니다. */
+  margin: auto 0 10px;
+  width: 120px;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--media-placeholder);
+}
+
+.home-pillars .home-pillar-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (max-width: 900px) {
+  .home-pillars .home-pillar-photo { width: 96px; margin: auto 0 8px; }
+}
+
+/* 좁은 화면은 세 칸이 위아래로 쌓여 자리가 빠듯합니다. 사진을 글 옆에 둡니다. */
+@media (max-width: 620px) {
+  .home-pillars article { position: relative; }
+
+  .home-pillars .home-pillar-photo {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    width: 64px;
+    margin: 0;
+    border-radius: 11px;
+  }
+
+  .home-pillars article > small { margin-top: auto; }
+
+  .home-pillars article > :is(span, small, h3, p) { padding-right: 74px; }
+}

@@ -20,6 +20,8 @@ export interface HomeStage {
   title: string;
   body: string;
   href: string;
+  /** 카드 안에 놓는 사진. 비워 두면 사진 없이 글만 나옵니다. */
+  imageUrl?: string;
 }
 
 export interface HomeField {
@@ -230,6 +232,8 @@ export function mergeHome(stored: unknown): HomeContent {
       title: pickText(row.title, base.stages[index]?.title ?? ""),
       body: pickText(row.body, base.stages[index]?.body ?? ""),
       href: pickText(row.href, base.stages[index]?.href ?? "/roadmap"),
+      // 사진은 없는 것이 정상이므로 빈 값을 기본값으로 되돌리지 않습니다.
+      imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : undefined,
     })),
     numbers: {
       eyebrow: pickText(numbers.eyebrow, base.numbers.eyebrow),
