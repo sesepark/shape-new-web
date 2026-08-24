@@ -5,11 +5,22 @@ import { useEffect, useState } from "react";
 const SECTIONS = [
   { id: "hero", label: "인트로" },
   { id: "shape-intro", label: "소개" },
-  { id: "shape-pillars", label: "활동" },
+  { id: "shape-pillars", label: "단계" },
+  { id: "shape-numbers", label: "현황" },
+  { id: "shape-next", label: "일정" },
 ];
 // Children that should fly in when their section arrives. The robot stage is
 // deliberately excluded so the 3D canvas is never transformed mid-render.
-const REVEAL = ".home-intro > *, .home-introduction > div > *, .home-pillars article, .home-outro > *";
+const REVEAL = [
+  ".home-intro > *",
+  ".home-introduction > div > *",
+  ".home-pillars article",
+  ".home-section-head > *",
+  ".home-fact-grid > div",
+  ".home-week li",
+  ".home-platforms",
+  ".home-timeline li",
+].join(", ");
 
 export function HomeScrollSnap() {
   const [current, setCurrent] = useState(0);
