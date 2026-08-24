@@ -2617,3 +2617,36 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .link-summary b { color: var(--blue); font-weight: 900; }
 
 .link-summary i { color: #7b8496; font-size: 12px; font-style: normal; }
+
+/* ==========================================================================
+   관리자 좌측 바 — 탭 묶음이 눈에 들어오게
+   --------------------------------------------------------------------------
+   묶음 머리글(SHAPE · 장비 예약 · 소식 …)이 옅은 회색이라 탭 이름과 뒤섞여
+   보였습니다. 머리글을 파랑으로 올리고 묶음 사이에 옅은 선을 그어, 어느 탭이
+   어느 묶음에 속하는지 훑기만 해도 갈리게 합니다.
+   ========================================================================== */
+
+.admin-tab-group > p {
+  color: var(--blue);
+  font-size: 11px;
+  letter-spacing: .1em;
+}
+
+/* 첫 묶음 위에는 선을 긋지 않는다. 사이에만 있으면 된다. */
+.admin-tab-group + .admin-tab-group {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e9f1;
+}
+
+@media (max-width: 900px) {
+  /* 좁은 화면에서 좌측 바는 한 줄 가로 스크롤이 된다. 그 자리에서 가로선은
+     묶음을 가르지 못하므로 세로선으로 바꾼다. */
+  .admin-tab-group + .admin-tab-group {
+    margin-top: 0;
+    padding-top: 0;
+    padding-left: 16px;
+    border-top: 0;
+    border-left: 1px solid #e5e9f1;
+  }
+}
