@@ -61,6 +61,9 @@ from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
 from app.services.member_cards import ensure_card
 from app.services.notifications import deliver_push, publish_notice_notifications
+from app.services.reservation_alerts import label as reservation_label
+from app.services.reservation_alerts import tell_owner as tell_reservation_owner
+from app.services.reservation_alerts import when as reservation_when
 from app.services.reservations import approve, cancel, read_models
 from app.services.revalidate import refresh
 
@@ -537,13 +540,22 @@ async def reservation_decision(reservation_id: UUID, payload: ReservationDecisio
     item = await db.get(Reservation, reservation_id)
     if not item:
         raise HTTPException(404, "예약을 찾을 수 없습니다.")
+    name = await reservation_label(db, item)
     if payload.approve:
         await approve(db, item)
+        title = f"예약이 확정되었습니다 · {name} · {reservation_when(item.starts_at)}"
+        body = "시간이 되면 사용 전 사진을 올리고 시작해 주세요."
     else:
         if item.status != ReservationStatus.PENDING:
             raise HTTPException(409, "대기 예약만 거절할 수 있습니다.")
         item.status, item.rejection_reason = ReservationStatus.REJECTED, payload.reason
-        await db.commit()
+        title = f"예약이 반려되었습니다 · {name} · {reservation_when(item.starts_at)}"
+        body = payload.reason or "다른 시간으로 다시 신청해 주세요."
+    # 신청한 사람에게 결과를 알립니다. 예전에는 마이페이지를 직접 열어 보기
+    # 전에는 승인이 됐는지 알 수 없었습니다.
+    devices = await tell_reservation_owner(db, item, title)
+    await db.commit()
+    await deliver_push(devices, title, body=body, path="/mypage")
     return {"ok": True}
 
 
@@ -553,7 +565,12 @@ async def reservation_cancel(reservation_id: UUID, payload: ReservationDecision 
     item = await db.get(Reservation, reservation_id)
     if not item:
         raise HTTPException(404, "예약을 찾을 수 없습니다.")
+    name = await reservation_label(db, item)
     await cancel(db, item, payload.reason if payload else None)
+    title = f"예약이 취소되었습니다 · {name} · {reservation_when(item.starts_at)}"
+    devices = await tell_reservation_owner(db, item, title)
+    await db.commit()
+    await deliver_push(devices, title, body=(payload.reason if payload else None) or "운영진이 예약을 취소했습니다.", path="/mypage")
     return {"ok": True}
 
 

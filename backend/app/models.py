@@ -183,6 +183,9 @@ class Reservation(Base, Timestamped):
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     before_photo_url: Mapped[str | None] = mapped_column(String(1000))
     after_photo_url: Mapped[str | None] = mapped_column(String(1000))
+    # 시간이 되어 보내는 알림은 한 번만 보내야 합니다. 보낸 시각을 적어 둡니다.
+    start_notified_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    photo_notified_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
 class ReservationSlot(Base):

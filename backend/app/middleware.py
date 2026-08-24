@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from collections import defaultdict, deque
 
@@ -19,6 +20,40 @@ PUBLIC_EXACT = ("/equipment",)
 # Availability changes the moment a reservation is approved, so it gets a much
 # shorter shared cache than the editorial content.
 VOLATILE_READS = ("/availability",)
+
+
+logger = logging.getLogger(__name__)
+
+# 때가 된 예약 알림을 얼마나 자주 확인할지. 들어오는 요청에 얹어 도므로, 너무
+# 자주 보면 데이터베이스만 두드리고 너무 뜸하면 알림이 늦습니다.
+SWEEP_EVERY = 180.0
+_last_sweep = 0.0
+# asyncio 는 태스크를 약한 참조로만 들고 있어서, 여기서 붙들지 않으면 도중에
+# 회수될 수 있다. 회수되면 알림이 조용히 사라진다.
+_sweeps: set[asyncio.Task] = set()
+
+
+async def _sweep_reservation_alerts() -> None:
+    """때가 된 예약 알림을 보냅니다.
+
+    따로 도는 시계(크론)를 두지 않는 이유는 무료 요금제 때문입니다. 주기적으로
+    서버를 깨우면 깨어 있는 시간만큼 데이터베이스 시간을 쓰는데, 그 시간이 한 달
+    한도에서 가장 먼저 닳습니다. 사람이 사이트를 쓰는 동안에만 확인합니다.
+
+    실패해도 요청에는 영향을 주지 않습니다. 알림 하나 때문에 화면이 느려지거나
+    오류가 나면 안 됩니다.
+    """
+    from app.database import SessionLocal
+    from app.services.notifications import deliver_push
+    from app.services.reservation_alerts import sweep_due
+
+    try:
+        async with SessionLocal() as db:
+            due = await sweep_due(db)
+        for title, body, devices in due:
+            await deliver_push(devices, title, body=body, path="/mypage")
+    except Exception as error:  # noqa: BLE001 - 알림 때문에 사이트가 흔들리면 안 된다
+        logger.warning("예약 알림 확인 실패: %s", error)
 
 
 def public_read(path: str) -> bool:

@@ -28,10 +28,10 @@ async def publish_owner_notifications(db: AsyncSession, title: str, url: str) ->
         return []
     db.add_all([Notification(user_id=owner.id, title=title, url=url) for owner in owners])
     await db.flush()
-    return await _devices_of(db, [owner.id for owner in owners])
+    return await devices_of(db, [owner.id for owner in owners])
 
 
-async def _devices_of(db: AsyncSession, user_ids: list) -> list[dict]:
+async def devices_of(db: AsyncSession, user_ids: list) -> list[dict]:
     """알림을 받을 기기 목록. 푸시 열쇠가 없으면 빈 목록입니다."""
     settings = get_settings()
     if not settings.vapid_public_key or not settings.vapid_private_key:
@@ -50,7 +50,7 @@ async def publish_notice_notifications(db: AsyncSession, notice_id, title: str) 
     users = (await db.scalars(select(User).where(User.status == UserStatus.APPROVED))).all()
     db.add_all([Notification(user_id=user.id, notice_id=notice_id, title=title) for user in users])
     await db.flush()
-    return await _devices_of(db, [user.id for user in users])
+    return await devices_of(db, [user.id for user in users])
 
 
 def _send_one(subscription: dict, payload: str) -> None:

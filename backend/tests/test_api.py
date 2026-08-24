@@ -1661,3 +1661,74 @@ async def test_the_code_exchange_only_accepts_our_own_return_address(client, ses
     assert bad.status_code in {400, 503}, bad.text
     if bad.status_code == 400:
         assert "허용" in bad.json()["detail"]
+
+
+async def test_the_requester_hears_about_approval_and_rejection(client, session):
+    """승인·반려·취소 결과가 신청한 사람에게 간다.
+
+    예전에는 마이페이지를 직접 열어 보기 전에는 승인이 됐는지 알 수 없었다.
+    """
+    from app.models import Equipment, EquipmentUnit
+
+    manager = await make_user(session, "resmgr@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "asker@example.com")
+    equipment = Equipment(name="예약 알림 장비", category="공용")
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    await session.commit()
+
+    starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+               "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "실험 준비"}
+    made = await login(client, member).post("/api/v1/reservations", json=payload)
+    assert made.status_code == 201
+    reservation_id = made.json()["id"]
+
+    # 승인
+    http = login(client, manager)
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/decision", json={"approve": True})).status_code == 200
+    alerts = (await login(client, member).get("/api/v1/notifications")).json()
+    assert any("확정" in row["title"] and "예약 알림 장비" in row["title"] for row in alerts), alerts
+    assert alerts[0]["url"] == "/mypage"
+
+    # 취소도 알린다
+    http = login(client, manager)
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/cancel", json={"approve": False, "reason": "점검"})).status_code == 200
+    alerts = (await login(client, member).get("/api/v1/notifications")).json()
+    assert any("취소" in row["title"] for row in alerts), alerts
+
+
+async def test_due_reservations_ask_for_photos(client, session):
+    """사용 시간이 되면 알리고, 끝났는데 사진이 없으면 한 번 더 알린다."""
+    from app.models import Equipment, EquipmentUnit, Reservation, ReservationStatus
+    from app.services.reservation_alerts import sweep_due
+
+    member = await make_user(session, "due@example.com")
+    equipment = Equipment(name="시간 알림 장비", category="공용")
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="2호기")
+    session.add(unit)
+    await session.flush()
+
+    now = datetime.now(UTC)
+    running = Reservation(equipment_unit_id=unit.id, user_id=member.id, purpose="사용 중",
+                          starts_at=now - timedelta(minutes=5), ends_at=now + timedelta(hours=1),
+                          status=ReservationStatus.APPROVED)
+    finished = Reservation(equipment_unit_id=unit.id, user_id=member.id, purpose="끝남",
+                           starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=2),
+                           status=ReservationStatus.IN_USE, start_notified_at=now)
+    session.add_all([running, finished])
+    await session.commit()
+
+    sent = await sweep_due(session)
+    titles = [title for title, _, _ in sent]
+    assert any("사용 시간입니다" in t for t in titles), titles
+    assert any("사용 후 사진" in t for t in titles), titles
+
+    # 두 번 훑어도 같은 알림이 다시 가지 않는다.
+    assert await sweep_due(session) == []
+    alerts = (await login(client, member).get("/api/v1/notifications")).json()
+    assert len(alerts) == 2, alerts
