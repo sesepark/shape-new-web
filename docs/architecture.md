@@ -280,6 +280,40 @@ frontend/
 >    NFD 로 바꿔 놓는데, 리눅스(Vercel)에서는 다른 파일로 취급되어 404 가 납니다.
 >    확인: `python3 -c "import unicodedata,os;print([f for f in os.listdir('public/figs') if not unicodedata.is_normalized('NFC',f)])"`
 
+### 글쓰기 도구(TipTap)와 저장 경로
+
+편집기는 `src/components/rich-text-editor.tsx` 하나이고, 게시판·뉴스·SHAPE-UP·
+관리자 페이지가 모두 이것을 씁니다. 저장할 때 백엔드가
+`app/services/content.py` 의 `sanitize_html` 로 한 번 거릅니다.
+
+> **도구를 새로 붙이면 `ALLOWED_TAGS` / `ALLOWED_ATTRIBUTES` / `ALLOWED_CSS` 를
+> 함께 넓혀야 합니다.** 넓히지 않으면 화면에서는 잘 되는데 저장하는 순간
+> 조용히 사라집니다. `tests/test_api.py` 의 `test_editor_output_survives_sanitising`
+> 에 한 줄 더하면 다음 사람이 같은 함정에 빠지지 않습니다.
+
+또 하나 걸리기 쉬운 것이 **목록 표식**입니다. Tailwind 의 preflight 가
+`ol, ul, menu { list-style: none }` 으로 모든 목록의 글머리표와 번호를 지웁니다.
+사이트의 목록 대부분은 표식이 없는 편이 맞아서 그대로 두고, `site-polish.css`
+맨 아래에서 `.rich-content` 와 `.editor-content .tiptap` 안에서만 되살립니다.
+**글 본문에 새 목록 종류를 넣으면 여기도 함께 손대야** 화면에 보입니다.
+
+### 홈은 한 화면이 한 장인 스냅 덱입니다
+
+`html:has(.shape-home)` 에 `scroll-snap-type` 을 걸고 `.shape-home > section` 마다
+`min-height: 100dvh` 를 줍니다. 데스크톱은 `y mandatory`, 모바일은 `y proximity`
+입니다. 장을 더할 때는 두 가지를 함께 하세요.
+
+1. `src/components/home-scroll-snap.tsx` 의 `SECTIONS` 에 `id` 와 이름을 넣습니다.
+   오른쪽 진행 표시와 등장 효과가 여기서 나옵니다.
+2. **데스크톱에서 한 장이 화면보다 높아지지 않게** 여백과 간격을 `vh` 로 묶습니다.
+   `y mandatory` 에서는 화면보다 높은 장을 읽고 넘어가기가 어렵습니다.
+
+등장 효과는 두 겹입니다. `IntersectionObserver` 가 `.in-view` 를 붙이는 기존
+방식이 바탕이고, 그 위에 `animation-timeline: view()` 로 **스크롤 진행률 자체가
+재생 위치가 되는** 효과를 `@supports` 로 얹습니다. 자바스크립트도 스크롤 이벤트도
+쓰지 않아 추가 비용이 없고, 지원하지 않는 브라우저는 바탕 효과만 씁니다.
+`prefers-reduced-motion` 이 켜져 있으면 둘 다 끕니다.
+
 ### 링크는 `HoverPrefetchLink` 로
 
 머리글과 전체 메뉴에 사이트의 거의 모든 주소가 들어 있어, 기본 `Link` 를 쓰면
@@ -328,6 +362,8 @@ frontend/
 | 프런트엔드 화면 | 같은 데이터를 다루는 `/admin` 탭도 함께 고쳤는가 |
 | 사진이 들어가는 자리 | `--media-*` 변수를 썼는가 (픽셀 직접 입력 금지) |
 | 회원을 고르는 UI | `PersonPicker` 또는 `FilterBox` 를 썼는가. 회원은 70명을 넘습니다 |
+| 글쓰기 도구 | `sanitize_html` 허용 목록과 `.rich-content` CSS 를 함께 넓혔는가 |
+| 홈에 장 추가 | `HomeScrollSnap` 의 `SECTIONS`, 그리고 한 장이 100dvh 를 넘지 않는가 |
 | 머리글·메뉴 링크 | `HoverPrefetchLink` 를 썼는가, 요청 수 추정이 달라지는가 |
 | 새 표·컬럼 | Alembic 마이그레이션, 시각 컬럼이면 `UtcDateTime` |
 | 페이지마다 새 API 호출 | `free-tier-deployment.md` 의 용량표를 다시 계산 |
