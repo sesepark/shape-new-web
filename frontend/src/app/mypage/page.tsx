@@ -28,7 +28,7 @@ type EquipmentPermission = {
 };
 
 const equipmentStatusNote: Record<EquipmentPermission["status"], string> = {
-  ACTIVE: "", MAINTENANCE: "점검 중", INACTIVE: "운영 중지",
+  ACTIVE: "", MAINTENANCE: "점검 중", INACTIVE: "예약 불가",
 };
 
 /** 왜 못 쓰는지까지 한 줄로 알려 준다. 교육 미이수와 장비 상태는 다른 문제다. */

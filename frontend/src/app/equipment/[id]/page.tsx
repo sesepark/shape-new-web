@@ -52,7 +52,7 @@ export default async function EquipmentDetailPage({
       ? "예약 가능"
       : equipment.status === "MAINTENANCE"
         ? "점검 중"
-        : "도입 논의 중";
+        : "예약 불가";
   return (
     <PageShell
       eyebrow="SHAPE EQUIPMENT"

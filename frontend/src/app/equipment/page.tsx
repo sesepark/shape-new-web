@@ -65,7 +65,7 @@ export default async function EquipmentPage() {
                   ? "예약 가능"
                   : item.status === "MAINTENANCE"
                     ? "점검 중"
-                    : "도입 논의 중"}
+                    : "예약 불가"}
               </span>
               <Link href={`/equipment/${item.id}`}>
                 상세 보기 <ArrowUpRight size={15} />

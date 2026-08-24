@@ -71,7 +71,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
 
   /** 이 장비를 지금 신청할 수 있는지와, 안 되는 이유 한 줄. */
   function eligibility(item: EquipmentItem) {
-    if (item.status !== "ACTIVE") return { ok: false, reason: item.status === "MAINTENANCE" ? "점검 중" : "운영 중지" };
+    if (item.status !== "ACTIVE") return { ok: false, reason: item.status === "MAINTENANCE" ? "점검 중" : "예약 불가" };
     const permission = permissions[item.id];
     if (!permission) return { ok: true, reason: "" };
     if (permission.eligible) return { ok: true, reason: "" };
