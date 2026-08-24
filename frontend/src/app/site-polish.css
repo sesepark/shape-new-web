@@ -3618,11 +3618,19 @@ html:has(.shape-home) { scroll-padding-top: 0; }
    장비를 함께 쓰는 부원 고르기
    --------------------------------------------------------------------------
    장비 하나를 여럿이 함께 쓰는 경우가 있습니다. 신청한 사람만 남으면 사고나
-   파손이 있을 때 누구에게 물어봐야 하는지 알 수 없습니다. 이름으로 찾아 넣고,
-   넣은 사람은 이름표로 남습니다.
+   파손이 있을 때 누구에게 물어봐야 하는지 알 수 없습니다.
+
+   부원 목록은 **늘 펼쳐 둡니다.** 글자를 쳐야 후보가 나오면 고를 수 있다는 것
+   자체가 보이지 않습니다. 서너 명 높이만 두고 안에서 굴러가게 해, 자리를 많이
+   먹지 않으면서도 눈에 띄게 합니다.
    ========================================================================== */
 
-.booking-companions { position: relative; display: grid; gap: 8px; }
+/* 위의 '사용 목적' 칸과 너무 붙어 있어 한 덩어리처럼 보였습니다. */
+.booking-companions {
+  margin-top: 22px;
+  display: grid;
+  gap: 10px;
+}
 
 .booking-field-label { font-size: 14px; font-weight: 800; }
 
@@ -3640,14 +3648,17 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .companion-chips li {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px 6px 12px;
+  gap: 7px;
+  padding: 5px 8px 5px 6px;
   background: #eef2fb;
   border: 1px solid #d7e0f5;
   border-radius: 999px;
   font-size: 13px;
   font-weight: 800;
 }
+
+.companion-chips img,
+.companion-chips .pick-face { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
 
 .companion-chips button {
   width: 18px;
@@ -3666,31 +3677,27 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
 .companion-chips button:hover { background: var(--blue); color: #fff; }
 
-.companion-options {
-  position: absolute;
-  z-index: 12;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin: 4px 0 0;
+/* 서너 명이 보이는 높이. 한 줄이 48px 남짓이라 3.5줄쯤 됩니다. */
+.companion-picker {
+  margin: 0;
   padding: 5px;
   list-style: none;
-  max-height: 240px;
+  max-height: 172px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: #fff;
   border: 1px solid #dce1ea;
   border-radius: 12px;
-  box-shadow: 0 16px 34px rgba(18, 32, 66, .14);
 }
 
-.companion-options button {
+.companion-picker button {
   width: 100%;
   padding: 7px 10px;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   font-size: 14px;
   font-weight: 700;
@@ -3698,12 +3705,55 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   cursor: pointer;
 }
 
-.companion-options button:hover { background: #eef2fb; }
+.companion-picker button:hover { background: #eef2fb; }
 
-.companion-options img,
-.companion-options .pick-face { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.companion-picker button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.companion-empty { padding: 8px 10px; color: #8a9099; font-size: 13px; }
+/* 누르면 들어간다는 것을 알려 주는 표시. */
+.companion-picker button > i {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #eef2fb;
+  color: var(--blue);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.companion-picker button:hover > i { background: var(--blue); color: #fff; }
+
+/* flex 안에서는 늘어나지 않게 못 박아야 합니다. 이걸 빼면 첫 글자 동그라미가
+   가로로 길게 늘어난 타원이 됩니다. */
+.companion-picker img,
+.companion-picker .pick-face {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  font-size: 13px;
+}
+
+.companion-chips img,
+.companion-chips .pick-face { flex: none; }
+
+/* 찾는 칸도 상자처럼 보여야 누를 곳임을 압니다. */
+.booking-companions input[type="search"] {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid #d8dde7;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.booking-companions input[type="search"]:focus { outline: none; border-color: var(--blue); }
+
+.companion-empty { padding: 12px 10px; color: #8a9099; font-size: 13px; }
 
 /* 예약 카드에 함께 쓰는 사람 한 줄 */
 .reservation-companions {

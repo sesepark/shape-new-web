@@ -115,6 +115,14 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     return () => controller.abort();
   }, [access]);
 
+  /** 아직 고르지 않은 부원. 검색어가 있으면 이름으로 좁힙니다. */
+  const pickableMates = useMemo(() => {
+    const keyword = mateQuery.trim().toLowerCase();
+    return people
+      .filter((person) => !companions.some((mate) => mate.id === person.id))
+      .filter((person) => !keyword || person.name.toLowerCase().includes(keyword));
+  }, [people, companions, mateQuery]);
+
   /** 이 장비를 지금 신청할 수 있는지와, 안 되는 이유 한 줄. */
   function eligibility(item: EquipmentItem) {
     if (item.status !== "ACTIVE") return { ok: false, reason: item.status === "MAINTENANCE" ? "점검 중" : "예약 불가" };
@@ -253,6 +261,9 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
           <ul className="companion-chips">
             {companions.map((mate) => (
               <li key={mate.id}>
+                {mate.imageUrl
+                  ? <Image src={media(mate.imageUrl, 72, "eco")} alt="" width={22} height={22} unoptimized={!optimizable(mate.imageUrl)} />
+                  : <span className="pick-face" aria-hidden="true">{mate.name.slice(0, 1)}</span>}
                 <b>{mate.name}</b>
                 <button type="button" aria-label={`${mate.name} 빼기`} onClick={() => setCompanions((current) => current.filter((row) => row.id !== mate.id))}>×</button>
               </li>
@@ -266,27 +277,29 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
           disabled={access !== "member"}
           onChange={(event) => setMateQuery(event.target.value)}
         />
-        {mateQuery.trim() && (
-          <ul className="companion-options">
-            {people
-              .filter((person) => person.name.toLowerCase().includes(mateQuery.trim().toLowerCase()))
-              .filter((person) => !companions.some((mate) => mate.id === person.id))
-              .slice(0, 6)
-              .map((person) => (
-                <li key={person.id}>
-                  <button type="button" onClick={() => { setCompanions((current) => [...current, person]); setMateQuery(""); }}>
-                    {person.imageUrl
-                      ? <Image src={media(person.imageUrl, 80, "eco")} alt="" width={26} height={26} unoptimized={!optimizable(person.imageUrl)} />
-                      : <span className="pick-face" aria-hidden="true">{person.name.slice(0, 1)}</span>}
-                    {person.name}
-                  </button>
-                </li>
-              ))}
-            {people.filter((person) => person.name.toLowerCase().includes(mateQuery.trim().toLowerCase())).length === 0 && (
-              <li className="companion-empty">찾는 이름이 없습니다.</li>
-            )}
-          </ul>
-        )}
+        {/*
+          부원 목록을 늘 펼쳐 둡니다. 예전에는 글자를 쳐야 후보가 나와서, 누구를
+          넣을 수 있는지 자체가 보이지 않았습니다. 서너 명 높이만 두고 안에서
+          굴러가게 해, 자리를 많이 먹지 않으면서도 고를 수 있다는 것이 보입니다.
+          사진은 SHAPE 프로필(마이페이지에서 정한 사진)을 씁니다.
+        */}
+        <ul className="companion-picker">
+          {pickableMates.length === 0 ? (
+            <li className="companion-empty">{mateQuery.trim() ? "찾는 이름이 없습니다." : "고를 수 있는 부원이 없습니다."}</li>
+          ) : (
+            pickableMates.map((person) => (
+              <li key={person.id}>
+                <button type="button" onClick={() => { setCompanions((current) => [...current, person]); setMateQuery(""); }}>
+                  {person.imageUrl
+                    ? <Image src={media(person.imageUrl, 96, "eco")} alt="" width={32} height={32} unoptimized={!optimizable(person.imageUrl)} />
+                    : <span className="pick-face" aria-hidden="true">{person.name.slice(0, 1)}</span>}
+                  <span>{person.name}</span>
+                  <i aria-hidden="true">+</i>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
         <small className="field-hint">
           함께 장비를 쓰는 부원을 넣어 주세요. 넣은 사람에게도 알림이 갑니다.
           <b> 신청자 본인은 넣지 않아도 됩니다.</b> 필수 교육은 신청자에게만 따집니다.
