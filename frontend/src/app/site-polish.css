@@ -117,7 +117,13 @@ html:has(.shape-home) .site-footer {
    루트 레이아웃에 계속 살아 있는 푸터가 유일한 스냅 지점이 되어 새 페이지가
    맨 아래로 끌려갔습니다. :has() 는 라우트가 바뀌는 순간 함께 꺼집니다. */
 html:has(.shape-home) { scroll-snap-type:y mandatory; }
-.shape-home > section { min-height:100svh; scroll-snap-align:start; scroll-snap-stop:always; }
+/* 높이는 svh 가 아니라 dvh 로 잰다. svh 는 주소 표시줄이 나와 있을 때의 높이라,
+   사파리에서 스크롤을 시작해 표시줄이 접히면 화면이 그만큼 커지는데 섹션은
+   그대로여서 첫 화면 아래로 다음 섹션의 남색이 비쳤다. dvh 는 지금 보이는
+   높이를 따라가므로 표시줄이 접혀도 한 섹션이 화면을 정확히 채운다. 반대로
+   안쪽 글자와 여백은 계속 svh 로 묶는다. 표시줄이 나와 있는 가장 좁은 상태에서도
+   넘치지 않아야 하고, 남는 높이는 로봇 무대가 가져가면 되기 때문이다. */
+.shape-home > section { min-height:100dvh; scroll-snap-align:start; scroll-snap-stop:always; }
 /* 스냅 지점은 푸터의 테두리 상자라, 아래 바깥 여백만큼 문서 끝보다 위에서
    멈춥니다. 그만큼을 스냅 여백으로 되돌려 맨 아래에서 튕기지 않게 합니다. */
 html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom:14px; }
