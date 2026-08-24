@@ -11,6 +11,7 @@ import {
   type OrganizationData,
   type OrganizationTeam,
 } from "@/components/organization-chart";
+import { HomeHero, HomeIntro, HomeNext, HomeNumbers, HomePillars } from "@/components/home-sections";
 import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { useAsk } from "@/components/ask-dialog";
@@ -1112,6 +1113,30 @@ function HomeForm({ section }: { section: "히어로" | "인트로" | "단계" |
         {saving ? "저장 중…" : "저장"}
       </button>
       {node}
+      <section className="admin-live-preview">
+        <div className="preview-label">
+          <Eye size={15} /> 공개 화면 미리보기
+        </div>
+        {/*
+          공개 홈과 같은 조각을 그립니다. 다만 홈에서는 한 장이 화면 전체를
+          차지하고 스크롤로 넘어가므로, 미리보기 안에서는 높이를 내용에 맞춰
+          줄입니다(.home-preview). 3D 로봇 무대는 모델 파일을 내려받아야 해서
+          미리보기에서는 끕니다.
+        */}
+        {/* `shape-home` 은 붙이지 않습니다. 그 클래스는 한 장이 화면 높이를
+            차지하고 스크롤로 스냅되게 하는 규칙이라, 관리자 화면 안에 넣으면
+            미리보기가 화면 높이를 통째로 먹고 좌측 바까지 밀어냅니다. */}
+        <div className="home-preview">
+          {section === "히어로" && <HomeHero home={content} stage={false} />}
+          {section === "인트로" && <HomeIntro home={content} />}
+          {section === "단계" && <HomePillars home={content} />}
+          {section === "현황" && <HomeNumbers home={content} />}
+          {section === "일정" && <HomeNext home={content} schedule={[]} />}
+        </div>
+        {section === "일정" && (
+          <p className="form-note">아래 일정 목록은 로드맵에서 가져오므로 미리보기에는 나오지 않습니다.</p>
+        )}
+      </section>
     </div>
   );
 }

@@ -102,6 +102,29 @@ export function MemberDirectory({
     if (active && dialog.current && !dialog.current.open) dialog.current.showModal();
   }, [active]);
 
+  /**
+   * 주소에 `#member-…` 가 붙어 오면 그 부원 카드를 바로 엽니다.
+   *
+   * 조직도의 '○○○ 프로필' 이 이 주소로 보냅니다. 예전에는 그 자리로 내려가기만
+   * 하고 아무 일도 일어나지 않아, 눌러도 프로필을 볼 수 없었습니다. 회원 구분을
+   * 걸러 둔 상태에서도 열리도록 거르기를 함께 풉니다.
+   */
+  useEffect(() => {
+    const openFromHash = () => {
+      const wanted = decodeURIComponent(window.location.hash.replace(/^#member-/, ""));
+      if (!wanted || !members.some((member) => member.id === wanted)) return;
+      setFilter("전체");
+      setOpenId(wanted);
+    };
+    // 첫 그림이 끝난 뒤에 엽니다. 그리는 도중에 열면 자리 계산이 어긋납니다.
+    const timer = window.setTimeout(openFromHash, 0);
+    window.addEventListener("hashchange", openFromHash);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("hashchange", openFromHash);
+    };
+  }, [members]);
+
   function close() {
     dialog.current?.close();
     setOpenId(null);

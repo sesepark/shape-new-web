@@ -381,7 +381,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .member-dialog header small { color:var(--blue); font-size:11px; font-weight:900; letter-spacing:.1em; }
 .member-dialog header h3 { margin:5px 0 4px; font-size:24px; letter-spacing:-.045em; }
 .member-dialog header p { margin:0; color:#737985; font-size:13px; }
-.member-dialog-intro { margin:0; padding:18px 20px; background:#f5f8ff; border-left:3px solid var(--blue); border-radius:0 12px 12px 0; color:#33405c; font-size:15px; line-height:1.7; word-break:keep-all; }
+.member-dialog-intro { margin:0; padding:18px 20px; background:#f5f8ff; border-left:3px solid var(--blue); border-radius:0 12px 12px 0; color:#33405c; font-size:16px; line-height:1.75; word-break:keep-all; }
 .member-dialog-empty { margin:0; color:#8a9099; font-size:13px; }
 .member-dialog-projects h4 { margin:0 0 12px; display:flex; align-items:center; gap:7px; font-size:14px; }
 .member-dialog-projects ul { margin:0; padding:0; list-style:none; display:grid; gap:8px; }
@@ -390,7 +390,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .member-dialog-projects .project-category { padding:4px 9px; border-radius:999px; background:#eef2f9; color:#5a6479; font-size:11px; font-weight:900; }
 .member-dialog-projects strong { overflow:hidden; font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
 .member-dialog-projects time { color:#8a9099; font-size:11px; white-space:nowrap; }
-.account-intro { margin:14px 0 0; padding:13px 15px; background:#f5f8ff; border-radius:10px; color:#4a5468; font-size:13px; line-height:1.6; }
+.account-intro { margin:14px 0 0; padding:13px 15px; background:#f5f8ff; border-radius:10px; color:#4a5468; font-size:14.5px; line-height:1.65; }
 .field-hint { color:#8a9099; font-size:11px; font-weight:600; }
 @media (max-width:620px) {
   .member-dialog article { padding:26px 20px; }
@@ -421,34 +421,34 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .board-list li { border-bottom:1px solid #e2e5e9; }
 .board-list a { min-height:74px; padding:15px 12px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:16px; transition:background .18s ease,padding .18s ease; }
 .board-list a:hover { padding-left:20px; background:#f7f9ff; }
-.board-title { display:flex; align-items:center; gap:9px; min-width:0; font-size:16px; font-weight:800; }
+.board-title { display:flex; align-items:center; gap:9px; min-width:0; font-size:17px; font-weight:800; }
 .board-title > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .board-title b { flex:0 0 auto; display:inline-flex; align-items:center; gap:3px; color:var(--blue); font-size:12px; }
-.board-meta { display:flex; align-items:center; gap:12px; color:#7d848f; font-size:12px; white-space:nowrap; }
+.board-meta { display:flex; align-items:center; gap:12px; color:#7d848f; font-size:13px; white-space:nowrap; }
 .board-category { display:inline-flex; align-items:center; gap:4px; }
 .board-detail { display:grid; gap:24px; }
 .board-detail-head { display:grid; gap:12px; justify-items:start; padding-bottom:22px; border-bottom:2px solid #1a202b; }
 .board-detail-head h2 { margin:0; font-size:clamp(23px,3vw,31px); letter-spacing:-.045em; word-break:keep-all; }
-.board-detail-head > p { margin:0; display:flex; align-items:center; gap:12px; color:#7d848f; font-size:13px; }
+.board-detail-head > p { margin:0; display:flex; align-items:center; gap:12px; color:#7d848f; font-size:14px; }
 .board-body { min-height:120px; }
 .board-editor { display:grid; gap:18px; }
 .editor-message { margin:8px 0 0; padding:9px 12px; background:#fff4e5; color:#8a5a06; border-radius:8px; font-size:12px; }
 .editor-button input[type="file"] { position:absolute; width:1px; height:1px; }
 .editor-button:has(input) { cursor:pointer; }
 .comment-section { padding-top:26px; border-top:1px solid #e0e4ea; }
-.comment-section h3 { margin:0 0 16px; font-size:18px; }
+.comment-section h3 { margin:0 0 19px; font-size:19px; }
 .comment-form { display:grid; gap:9px; }
-.comment-form textarea { width:100%; padding:13px; border:1px solid #d6dce6; border-radius:10px; font-size:14px; resize:vertical; }
+.comment-form textarea { width:100%; padding:13px; border:1px solid #d6dce6; border-radius:10px; font-size:15.5px; line-height:1.7; resize:vertical; }
 .comment-list { margin:22px 0 0; padding:0; list-style:none; display:grid; gap:16px; }
 .comment-replies { margin:10px 0 0 26px; padding:0; list-style:none; display:grid; gap:10px; }
 .comment { padding:14px 16px; background:#f7f8fb; border-radius:12px; }
 .comment.removed { background:#f2f3f5; color:#9aa0aa; }
 .comment header { display:flex; align-items:center; gap:10px; }
-.comment header strong { display:inline-flex; align-items:center; gap:5px; font-size:13px; }
-.comment header time { color:#8a9099; font-size:11px; }
-.comment p { margin:8px 0 0; font-size:14px; line-height:1.65; white-space:pre-wrap; word-break:keep-all; }
+.comment header strong { display:inline-flex; align-items:center; gap:5px; font-size:14px; }
+.comment header time { color:#8a9099; font-size:12px; }
+.comment p { margin:8px 0 0; font-size:15.5px; line-height:1.7; white-space:pre-wrap; word-break:keep-all; }
 .comment-actions { margin-top:9px; display:flex; gap:12px; }
-.comment-actions button { display:inline-flex; align-items:center; gap:4px; padding:0; border:0; background:transparent; color:#5f6875; font-size:12px; font-weight:800; cursor:pointer; }
+.comment-actions button { display:inline-flex; align-items:center; gap:4px; padding:0; border:0; background:transparent; color:#5f6875; font-size:13px; font-weight:800; cursor:pointer; }
 .comment-actions button.danger { color:#b62446; }
 
 /* ── 장비 예약 현황 달력 ────────────────────────────────────── */
@@ -491,7 +491,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   .board-list a { grid-template-columns:auto minmax(0,1fr); gap:6px 10px; padding:14px 4px; }
   .board-list a:hover { padding-left:4px; }
   .board-meta { grid-column:2; font-size:11px; }
-  .board-title { font-size:15px; }
+  .board-title { font-size:16px; }
   .board-head { align-items:stretch; flex-direction:column; }
   .board-head .button.small { justify-content:center; }
   .reservation-grid { border:0; border-radius:0; }
@@ -572,7 +572,8 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .rich-content,
 .preview-sheet > .rich-content,
 .editor-content .tiptap {
-  color:#45484f; font-size:18px; font-weight:400; font-style:normal;
+  /* 읽는 글이라 조금 크게 잡습니다. 18px 은 한글 본문으로는 빠듯했습니다. */
+  color:#45484f; font-size:19px; font-weight:400; font-style:normal;
   line-height:1.8; letter-spacing:0; word-break:keep-all;
 }
 .preview-sheet > .rich-content,
@@ -607,7 +608,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .editor-content .tiptap p.is-editor-empty:first-child::before { content:attr(data-placeholder); float:left; height:0; color:#a7adb8; pointer-events:none; }
 
 @media (max-width:900px) {
-  .rich-content, .preview-sheet > .rich-content, .editor-content .tiptap { font-size:16px; }
+  .rich-content, .preview-sheet > .rich-content, .editor-content .tiptap { font-size:17px; }
   .rich-content h1, .preview-sheet > .rich-content h1, .editor-content .tiptap h1 { margin-bottom:28px; font-size:32px; }
   .rich-content h2, .preview-sheet > .rich-content h2, .editor-content .tiptap h2 { margin:38px 0 16px; font-size:26px; }
   .rich-content h3, .preview-sheet > .rich-content h3, .editor-content .tiptap h3 { margin:30px 0 14px; font-size:21px; }
@@ -3090,3 +3091,48 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 }
 
 .license-picker .license-free b { color: var(--blue); }
+
+/* ==========================================================================
+   관리자 — 홈 미리보기
+   --------------------------------------------------------------------------
+   공개 홈은 한 장이 화면 전체를 차지하고 스크롤로 넘어갑니다. 그 규칙을 그대로
+   관리자 화면에 넣으면 미리보기 하나가 화면 높이를 통째로 먹고 스냅까지 걸립니다.
+   여기서는 높이를 내용에 맞춰 줄이고, 스냅과 등장 애니메이션을 끕니다.
+   ========================================================================== */
+
+.home-preview {
+  overflow: hidden;
+  border: 1px solid #e2e6ee;
+  border-radius: 12px;
+  background: #fff;
+}
+
+/* 홈의 장 규칙(.shape-home > section)은 화면 높이를 채우는 것이라, 미리보기
+   에서는 내용 높이로 되돌립니다. 규칙이 여러 곳에 있어 !important 로 한 번에
+   덮습니다. */
+.home-preview > section {
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 26px 28px !important;
+  scroll-snap-align: none;
+}
+
+/* 등장 애니메이션은 스크롤을 따라 도는 것이라 미리보기에서는 늘 보이게 둡니다. */
+.home-preview .home-reveal,
+.home-preview [class*="home-"] {
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+  clip-path: none !important;
+}
+
+/* 홈 첫 화면은 두 칸으로 나뉘는데, 미리보기에서는 글만 보여 줍니다. */
+.home-preview .home-hero { display: block; }
+
+.home-preview .home-intro h1 { font-size: clamp(34px, 5vw, 56px); }
+
+.home-preview .home-scroll { position: static; margin-top: 14px; display: inline-flex; }
+
+@media (max-width: 620px) {
+  .home-preview > section { padding: 18px; }
+}
