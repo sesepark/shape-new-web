@@ -13,25 +13,30 @@ const SIDES = ["left", "right"] as const;
 // `pose` 는 URDF 의 0 자세가 화면에 어울리지 않을 때 쓰는 시작 자세입니다.
 // 가운데 맞추기 전에 적용하므로 이 자세 그대로 화면 중앙에 놓이고, 아래
 // 애니메이션의 각도는 모두 이 자세를 기준으로 한 차이가 됩니다.
+// `facing` 은 그 로봇만 기본 방향에서 더 돌려 보여 줄 때 쓰는 각도입니다.
 type Pose = readonly (readonly [string, "x" | "y" | "z", number])[];
-const MODELS: Record<Robot, { file: string; scale: number; pose?: Pose }> = {
+const MODELS: Record<Robot, { file: string; scale: number; pose?: Pose; facing?: number }> = {
   worker: { file: "ai-worker", scale: 2.05 },
   sapiens: { file: "ai-sapiens", scale: 2.55 },
   omy: { file: "omy", scale: 3.7 },
   // SO-ARM 101 은 실물이 24cm 남짓이라 같은 화면을 채우려면 배율이 큽니다.
   // URDF 0 자세는 팔이 앞으로 완전히 뻗어 누운 모습이라, 어깨를 세우고 팔꿈치를
-  // 접어 실제로 교육에서 쓰는 대기 자세로 세워 둡니다.
+  // 펴 집게가 베이스보다 위에서 앞으로 나온 대기 자세로 세워 둡니다. 옆에서만
+  // 보면 팔이 겹쳐 보여서, 이 로봇만 조금 더 돌려 베이스와 집게가 함께 보이게
+  // 합니다.
   so101: {
     file: "so-arm101",
     scale: 11.5,
+    facing: -0.63,
     pose: [
-      ["upper_arm_link", "z", -1.25],
-      ["lower_arm_link", "z", 1.35],
-      ["wrist_link", "z", 0.55],
+      ["upper_arm_link", "z", -1.2],
+      ["lower_arm_link", "z", 0.6],
+      ["wrist_link", "z", 0.4],
     ],
   },
 };
 const ROBOTS = Object.keys(MODELS) as Robot[];
+const facingFor = (robot: Robot) => FACING + (MODELS[robot].facing ?? 0);
 
 export function RobotModel({ active, pointer, preload = [] }: { active: Robot; pointer: { x: number; y: number }; preload?: Robot[] }) {
   const host = useRef<HTMLDivElement>(null);
@@ -76,7 +81,7 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
       const fill = new DirectionalLight(0x7398ff, 1.8); fill.position.set(-4, 2, 3); scene.add(fill);
       const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 
-      const prepare = (model: Group, scale: number, pose?: Pose) => {
+      const prepare = (model: Group, robot: Robot, { scale, pose }: { scale: number; pose?: Pose }) => {
         pose?.forEach(([name, axis, angle]) => {
           const joint = model.getObjectByName(name);
           if (joint) joint.rotation[axis] += angle;
@@ -93,7 +98,7 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
         model.position.set(-center.x, -center.y, -center.z);
         const pivot = new Group();
         pivot.name = `${model.name}-display`;
-        pivot.rotation.y = FACING;
+        pivot.rotation.y = facingFor(robot);
         pivot.add(model);
         return pivot;
       };
@@ -106,7 +111,7 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
         loader.loadAsync(`/models/${MODELS[robot].file}.glb?v=${MODEL_VERSION}`)
           .then((gltf) => {
             if (disposed || !scene) return;
-            const pivot = prepare(gltf.scene, MODELS[robot].scale, MODELS[robot].pose);
+            const pivot = prepare(gltf.scene, robot, MODELS[robot]);
             pivot.visible = robot === activeRef.current;
             models.current[robot] = pivot;
             scene.add(pivot);
@@ -146,7 +151,7 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
           const model = models.current[robot];
           if (model) model.visible = robot === current;
         }
-        if (focus) focus.rotation.y += (FACING + x * .08 - focus.rotation.y) * .055;
+        if (focus) focus.rotation.y += (facingFor(current) + x * .08 - focus.rotation.y) * .055;
         if (current === "worker") {
           moveJoint("worker", "arm_r_link1", "y", x * .55 + swing * .07);
           moveJoint("worker", "arm_r_link2", "x", -1.05 + x * .72 + y * .18 + breathe * .06);
