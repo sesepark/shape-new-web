@@ -112,17 +112,35 @@ export function useAsk() {
               {touched && missing && <small className="ask-error">내용을 입력해 주세요.</small>}
             </label>
           )}
-          <div className="ask-actions">
-            <button type="button" className="button secondary" onClick={() => settle(null)}>
-              {pending.cancelLabel ?? "취소"}
-            </button>
-            {pending.altLabel && (
+          {/*
+            단추가 셋이면 가로로 늘어놓을 수 없습니다. 상자 안쪽 폭이 370px 인데
+            "저장하고 이동 / 저장하지 않고 이동 / 여기 머무르기" 세 개를 나란히
+            놓으면 460px 가 넘어, 맨 왼쪽 단추가 상자 밖으로 밀려 잘렸습니다.
+            그래서 셋일 때는 세로로 쌓고 폭을 채웁니다.
+
+            쌓을 때는 화면에 보이는 차례대로 씁니다(권하는 것부터 아래로).
+            둘일 때 쓰는 가로 배치는 반대로 취소가 먼저 와야 해서, 두 경우의
+            마크업을 나눴습니다. 이렇게 두면 눈에 보이는 차례와 탭 키로 옮겨
+            가는 차례가 어긋나지 않습니다.
+          */}
+          {pending.altLabel ? (
+            <div className="ask-actions stacked">
+              <button type="submit" className="button">{pending.confirmLabel ?? "확인"}</button>
               <button type="button" className="button secondary ask-alt" onClick={() => settle(ASK_ALT)}>
                 {pending.altLabel}
               </button>
-            )}
-            <button type="submit" className="button">{pending.confirmLabel ?? "확인"}</button>
-          </div>
+              <button type="button" className="button secondary" onClick={() => settle(null)}>
+                {pending.cancelLabel ?? "취소"}
+              </button>
+            </div>
+          ) : (
+            <div className="ask-actions">
+              <button type="button" className="button secondary" onClick={() => settle(null)}>
+                {pending.cancelLabel ?? "취소"}
+              </button>
+              <button type="submit" className="button">{pending.confirmLabel ?? "확인"}</button>
+            </div>
+          )}
         </form>
       )}
     </dialog>

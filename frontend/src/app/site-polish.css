@@ -646,17 +646,21 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .ask-dialog::backdrop { background:rgba(10,19,39,.5); backdrop-filter:blur(4px); }
 .ask-dialog form { position:relative; padding:30px; display:grid; gap:16px; }
 .ask-dialog h3 { margin:0; display:flex; align-items:center; gap:9px; font-size:19px; letter-spacing:-.035em; word-break:keep-all; }
+/* 제목이 두 줄이 되면 옆의 경고 아이콘이 눌려 찌그러집니다. flex 항목은 자리가
+   모자라면 기본으로 줄어드는데, 글자는 줄바꿈으로 버티고 그림만 납작해집니다.
+   "저장하지 않은 변경이 있습니다" 처럼 긴 제목에서 실제로 그랬습니다. */
+.ask-dialog h3 svg, .preview-label svg { flex:none; }
 .ask-dialog.danger h3 { color:#b62446; }
 .ask-dialog p { margin:0; color:#69717f; font-size:14px; line-height:1.65; word-break:keep-all; }
 .ask-dialog label { display:grid; gap:7px; font-size:13px; font-weight:800; }
 .ask-dialog input, .ask-dialog textarea { width:100%; padding:12px 13px; border:1px solid #d6dce6; border-radius:9px; font-size:14px; font-weight:400; }
 .ask-dialog .ask-error { color:#b62446; font-size:12px; font-weight:700; }
-.ask-actions { display:flex; justify-content:flex-end; gap:9px; }
-.ask-dialog .button { padding:11px 20px; }
+.ask-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:9px; }
+.ask-dialog .button { padding:11px 20px; word-break:keep-all; }
 .ask-dialog.danger .button[type="submit"] { background:#b62446; border-color:#b62446; }
 @media (max-width:620px) {
   .ask-dialog form { padding:24px 20px; }
-  .ask-actions { flex-direction:column-reverse; }
+  .ask-actions:not(.stacked) { flex-direction:column-reverse; }
   .ask-actions .button { width:100%; }
 }
 
@@ -3887,12 +3891,16 @@ html:has(.shape-home) { scroll-padding-top: 0; }
    물음입니다. 가운데 단추는 '지금까지 고친 것을 버린다' 는 뜻이라, 취소와
    같은 회색으로 두면 무엇이 버리는 쪽인지 알기 어렵습니다.
    ========================================================================== */
+/* 단추 셋은 어느 폭에서도 세로로 쌓습니다. 상자 안쪽이 370px 인데 한국어
+   이름 셋을 나란히 놓으면 460px 가 넘어, 맨 왼쪽 단추가 밖으로 밀려 잘렸습니다.
+   `justify-content:flex-end` 라 넘치는 쪽이 왼쪽이어서 더 눈에 띄었습니다. */
+.ask-actions.stacked { flex-direction: column; align-items: stretch; gap: 8px; }
+
+/* `.button` 의 `width:max-content` 를 이겨야 폭이 채워집니다. */
+.ask-actions.stacked .button { width: 100%; }
+
+/* 가운데 단추는 '지금까지 고친 것을 버린다' 는 뜻입니다. 취소와 같은 회색으로
+   두면 무엇이 버리는 쪽인지 알기 어려워 붉게 구분합니다. */
 .ask-dialog .button.ask-alt { color: #b62446; border-color: #e8c7d1; }
 
 .ask-dialog .button.ask-alt:hover { background: #fdf2f5; }
-
-@media (max-width: 620px) {
-  /* 단추 셋이 세로로 쌓입니다(.ask-actions 가 column-reverse). 확인이 맨 위,
-     '머무르기' 가 맨 아래로 와서 실수로 버리는 쪽을 누르기 어렵습니다. */
-  .ask-dialog .button.ask-alt { width: 100%; }
-}
