@@ -620,6 +620,11 @@ def test_editor_output_survives_sanitising():
     coloured = sanitize_html('<p><span style="color: rgb(40, 85, 243)">파랑</span></p>')
     assert "color" in coloured
 
+    # 문단을 사이에 끼워 번호 목록을 이어 쓰면 편집기가 시작 번호를 함께 내보낸다.
+    # 이 값을 지우면 저장하는 순간 번호가 1 부터 다시 시작한다.
+    resumed = sanitize_html('<ol start="4"><li><p>넷째</p></li></ol>')
+    assert 'start="4"' in resumed
+
     # 위험한 것은 그대로 막혀 있어야 한다.
     assert "<script" not in sanitize_html("<p>ok</p><script>alert(1)</script>")
     assert "onclick" not in sanitize_html('<p onclick="steal()">ok</p>')

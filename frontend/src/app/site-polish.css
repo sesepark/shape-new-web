@@ -1309,3 +1309,46 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 }
 
 .picked-tags button:hover { background: #e0e9ff; border-color: #a9bff0; }
+
+/* ==========================================================================
+   글 본문의 목록 — 글머리표와 번호를 되살린다
+   --------------------------------------------------------------------------
+   Tailwind 의 preflight 가 `ol, ul, menu { list-style: none }` 으로 모든 목록의
+   표식을 지운다. 사이트의 목록 대부분(게시판 줄, 예약 단계, 부원 프로젝트)은
+   표식이 없는 편이 맞아서 그대로 두었는데, 그 바람에 **글쓰기 도구의 '•' 와
+   '1.' 을 눌러도 화면에 아무 표시가 나오지 않았다.** 목록으로 바뀌기는 했지만
+   글머리표와 번호가 보이지 않으니 눌리지 않은 것처럼 보였다.
+
+   그래서 여기서 글 본문과 편집기 안에서만 표식을 되돌린다. 편집기와 실제 글이
+   같은 규칙을 쓰므로, 쓰는 동안 보이는 모양이 올린 뒤의 모양과 같다.
+
+   목록 표식이 필요 없는 곳(`.board-list`, `.press-list` 등)은 자기 규칙에서
+   `list-style: none` 을 계속 쓰므로 영향을 받지 않는다.
+   ========================================================================== */
+
+.rich-content ul,
+.editor-content .tiptap ul { list-style: disc; }
+
+.rich-content ol,
+.editor-content .tiptap ol { list-style: decimal; }
+
+/* 중첩된 목록은 한 단계씩 표식을 바꿔 깊이가 눈에 보이게 한다. */
+.rich-content ul ul,
+.editor-content .tiptap ul ul { list-style: circle; }
+
+.rich-content ul ul ul,
+.editor-content .tiptap ul ul ul { list-style: square; }
+
+.rich-content ol ol,
+.editor-content .tiptap ol ol { list-style: lower-alpha; }
+
+.rich-content ol ol ol,
+.editor-content .tiptap ol ol ol { list-style: lower-roman; }
+
+/* 안쪽 목록은 바깥 문단만큼 아래 여백을 두지 않는다. */
+.rich-content li > ul, .rich-content li > ol,
+.editor-content .tiptap li > ul, .editor-content .tiptap li > ol { margin: 8px 0 0; }
+
+/* 표식이 글자와 붙어 보이지 않도록 한 칸 띄운다. */
+.rich-content li::marker,
+.editor-content .tiptap li::marker { color: #8a919e; }

@@ -13,6 +13,9 @@ ALLOWED_ATTRIBUTES = {
     "img": ["src", "alt"],
     "span": ["style"],
     "mark": ["style", "data-color"],
+    # 문단이나 사진을 사이에 끼워 번호 목록을 이어 쓰면 편집기가 <ol start="4">
+    # 로 내보낸다. 이 값을 지우면 저장하는 순간 번호가 1 부터 다시 시작한다.
+    "ol": ["start"],
 }
 ALLOWED_CSS = CSSSanitizer(allowed_css_properties=["color", "background-color", "font-size", "font-weight", "text-decoration"])
 
