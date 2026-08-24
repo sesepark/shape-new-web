@@ -272,6 +272,26 @@ function matches(haystack: string, keyword: string) {
   return haystack.toLocaleLowerCase("ko").includes(keyword.trim().toLocaleLowerCase("ko"));
 }
 
+/**
+ * 사람을 고를 때 함께 보여 주는 작은 얼굴.
+ *
+ * 이름만 늘어놓으면 비슷한 이름을 고를 때 이메일을 하나하나 읽어야 합니다.
+ * 사진이 없으면 이름 첫 글자를 대신 씁니다.
+ */
+function Avatar({ name, imageUrl }: { name: string; imageUrl?: string | null }) {
+  if (!imageUrl) return <span className="pick-face" aria-hidden="true">{name.slice(0, 1)}</span>;
+  return (
+    <Image
+      className="pick-face"
+      src={media(imageUrl, 72)}
+      alt=""
+      width={36}
+      height={36}
+      unoptimized={!optimizable(imageUrl)}
+    />
+  );
+}
+
 /** 목록 위에 놓는 검색 상자. 값은 부르는 쪽이 들고 있는다. */
 function FilterBox({ value, onChange, placeholder, count }: { value: string; onChange: (next: string) => void; placeholder: string; count?: number }) {
   return (
@@ -291,7 +311,7 @@ function FilterBox({ value, onChange, placeholder, count }: { value: string; onC
  * `value` 가 있으면 고른 사람을 칩으로 보여 주고 검색 상자는 감춘다.
  */
 function PersonPicker({ people, value, onSelect, placeholder, emptyLabel, clearLabel }: {
-  people: { id: string; name: string; detail?: string }[];
+  people: { id: string; name: string; detail?: string; imageUrl?: string | null }[];
   value?: string;
   onSelect: (id: string | undefined) => void;
   placeholder: string;
@@ -308,7 +328,7 @@ function PersonPicker({ people, value, onSelect, placeholder, emptyLabel, clearL
   if (chosen) {
     return (
       <div className="person-picked">
-        <span><strong>{chosen.name}</strong>{chosen.detail && <small>{chosen.detail}</small>}</span>
+        <span><Avatar name={chosen.name} imageUrl={chosen.imageUrl} /><strong>{chosen.name}</strong>{chosen.detail && <small>{chosen.detail}</small>}</span>
         <button type="button" className="text-button" onClick={() => { onSelect(undefined); setKeyword(""); }}>{clearLabel}</button>
       </div>
     );
@@ -321,6 +341,7 @@ function PersonPicker({ people, value, onSelect, placeholder, emptyLabel, clearL
         {found.slice(0, 30).map((person) => (
           <li key={person.id}>
             <button type="button" onClick={() => { onSelect(person.id); setKeyword(""); }}>
+              <Avatar name={person.name} imageUrl={person.imageUrl} />
               <strong>{person.name}</strong>
               {person.detail && <small>{person.detail}</small>}
             </button>
@@ -880,7 +901,7 @@ function ClubIntroductionForm() {
 function MembersForm() {
   const [members, setMembers] = useState<ShapeMember[]>([]);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
-  const [message, setMessage] = useState("");
+  const { say, node: notice } = useNotice();
   useEffect(() => {
     void adminFetch("/admin/directory").then(async (response) => {
       if (response.ok) setDirectory((await response.json()) as DirectoryUser[]);
@@ -896,12 +917,50 @@ function MembersForm() {
       })
       .catch(() => undefined);
   }, []);
+  /** 아직 구글 계정이 붙지 않은 카드. 1기 부원이 대부분입니다. */
+  const unlinked = members.filter((member) => !member.userId).map((member) => member.name);
   const update = (index: number, patch: Partial<ShapeMember>) =>
     setMembers((current) =>
       current.map((member, i) =>
         i === index ? { ...member, ...patch } : member,
       ),
     );
+  /**
+   * 이름이 같은 구글 계정을 카드에 붙입니다.
+   *
+   * 부원은 모두 구글 로그인으로 가입하므로 카드 하나에 계정 하나가 있어야
+   * 하는데, 마흔 장을 손으로 고르는 일이라 미뤄지기 쉽습니다. 이름이 정확히
+   * 같은 계정이 하나뿐일 때만 붙이고, 여럿이면 건드리지 않고 알려 줍니다.
+   * 이미 연결된 카드는 그대로 둡니다. 붙인 뒤에는 저장을 눌러야 반영됩니다.
+   */
+  function autoLink() {
+    const byName = new Map<string, DirectoryUser[]>();
+    for (const person of directory) {
+      byName.set(person.name, [...(byName.get(person.name) ?? []), person]);
+    }
+    const taken = new Set(members.map((member) => member.userId).filter(Boolean));
+    const linked: string[] = [];
+    const ambiguous: string[] = [];
+    setMembers((current) => current.map((member) => {
+      if (member.userId) return member;
+      const found = byName.get(member.name.trim()) ?? [];
+      if (found.length > 1) { ambiguous.push(member.name); return member; }
+      const one = found[0];
+      if (!one || taken.has(one.id)) return member;
+      taken.add(one.id);
+      linked.push(member.name);
+      return { ...member, userId: one.id };
+    }));
+    if (!linked.length && !ambiguous.length) {
+      say("이름이 같은 계정을 찾지 못했습니다. 아직 가입하지 않은 부원일 수 있습니다.", false);
+      return;
+    }
+    say(
+      `${linked.length}명을 연결했습니다${ambiguous.length ? ` · 이름이 겹쳐 건너뛴 ${ambiguous.length}명: ${ambiguous.join(", ")}` : ""}. 저장을 눌러야 반영됩니다.`,
+      ambiguous.length === 0,
+    );
+  }
+
   async function submit() {
     try {
       const response = await fetch(`${apiUrl}/admin/pages/members`, {
@@ -915,22 +974,29 @@ function MembersForm() {
           isPublished: true,
         }),
       });
-      setMessage(
-        response.ok
-          ? "부원 카드를 저장했습니다."
-          : "저장하지 못했습니다. 콘텐츠 관리 권한을 확인해 주세요.",
+      say(
+        response.ok ? "부원 카드를 저장했습니다." : "저장하지 못했습니다. 콘텐츠 관리 권한을 확인해 주세요.",
+        response.ok,
       );
     } catch {
-      setMessage(
-        "개발 미리보기에서 부원 카드 편집 상태를 확인 중입니다. 실제 저장은 백엔드 연결 후 반영됩니다.",
-      );
+      say("저장하지 못했습니다. 서버에 연결할 수 없습니다.", false);
     }
   }
   return (
     <div className="admin-form">
       <p className="form-note">
         부원 한 명을 카드 하나로 관리합니다. 회원 구분(준회원·정회원·알럼·멤버)은 공개 페이지의 필터에 그대로 쓰입니다.
-        구글 로그인 계정이 있는 부원은 아래에서 계정을 연결해 주세요.
+      </p>
+      <div className="link-summary">
+        <span>
+          구글 계정 연결 <b>{members.filter((member) => member.userId).length}</b> / {members.length}명
+          {unlinked.length > 0 && <i> · 미연결 {unlinked.slice(0, 6).join(", ")}{unlinked.length > 6 ? ` 외 ${unlinked.length - 6}명` : ""}</i>}
+        </span>
+        <button type="button" className="text-button" onClick={autoLink}>이름이 같은 계정 자동 연결</button>
+      </div>
+      <p className="form-note">
+        계정을 연결하면 <b>사진과 소개말은 본인이 마이페이지에서 관리한 값</b>이 카드에 나옵니다. 아직 가입하지 않은
+        부원(주로 1기)은 카드에 저장된 사진을 그대로 씁니다.
       </p>
       <div className="member-admin-list">
         {members.map((member, index) => (
@@ -1001,7 +1067,9 @@ function MembersForm() {
             <div className="field-block">
               <span className="field-label">연결할 계정</span>
               <PersonPicker
-                people={directory.map((person) => ({ id: person.id, name: person.name, detail: person.email }))}
+                people={directory.map((person) => ({
+                  id: person.id, name: person.name, detail: person.email, imageUrl: person.imageUrl,
+                }))}
                 value={member.userId}
                 onSelect={(id) => update(index, { userId: id })}
                 placeholder="이름이나 이메일로 검색"
@@ -1047,7 +1115,7 @@ function MembersForm() {
       <button className="button" type="button" onClick={submit}>
         부원 카드 저장 및 공개
       </button>
-      {message && <p className="save-notice">{message}</p>}
+      {notice}
       <section className="admin-live-preview">
         <div className="preview-label">
           <Eye size={15} /> 공개 화면 미리보기
@@ -1679,7 +1747,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
               {directory
                 .filter((person) => !memberQuery.trim() || matches(`${person.name} ${person.email}`, memberQuery))
                 .map((person) => (
-                  <label className="toggle-field" key={person.id}>
+                  <label className="toggle-field with-face" key={person.id}>
                     <input
                       type="checkbox"
                       checked={memberIds.includes(person.id)}
@@ -1689,6 +1757,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
                         )
                       }
                     />
+                    <Avatar name={person.name} imageUrl={person.imageUrl} />
                     <span>{person.name}</span>
                   </label>
                 ))}

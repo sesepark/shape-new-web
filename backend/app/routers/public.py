@@ -21,7 +21,6 @@ from app.models import (
     RoadmapItem,
     RoadmapMember,
     User,
-    UserStatus,
 )
 from app.schemas import (
     ContentPageRead,
@@ -33,6 +32,7 @@ from app.schemas import (
     NewsRead,
     RoadmapRead,
 )
+from app.security import READING_STATUSES
 
 router = APIRouter(tags=["public"])
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -161,7 +161,10 @@ async def member_profiles(db: AsyncSession = Depends(get_db)):
             continue
     if not wanted:
         return []
-    users = (await db.scalars(select(User).where(User.id.in_(wanted), User.status == UserStatus.APPROVED, User.deleted_at.is_(None)))).all()
+    # 보기 전용 회원(멤버)도 부원 카드에 남습니다. 활동을 쉬는 것과 카드에서
+    # 사라지는 것은 다른 일입니다.
+    users = (await db.scalars(select(User).where(
+        User.id.in_(wanted), User.status.in_(READING_STATUSES), User.deleted_at.is_(None)))).all()
     if not users:
         return []
     rows = (await db.execute(

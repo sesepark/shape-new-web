@@ -254,9 +254,17 @@ class RoadmapWrite(InputModel):
 
 
 class DirectoryUser(ORMModel):
+    """관리자 화면에서 사람을 고를 때 쓰는 최소한의 정보.
+
+    사진을 함께 내려보내는 이유는, 이름만 늘어놓으면 동명이인이나 비슷한 이름을
+    고를 때 이메일을 하나하나 읽어야 하기 때문입니다.
+    """
+
     id: UUID
     name: str
     email: str
+    image_url: str | None = None
+    status: UserStatus
 
 
 class LinkRead(ORMModel):

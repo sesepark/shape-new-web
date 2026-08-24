@@ -55,7 +55,7 @@ from app.schemas import (
     RoadmapWrite,
     UserDecision,
 )
-from app.security import any_manager, owner_only, require_permission
+from app.security import READING_STATUSES, any_manager, owner_only, require_permission
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
 from app.services.notifications import deliver_push, publish_notice_notifications
@@ -383,13 +383,20 @@ async def delete_license(license_id: UUID, _: User = Depends(require_permission(
 
 @router.get("/directory", response_model=list[DirectoryUser])
 async def member_directory(_: User = Depends(any_manager), db: AsyncSession = Depends(get_db)):
-    """Approved members, for assigning roadmap projects without owner rights."""
-    return (await db.scalars(select(User).where(User.status == UserStatus.APPROVED, User.deleted_at.is_(None)).order_by(User.name))).all()
+    """사람을 고르는 화면이 쓰는 명단.
+
+    보기 전용 회원도 넣습니다. 지난 학기 프로젝트에 이름이 남아 있거나 부원
+    카드에 연결되어 있을 수 있는데, 명단에서 빠지면 이미 연결된 사람이 화면에서
+    사라져 실수로 지워집니다.
+    """
+    return (await db.scalars(select(User).where(
+        User.status.in_(READING_STATUSES), User.deleted_at.is_(None)).order_by(User.name))).all()
 
 
 async def set_roadmap_members(db: AsyncSession, item_id: UUID, member_ids: list[UUID]) -> None:
     wanted = set(member_ids)
-    known = set((await db.scalars(select(User.id).where(User.id.in_(wanted), User.status == UserStatus.APPROVED))).all()) if wanted else set()
+    known = set((await db.scalars(select(User.id).where(
+        User.id.in_(wanted), User.status.in_(READING_STATUSES)))).all()) if wanted else set()
     if known != wanted:
         raise HTTPException(422, "승인되지 않은 회원은 프로젝트에 배정할 수 없습니다.")
     await db.execute(delete(RoadmapMember).where(RoadmapMember.roadmap_item_id == item_id))

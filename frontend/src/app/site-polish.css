@@ -2567,3 +2567,53 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
 .comment-list + .read-only-note,
 .notice-comments > .read-only-note { margin-top: 18px; }
+
+/* ==========================================================================
+   관리자 — 사람을 고를 때 얼굴이 함께 보이게
+   --------------------------------------------------------------------------
+   이름만 늘어놓으면 비슷한 이름을 고를 때 이메일을 하나하나 읽어야 합니다.
+   구글 계정 사진을 작게 붙이고, 사진이 없으면 이름 첫 글자를 씁니다.
+   ========================================================================== */
+
+.pick-face {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #e6eaf2;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 900;
+  object-fit: cover;
+}
+
+.person-options button { align-items: center; }
+
+.person-picked span { align-items: center; }
+
+.toggle-field.with-face { display: flex; align-items: center; gap: 8px; }
+
+.toggle-field.with-face .pick-face { width: 22px; height: 22px; font-size: 10px; }
+
+/* --- 부원 카드 ↔ 구글 계정 연결 현황 ----------------------------------- */
+
+.link-summary {
+  margin: 0 0 12px;
+  padding: 11px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 14px;
+  background: #f4f6fa;
+  border: 1px solid #e2e6ee;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.link-summary b { color: var(--blue); font-weight: 900; }
+
+.link-summary i { color: #7b8496; font-size: 12px; font-style: normal; }

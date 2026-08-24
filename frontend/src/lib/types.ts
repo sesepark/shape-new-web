@@ -103,6 +103,9 @@ export interface DirectoryUser {
   id: string;
   name: string;
   email: string;
+  /** 구글 계정 프로필 사진. 관리자 화면에서 사람을 고를 때 함께 보여 줍니다. */
+  imageUrl?: string | null;
+  status: MemberStatus;
 }
 
 export interface ContentPage {

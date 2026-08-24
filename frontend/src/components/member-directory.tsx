@@ -32,7 +32,7 @@ function period(project: MemberProfile["projects"][number]) {
  * 요청 수가 먼저 차므로, 첫 화면 몫만 처음부터 그리고 나머지는 카드가 가까워질
  * 때 붙입니다. 사진이 없는 부원은 지금까지처럼 이름을 크게 씁니다.
  */
-function MemberPhoto({ member, index }: { member: ShapeMember; index: number }) {
+function MemberPhoto({ member, photo, index }: { member: ShapeMember; photo?: string | null; index: number }) {
   const [near, setNear] = useState(index < FIRST_SCREEN);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -47,7 +47,7 @@ function MemberPhoto({ member, index }: { member: ShapeMember; index: number }) 
     observer.observe(element);
     return () => observer.disconnect();
   }, [near]);
-  if (!member.imageUrl) {
+  if (!photo) {
     return (
       <div className="member-photo">
         <span aria-hidden="true">{givenName(member.name)}</span>
@@ -58,12 +58,12 @@ function MemberPhoto({ member, index }: { member: ShapeMember; index: number }) 
     <div className="member-photo" ref={box}>
       {near && (
         <Image
-          src={media(member.imageUrl, 560)}
+          src={media(photo, 560)}
           alt={`${member.name} 부원`}
           width={560}
           height={700}
           sizes="(max-width:680px) 45vw, 280px"
-          unoptimized={!optimizable(member.imageUrl)}
+          unoptimized={!optimizable(photo)}
         />
       )}
     </div>
@@ -87,6 +87,16 @@ export function MemberDirectory({
   );
   const active = visible.find((member) => member.id === openId) ?? null;
   const profile = active?.userId ? byUser.get(active.userId) : undefined;
+
+  /**
+   * 카드에 쓸 사진.
+   *
+   * 구글 계정과 SHAPE 부원 카드에 사진이 따로 있어서, 계정을 연결해 두고도
+   * 격자에는 옛 사진이 남아 두 개가 갈렸습니다. 연결된 계정이 있으면 그쪽을
+   * 먼저 쓰고, 아직 가입하지 않은 1기 부원은 카드에 저장된 사진을 씁니다.
+   */
+  const photoOf = (member: ShapeMember) =>
+    (member.userId ? byUser.get(member.userId)?.imageUrl : null) ?? member.imageUrl ?? null;
 
   useEffect(() => {
     if (active && dialog.current && !dialog.current.open) dialog.current.showModal();
@@ -119,7 +129,7 @@ export function MemberDirectory({
             <button type="button" className="member-open" onClick={() => setOpenId(member.id)}>
               <span className="sr-only">{member.name} 부원 자세히 보기</span>
             </button>
-            <MemberPhoto member={member} index={index} />
+            <MemberPhoto member={member} photo={photoOf(member)} index={index} />
             <div className="member-card-copy">
               <small>{member.membership ?? "정회원"} · {member.team}</small>
               <h3>{member.name}</h3>
