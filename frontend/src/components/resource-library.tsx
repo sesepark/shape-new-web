@@ -146,6 +146,7 @@ export function ResourceLibrary() {
     else setMessage("자료를 삭제하지 못했습니다.");
   }
 
+  // 보기 전용 회원은 자료를 읽기만 합니다. 서버도 같은 기준으로 막습니다.
   const canWrite = Boolean(session && session.status === "APPROVED");
   const visible = (items ?? []).filter((item) => filter === "전체" || item.category === filter);
 

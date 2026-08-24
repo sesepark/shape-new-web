@@ -1823,7 +1823,9 @@ const reservationStatusLabel: Record<string, string> = {
 };
 const memberStatusLabel: Record<MemberStatus, string> = {
   PENDING: "승인 대기",
-  APPROVED: "정상",
+  APPROVED: "활동 회원",
+  // 보기 전용. 로그인해서 읽기만 하고 글쓰기·예약은 하지 않습니다.
+  VIEWER: "보기 전용",
   REJECTED: "거절",
   SUSPENDED: "정지",
 };
@@ -2089,6 +2091,7 @@ function MembersPanel({ owner }: { owner: boolean }) {
   const [licenses, setLicenses] = useState<LicenseItem[]>([]);
   const [query, setQuery] = useState("");
   const { say, node: notice } = useNotice();
+  const { ask, dialogNode } = useAsk();
   const reload = useCallback(async () => {
     const response = await adminFetch("/admin/users").catch(() => null);
     if (!response?.ok) {
@@ -2151,6 +2154,61 @@ function MembersPanel({ owner }: { owner: boolean }) {
     }
     write(!wanted);
     say("권한을 변경하지 못했습니다. 로그인과 Owner 권한을 확인해 주세요.", false);
+  }
+
+  /**
+   * 권한이나 교육을 한 번에 맞춥니다.
+   *
+   * 한 칸씩 보내면 권한 일곱 개에 요청이 일곱 번 나갑니다. 분당 쓰기가 20회로
+   * 묶여 있어 두 사람만 연달아 처리해도 한도에 걸리므로, 전체를 다룰 때는
+   * 목록을 통째로 보내는 창구를 씁니다.
+   */
+  async function setAll(user: AdminUserItem, what: "permissions" | "licenses", full: boolean) {
+    const wanted = full
+      ? what === "permissions" ? permissionLabels.map(([key]) => key) : licenses.map((license) => license.id)
+      : [];
+    const before = what === "permissions" ? user.permissions : user.licenseIds;
+    const field = what === "permissions" ? "permissions" : "licenseIds";
+    patch(user.id, () => ({ [field]: wanted }) as Partial<AdminUserItem>);
+    const body = what === "permissions" ? { permissions: wanted } : { licenseIds: wanted };
+    const response = await adminSend(`/admin/users/${user.id}/${what}`, "PUT", body);
+    if (response.ok) {
+      const label = what === "permissions" ? "관리 권한" : "장비 라이선스";
+      say(`${user.name} 님의 ${label}을 ${full ? `전체 부여(${wanted.length}개)` : "전체 해제"}했습니다.`);
+      return;
+    }
+    patch(user.id, () => ({ [field]: before }) as Partial<AdminUserItem>);
+    say(full ? "전체 부여에 실패했습니다." : "전체 해제에 실패했습니다.", false);
+  }
+
+  /** owner 로 올리거나 내립니다. 올리면 관리 권한도 함께 채워집니다. */
+  async function setOwner(user: AdminUserItem, next: boolean) {
+    const confirmed = await ask(next ? {
+      title: `${user.name} 님을 owner 로 지명할까요?`,
+      description: "owner 는 모든 관리 기능과 회원 관리를 쓸 수 있습니다. 지명하면 관리 권한도 함께 채워지고, 승인 대기 상태였다면 승인됩니다.",
+      confirmLabel: "owner 로 지명",
+    } : {
+      title: `${user.name} 님의 owner 를 내릴까요?`,
+      description: "회원 관리 권한이 사라집니다. 이미 가진 관리 권한은 그대로 남으니, 필요하면 아래에서 개별로 해제해 주세요.",
+      confirmLabel: "owner 내리기",
+      tone: "danger" as const,
+    });
+    if (confirmed === null) return;
+    const response = await adminSend(`/admin/users/${user.id}/owner`, "PATCH", { isOwner: next });
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
+      say(detail?.detail ?? "owner 를 바꾸지 못했습니다.", false);
+      return;
+    }
+    const result = (await response.json().catch(() => ({}))) as { permissions?: string[] };
+    patch(user.id, (existing) => ({
+      isOwner: next,
+      status: next ? "APPROVED" : existing.status,
+      permissions: result.permissions ?? existing.permissions,
+    }));
+    say(next
+      ? `${user.name} 님을 owner 로 지명하고 관리 권한을 모두 부여했습니다.`
+      : `${user.name} 님의 owner 를 내렸습니다. 관리 권한은 그대로 남아 있습니다.`);
   }
 
   async function toggleLicense(user: AdminUserItem, licenseId: string, granted: boolean) {
@@ -2218,8 +2276,24 @@ function MembersPanel({ owner }: { owner: boolean }) {
                     <option value={status} key={status}>{memberStatusLabel[status]}</option>
                   ))}
                 </select>
+                {/* owner 는 여러 명일 수 있습니다. 기존 owner 가 새 owner 를 지명합니다. */}
+                <button
+                  type="button"
+                  className={row.isOwner ? "text-button danger" : "text-button"}
+                  onClick={() => void setOwner(row, !row.isOwner)}
+                >
+                  {row.isOwner ? "owner 내리기" : "owner 로 지명"}
+                </button>
               </div>
-              <p className="form-note">관리 권한</p>
+              <div className="grant-head">
+                <p className="form-note">관리 권한</p>
+                {!row.isOwner && (
+                  <span className="grant-bulk">
+                    <button type="button" className="text-button" onClick={() => void setAll(row, "permissions", true)}>전체 부여</button>
+                    <button type="button" className="text-button" onClick={() => void setAll(row, "permissions", false)}>전체 해제</button>
+                  </span>
+                )}
+              </div>
               <div className="permission-grid">
                 {permissionLabels.map(([permission, label]) => {
                   const granted = row.permissions.includes(permission);
@@ -2231,7 +2305,15 @@ function MembersPanel({ owner }: { owner: boolean }) {
                   );
                 })}
               </div>
-              <p className="form-note">장비 라이선스</p>
+              <div className="grant-head">
+                <p className="form-note">장비 라이선스</p>
+                {licenses.length > 0 && (
+                  <span className="grant-bulk">
+                    <button type="button" className="text-button" onClick={() => void setAll(row, "licenses", true)}>전체 부여</button>
+                    <button type="button" className="text-button" onClick={() => void setAll(row, "licenses", false)}>전체 해제</button>
+                  </span>
+                )}
+              </div>
               {licenses.length ? (
                 <div className="permission-grid">
                   {licenses.map((license) => {
@@ -2255,6 +2337,7 @@ function MembersPanel({ owner }: { owner: boolean }) {
           <h2>표시할 회원이 없습니다</h2>
         </div>
       )}
+      {dialogNode}
     </div>
   );
 }

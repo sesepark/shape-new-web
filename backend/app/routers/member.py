@@ -46,7 +46,14 @@ from app.schemas import (
     ShapeUpRead,
     ShapeUpWrite,
 )
-from app.security import approved_user, current_user, has_permission, optional_user
+from app.security import (
+    READING_STATUSES,
+    approved_user,
+    current_user,
+    has_permission,
+    optional_user,
+    reading_user,
+)
 from app.services.content import sanitize_html
 from app.services.notifications import deliver_push, publish_notice_notifications
 from app.services.reservations import cancel, create_pending, read_models
@@ -62,7 +69,7 @@ def as_utc(value: datetime) -> datetime:
 
 
 @router.get("/equipment-permissions")
-async def equipment_permissions(user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def equipment_permissions(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     """All equipment is returned so members can see both granted and missing access."""
     items = (await db.scalars(select(Equipment).order_by(Equipment.sort_order, Equipment.name))).all()
     if not items:
@@ -117,13 +124,13 @@ async def notice_reads(db: AsyncSession, notices: list[Notice], model=NoticeRead
 
 
 @router.get("/notices", response_model=list[NoticeRead])
-async def notices(_: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def notices(_: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     items = (await db.scalars(select(Notice).where(Notice.is_published.is_(True)).order_by(Notice.is_pinned.desc(), Notice.published_at.desc()))).all()
     return await notice_reads(db, list(items))
 
 
 @router.get("/notices/{notice_id}", response_model=NoticeDetailRead)
-async def notice_detail(notice_id: UUID, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def notice_detail(notice_id: UUID, user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     item = await db.get(Notice, notice_id)
     if not item or not item.is_published:
         raise HTTPException(404, "글을 찾을 수 없습니다.")
@@ -184,7 +191,7 @@ async def remove_notice(notice_id: UUID, user: User = Depends(approved_user), db
 
 
 @router.get("/notices/{notice_id}/comments", response_model=list[CommentRead])
-async def list_comments(notice_id: UUID, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def list_comments(notice_id: UUID, user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     rows = (await db.scalars(select(Comment).where(Comment.notice_id == notice_id).order_by(Comment.created_at))).all()
     names = {
         person.id: person.name
@@ -237,7 +244,7 @@ async def remove_comment(comment_id: UUID, user: User = Depends(approved_user), 
 
 
 @router.get("/notifications", response_model=list[NotificationRead])
-async def notifications(user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def notifications(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     return (await db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(50))).all()
 
 
@@ -248,7 +255,7 @@ async def read_notifications(user: User = Depends(approved_user), db: AsyncSessi
 
 
 @router.get("/roadmap/me", response_model=list[RoadmapRead])
-async def my_roadmap(user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def my_roadmap(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     """Roadmap projects this member was assigned to, newest deadline last."""
     return (await db.scalars(
         select(RoadmapItem)
@@ -259,7 +266,7 @@ async def my_roadmap(user: User = Depends(approved_user), db: AsyncSession = Dep
 
 
 @router.get("/reservations/me", response_model=list[ReservationRead])
-async def my_reservations(user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+async def my_reservations(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     items = (await db.scalars(select(Reservation).where(Reservation.user_id == user.id).order_by(Reservation.starts_at.desc()))).all()
     return await read_models(db, items)
 
@@ -274,7 +281,7 @@ CALENDAR_STATUSES = (
 @router.get("/reservations/calendar", response_model=list[ReservationCalendarItem])
 async def reservation_calendar(
     month: str = Query(pattern=r"^\d{4}-\d{2}$", description="조회할 달 (YYYY-MM)"),
-    _: User = Depends(approved_user),
+    _: User = Depends(reading_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Every equipment booking in one month, for the 예약 현황 calendar."""
@@ -406,13 +413,15 @@ async def resource_reads(db: AsyncSession, rows, viewer: User | None, manager: b
 @router.get("/resources", response_model=list[ResourceRead])
 async def list_resources(viewer: User | None = Depends(optional_user), db: AsyncSession = Depends(get_db)):
     """Public entries for everyone; member-only entries once signed in."""
-    member = bool(viewer and viewer.status == UserStatus.APPROVED)
+    # 보기 전용 회원도 회원 전용 자료를 읽는다. 고치는 것은 아래에서 막는다.
+    member = bool(viewer and viewer.status in READING_STATUSES)
     query = select(Resource).order_by(Resource.created_at.desc())
     if not member:
         query = query.where(Resource.is_public.is_(True))
     rows = list((await db.scalars(query)).all())
-    manager = bool(member and await has_permission(db, viewer, "content:manage"))
-    return await resource_reads(db, rows, viewer if member else None, manager)
+    editable = bool(viewer and viewer.status == UserStatus.APPROVED)
+    manager = bool(editable and await has_permission(db, viewer, "content:manage"))
+    return await resource_reads(db, rows, viewer if editable else None, manager)
 
 
 @router.post("/resources", response_model=ResourceRead, status_code=201)
@@ -474,6 +483,7 @@ async def shape_up_reads(db: AsyncSession, rows, viewer: User | None, manager: b
 
 
 async def shape_up_viewer(db: AsyncSession, viewer: User | None):
+    """글을 고칠 수 있는 사람인지 본다. 보기 전용 회원은 읽기만 한다."""
     member = bool(viewer and viewer.status == UserStatus.APPROVED)
     manager = bool(member and await has_permission(db, viewer, "content:manage"))
     return (viewer if member else None), manager

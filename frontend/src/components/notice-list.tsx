@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { MessageSquare, PenLine, Pin } from "lucide-react";
+import { Eye, MessageSquare, PenLine, Pin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { board } from "@/lib/board";
+import { useSession } from "@/lib/session";
 import { date } from "@/lib/format";
 import type { NoticeCategory, NoticeItem } from "@/lib/types";
 
 const categories = ["전체", "공지", "질문", "정보", "일반"] as const;
 
 export function NoticeList() {
+  const { session } = useSession();
+  // 보기 전용 회원은 글을 쓰지 않습니다. 서버도 같은 기준으로 막습니다.
+  const readOnly = session?.status === "VIEWER";
   const [items, setItems] = useState<NoticeItem[] | null>(null);
   const [category, setCategory] = useState<(typeof categories)[number]>("전체");
 
@@ -33,9 +37,14 @@ export function NoticeList() {
             </button>
           ))}
         </div>
-        <Link className="button small" href="/notices/write">
-          <PenLine size={16} /> 글쓰기
-        </Link>
+        {/* 보기 전용 회원은 읽기만 합니다. 눌러 봐야 서버가 막으므로 아예 안 보입니다. */}
+        {readOnly ? (
+          <span className="read-only-note"><Eye size={15} /> 보기 전용 계정입니다</span>
+        ) : (
+          <Link className="button small" href="/notices/write">
+            <PenLine size={16} /> 글쓰기
+          </Link>
+        )}
       </div>
       {items === null ? (
         <p className="form-note">게시글을 불러오고 있습니다.</p>

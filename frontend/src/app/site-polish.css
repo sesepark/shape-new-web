@@ -2504,3 +2504,66 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   letter-spacing: .08em;
   align-self: center;
 }
+
+/* ==========================================================================
+   관리자 — 권한·라이선스 전체 부여
+   ========================================================================== */
+
+.grant-head {
+  margin: 16px 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+}
+
+.grant-head > .form-note { margin: 0; }
+
+.grant-bulk { display: flex; align-items: center; gap: 4px; }
+
+/* 두 단추가 붙어 있어 어느 쪽을 눌렀는지 헷갈리지 않게 사이에 선을 둔다. */
+.grant-bulk > button + button { padding-left: 10px; border-left: 1px solid #d7dde8; }
+
+.member-permission-head { flex-wrap: wrap; gap: 8px 12px; }
+
+/* owner 표시. 이제 여러 명일 수 있으므로 눈에 띄어야 한다. */
+.member-permission-list legend em {
+  margin-left: 6px;
+  padding: 2px 8px;
+  color: #fff;
+  background: var(--blue);
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: .06em;
+}
+
+/* ==========================================================================
+   보기 전용 계정 안내
+   --------------------------------------------------------------------------
+   보기 전용 회원(VIEWER)은 로그인해서 공지·자료실·예약 현황을 읽지만 글쓰기와
+   예약은 하지 않습니다. 눌러 봐야 서버가 막으므로 단추를 아예 두지 않고, 그
+   자리에 왜 없는지 적어 둡니다.
+   ========================================================================== */
+
+.read-only-note {
+  margin: 0;
+  padding: 9px 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #5c6472;
+  background: #f2f4f8;
+  border: 1px solid #e0e5ee;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  word-break: keep-all;
+}
+
+.read-only-note svg { flex: none; color: #98a1b0; }
+
+.comment-list + .read-only-note,
+.notice-comments > .read-only-note { margin-top: 18px; }

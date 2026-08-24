@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { BellRing, CalendarClock, Check, ChevronRight, ClipboardCheck, Clock3, ShieldCheck, X } from "lucide-react";
+import { BellRing, CalendarClock, Check, ChevronRight, ClipboardCheck, Clock3, Eye, ShieldCheck, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { AutoTextarea } from "@/components/auto-textarea";
@@ -170,6 +170,9 @@ function ProfileCard({ session }: { session: SessionUser }) {
 }
 
 function NoticeAlerts() {
+  const { session } = useSession();
+  // 공지 알림은 활동 중인 회원에게만 갑니다.
+  const readOnly = session?.status === "VIEWER";
   const [items, setItems] = useState<NotificationItem[] | null>(null);
   const [pushMessage, setPushMessage] = useState("");
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
@@ -201,6 +204,12 @@ function NoticeAlerts() {
         <div><p className="meta">NOTIFICATIONS</p><h3>새 공지 알림{unread > 0 ? ` (${unread})` : ""}</h3></div>
         {unread > 0 && <button type="button" className="text-button" onClick={markRead}>모두 읽음</button>}
       </div>
+      {/* 공지 알림은 활동 중인 회원에게만 갑니다. 보기 전용 계정에는 켜 두어도
+          올 것이 없으므로 단추를 두지 않습니다. */}
+      {readOnly ? (
+        <p className="read-only-note"><Eye size={15} /> 보기 전용 계정에는 공지 알림이 발송되지 않습니다.</p>
+      ) : (
+      <>
       {/* 켜졌는지 글씨로만 알려 주면 눈에 들어오지 않습니다. 켜져 있으면 단추
           자체가 파랗게 채워지고, 꺼져 있으면 테두리만 남습니다. */}
       <button
@@ -214,6 +223,8 @@ function NoticeAlerts() {
         {subscribed === null ? "알림 설정 확인 중" : subscribed ? "브라우저 알림 켜짐" : "브라우저 알림 받기"}
       </button>
       {pushMessage && <p className="form-note">{pushMessage}</p>}
+      </>
+      )}
       {items === null ? (
         <p className="form-note">알림을 불러오는 중입니다.</p>
       ) : items.length ? (

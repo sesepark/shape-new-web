@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from app.models import (
     UserStatus,
 )
 from app.schemas import (
+    PERMISSIONS,
     AdminEquipmentRead,
     AdminLinkRead,
     AdminNewsRead,
@@ -40,12 +41,15 @@ from app.schemas import (
     EquipmentWrite,
     LicenseAssignment,
     LicenseRead,
+    LicenseSetWrite,
     LicenseWrite,
     LinkInspect,
     LinkWrite,
     NewsWrite,
     NoticeWrite,
+    OwnerWrite,
     PageWrite,
+    PermissionSetWrite,
     PermissionWrite,
     ReservationDecision,
     RoadmapWrite,
@@ -59,6 +63,10 @@ from app.services.reservations import approve, cancel, read_models
 from app.services.revalidate import refresh
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# 화면에서 켜고 끌 수 있는 기능 권한. `schemas.PERMISSIONS` 와 같은 목록이며,
+# 여기 없는 이름은 받지 않는다.
+MANAGEABLE_PERMISSIONS = {f"{name}:manage" for name in PERMISSIONS}
 
 EDITABLE_PAGES = {"greeting", "club-introduction", "organization", "members"}
 
@@ -554,6 +562,72 @@ async def grant_permission(user_id: UUID, payload: PermissionWrite, _: User = De
         db.add(PermissionGrant(user_id=user_id, permission=payload.permission))
         await db.commit()
     return {"ok": True}
+
+
+@router.put("/users/{user_id}/permissions")
+async def set_permissions(user_id: UUID, payload: PermissionSetWrite, _: User = Depends(owner_only), db: AsyncSession = Depends(get_db)):
+    """이 회원의 기능 권한을 목록 그대로 맞춥니다. '전체 부여·해제' 가 씁니다."""
+    if not await db.get(User, user_id):
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    wanted = {name for name in payload.permissions if name in MANAGEABLE_PERMISSIONS}
+    if wanted != set(payload.permissions):
+        raise HTTPException(422, "알 수 없는 권한이 포함되어 있습니다.")
+    await db.execute(delete(PermissionGrant).where(PermissionGrant.user_id == user_id))
+    db.add_all([PermissionGrant(user_id=user_id, permission=name) for name in sorted(wanted)])
+    await db.commit()
+    return {"permissions": sorted(wanted)}
+
+
+@router.put("/users/{user_id}/licenses")
+async def set_licenses(user_id: UUID, payload: LicenseSetWrite, _: User = Depends(require_permission("equipment:manage")), db: AsyncSession = Depends(get_db)):
+    """이 회원이 이수한 교육을 목록 그대로 맞춥니다."""
+    if not await db.get(User, user_id):
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    known = set((await db.scalars(select(License.id).where(License.id.in_(payload.license_ids)))).all()) if payload.license_ids else set()
+    if known != set(payload.license_ids):
+        raise HTTPException(422, "존재하지 않는 라이선스가 포함되어 있습니다.")
+    await db.execute(delete(UserLicense).where(UserLicense.user_id == user_id))
+    db.add_all([UserLicense(user_id=user_id, license_id=license_id) for license_id in known])
+    await db.commit()
+    return {"licenseIds": [str(license_id) for license_id in known]}
+
+
+@router.patch("/users/{user_id}/owner")
+async def set_owner(user_id: UUID, payload: OwnerWrite, actor: User = Depends(owner_only), db: AsyncSession = Depends(get_db)):
+    """owner 를 새로 지명하거나 내립니다.
+
+    owner 는 모든 확인을 무조건 통과하므로 여러 명이어도 됩니다. 지금까지는
+    `INITIAL_OWNER_EMAILS` 에 적힌 계정만 owner 가 될 수 있어서, 회장이 바뀌면
+    환경변수를 고치고 다시 배포해야 했습니다.
+
+    지명하면 기능 권한도 함께 채웁니다. owner 는 권한 확인을 건너뛰므로 동작에는
+    차이가 없지만, 화면에서 무엇을 가졌는지 그대로 보이는 편이 낫고 나중에
+    owner 를 내려도 하던 일을 이어갈 수 있습니다.
+    """
+    user = await db.get(User, user_id)
+    if not user or user.deleted_at:
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    if not payload.is_owner:
+        if user.id == actor.id:
+            raise HTTPException(409, "자신의 owner 권한은 내릴 수 없습니다. 다른 owner 에게 요청해 주세요.")
+        remaining = await db.scalar(select(func.count()).select_from(User).where(
+            User.is_owner.is_(True), User.deleted_at.is_(None), User.id != user_id))
+        if not remaining:
+            raise HTTPException(409, "마지막 owner 는 내릴 수 없습니다. 먼저 다른 owner 를 지명해 주세요.")
+        user.is_owner = False
+        await db.commit()
+        # 권한은 남긴다. 내리는 것과 하던 일을 빼앗는 것은 다른 일이다.
+        return {"isOwner": False}
+
+    user.is_owner = True
+    # owner 는 승인된 회원이어야 회원용 화면에 들어갈 수 있다.
+    if user.status != UserStatus.APPROVED:
+        user.status = UserStatus.APPROVED
+    held = set((await db.scalars(select(PermissionGrant.permission).where(PermissionGrant.user_id == user_id))).all())
+    db.add_all([PermissionGrant(user_id=user_id, permission=name)
+                for name in sorted(MANAGEABLE_PERMISSIONS - held)])
+    await db.commit()
+    return {"isOwner": True, "permissions": sorted(MANAGEABLE_PERMISSIONS)}
 
 
 @router.delete("/users/{user_id}/permissions/{permission}", status_code=204)

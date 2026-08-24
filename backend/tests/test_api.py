@@ -886,3 +886,140 @@ async def test_news_keeps_the_publish_date_the_editor_chose(client, session):
     draft = await http.post("/api/v1/admin/news", json={**body, "title": "초안", "isPublished": False})
     assert draft.status_code == 201
     assert "초안" not in {row["title"] for row in (await client.get("/api/v1/news")).json()}
+
+
+async def test_permissions_and_licences_can_be_set_all_at_once(client, session):
+    """'전체 부여' 는 한 번의 요청으로 처리한다.
+
+    한 칸씩 보내면 권한 일곱 개에 요청이 일곱 번 나간다. 분당 쓰기가 20회라
+    두 사람만 연달아 처리해도 한도에 걸린다.
+    """
+    owner = await make_user(session, "owner@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    first, second = License(name="교육 하나"), License(name="교육 둘")
+    session.add_all([first, second])
+    await session.commit()
+
+    http = login(client, owner)
+    everything = ["content:manage", "news:manage", "notices:manage", "equipment:manage",
+                  "reservations:manage", "roadmap:manage", "links:manage"]
+    granted = await http.put(f"/api/v1/admin/users/{member.id}/permissions", json={"permissions": everything})
+    assert granted.status_code == 200, granted.text
+    assert granted.json()["permissions"] == sorted(everything)
+
+    licences = await http.put(f"/api/v1/admin/users/{member.id}/licenses",
+                              json={"licenseIds": [str(first.id), str(second.id)]})
+    assert licences.status_code == 200, licences.text
+    assert len(licences.json()["licenseIds"]) == 2
+
+    listed = next(row for row in (await http.get("/api/v1/admin/users")).json() if row["email"] == "member@example.com")
+    assert sorted(listed["permissions"]) == sorted(everything)
+    assert len(listed["licenseIds"]) == 2
+
+    # 빈 목록은 전체 해제다.
+    assert (await http.put(f"/api/v1/admin/users/{member.id}/permissions", json={"permissions": []})).status_code == 200
+    assert (await http.put(f"/api/v1/admin/users/{member.id}/licenses", json={"licenseIds": []})).status_code == 200
+    listed = next(row for row in (await http.get("/api/v1/admin/users")).json() if row["email"] == "member@example.com")
+    assert listed["permissions"] == [] and listed["licenseIds"] == []
+
+    # 없는 권한 이름은 받지 않는다.
+    assert (await http.put(f"/api/v1/admin/users/{member.id}/permissions", json={"permissions": ["everything:manage"]})).status_code == 422
+
+
+async def test_an_owner_can_appoint_another_owner(client, session):
+    """owner 는 여러 명일 수 있고, 기존 owner 가 새 owner 를 지명한다."""
+    first = await make_user(session, "first@example.com", owner=True)
+    successor = await make_user(session, "successor@example.com", status=UserStatus.PENDING)
+
+    http = login(client, first)
+    promoted = await http.patch(f"/api/v1/admin/users/{successor.id}/owner", json={"isOwner": True})
+    assert promoted.status_code == 200, promoted.text
+    # 지명하면 기능 권한도 함께 채우고, 승인 상태로 올린다.
+    assert len(promoted.json()["permissions"]) == 7
+    row = next(r for r in (await http.get("/api/v1/admin/users")).json() if r["email"] == "successor@example.com")
+    assert row["isOwner"] and row["status"] == "APPROVED" and len(row["permissions"]) == 7
+
+    # 새 owner 도 owner 전용 창구를 쓸 수 있다.
+    theirs = login(client, successor)
+    assert (await theirs.get("/api/v1/admin/users")).status_code == 200
+
+    # 자기 자신은 내릴 수 없다. 실수로 아무도 못 들어가는 상태가 되면 곤란하다.
+    assert (await theirs.patch(f"/api/v1/admin/users/{successor.id}/owner", json={"isOwner": False})).status_code == 409
+
+    # 다른 owner 는 내릴 수 있다.
+    assert (await theirs.patch(f"/api/v1/admin/users/{first.id}/owner", json={"isOwner": False})).status_code == 200
+    # 그러면 남은 owner 는 한 명이고, 그 한 명은 내릴 수 없다.
+    assert (await theirs.patch(f"/api/v1/admin/users/{successor.id}/owner", json={"isOwner": False})).status_code == 409
+
+    # owner 가 아닌 사람은 지명할 수 없다.
+    plain = await make_user(session, "plain@example.com")
+    assert (await login(client, plain).patch(f"/api/v1/admin/users/{first.id}/owner", json={"isOwner": True})).status_code == 403
+
+
+async def test_a_viewer_can_read_but_not_write(client, session):
+    """보기 전용 회원은 회원 화면을 읽기만 한다.
+
+    멤버(직전 학기에는 활동했지만 이번 학기에는 활동하지 않는 인원)에게 줄
+    등급이다. 로그인해서 공지·자료실·예약 현황을 보되 흔적은 남기지 않는다.
+    """
+    manager = await make_user(session, "manager@example.com", permissions=["notices:manage", "content:manage"])
+    watcher = await make_user(session, "watcher@example.com", status=UserStatus.VIEWER)
+
+    staff = login(client, manager)
+    posted = await staff.post("/api/v1/notices", json={
+        "title": "공지 하나", "category": "공지", "contentHtml": "<p>본문</p>",
+        "contentJson": {}, "isPinned": False,
+    })
+    assert posted.status_code == 201, posted.text
+    notice_id = posted.json()["id"]
+    assert (await staff.post("/api/v1/resources", json={
+        "title": "회원 전용 자료", "description": "", "category": "기타",
+        "fileUrl": None, "fileName": None, "fileSize": 0,
+        "linkUrl": "https://drive.google.com/shape", "isPublic": False,
+    })).status_code == 201
+
+    eyes = login(client, watcher)
+    # 읽는 것은 된다.
+    assert (await eyes.get("/api/v1/notices")).status_code == 200
+    assert (await eyes.get(f"/api/v1/notices/{notice_id}")).status_code == 200
+    assert (await eyes.get(f"/api/v1/notices/{notice_id}/comments")).status_code == 200
+    assert (await eyes.get("/api/v1/reservations/calendar?month=2026-09")).status_code == 200
+    assert (await eyes.get("/api/v1/reservations/me")).status_code == 200
+    assert (await eyes.get("/api/v1/equipment-permissions")).status_code == 200
+    assert (await eyes.get("/api/v1/notifications")).status_code == 200
+
+    # 회원 전용 자료도 보이지만 고칠 수는 없다.
+    listed = (await eyes.get("/api/v1/resources")).json()
+    assert "회원 전용 자료" in {row["title"] for row in listed}
+    assert all(row["canEdit"] is False for row in listed)
+
+    # 남기는 일은 모두 막힌다.
+    blocked = {
+        "글쓰기": await eyes.post("/api/v1/notices", json={"title": "쓰기", "category": "일반", "contentHtml": "<p>a</p>", "contentJson": {}, "isPinned": False}),
+        "댓글": await eyes.post(f"/api/v1/notices/{notice_id}/comments", json={"body": "댓글"}),
+        "예약": await eyes.post("/api/v1/reservations", json={"equipmentUnitId": str(watcher.id), "startsAt": "2026-12-01T10:00:00+09:00", "endsAt": "2026-12-01T11:00:00+09:00", "purpose": "시도"}),
+        "자료 올리기": await eyes.post("/api/v1/resources", json={"title": "x", "description": "", "category": "기타", "fileUrl": None, "fileName": None, "fileSize": 0, "linkUrl": "https://example.com/a", "isPublic": True}),
+        "SHAPE-UP": await eyes.post("/api/v1/shape-up", json={"title": "x", "summary": "", "cohort": "", "teamName": "", "teamMembers": [], "coverImage": None, "contentHtml": "", "contentJson": {}, "githubUrl": None, "videoUrl": None}),
+    }
+    assert {name: row.status_code for name, row in blocked.items()} == dict.fromkeys(blocked, 403)
+    assert "보기 전용" in blocked["글쓰기"].json()["detail"]
+
+    # 관리자 화면은 근처도 못 간다.
+    assert (await eyes.get("/api/v1/admin/users")).status_code == 403
+
+
+async def test_an_owner_can_set_a_member_to_viewer(client, session):
+    """운영진이 회원을 보기 전용으로 내리고 되돌릴 수 있다."""
+    owner = await make_user(session, "owner@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    http = login(client, owner)
+
+    assert (await http.patch(f"/api/v1/admin/users/{member.id}/status", json={"status": "VIEWER"})).status_code == 200
+    row = next(r for r in (await http.get("/api/v1/admin/users")).json() if r["email"] == "member@example.com")
+    assert row["status"] == "VIEWER"
+    assert (await login(client, member).post("/api/v1/notices", json={"title": "x", "category": "일반", "contentHtml": "<p>a</p>", "contentJson": {}, "isPinned": False})).status_code == 403
+
+    # login 은 같은 client 의 쿠키를 바꿔 끼우므로 다시 owner 로 돌아온다.
+    http = login(client, owner)
+    assert (await http.patch(f"/api/v1/admin/users/{member.id}/status", json={"status": "APPROVED"})).status_code == 200
+    assert (await login(client, member).get("/api/v1/notices")).status_code == 200

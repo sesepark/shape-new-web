@@ -44,7 +44,8 @@ type EquipmentPermission = {
   licensed: boolean;
   eligible: boolean;
 };
-type Access = "checking" | "guest" | "member";
+/** 예약 화면에서 지금 무엇을 할 수 있는지. `viewer` 는 보고만 갑니다. */
+type Access = "checking" | "guest" | "viewer" | "member";
 const RESERVATION_OPEN_HOUR = 0;
 const RESERVATION_CLOSE_HOUR = 24;
 
@@ -70,7 +71,11 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   // 신청할 수 있었다. 무엇을 이미 넣었는지 보여 주고 곧바로 다음 장비로 넘어간다.
   const [booked, setBooked] = useState<{ id: string; name: string; unit: string; span: string }[]>([]);
   // 로그인 여부는 머리글이 이미 읽어 둔 세션에서 그대로 읽습니다.
-  const access: Access = session === undefined ? "checking" : session?.status === "APPROVED" ? "member" : "guest";
+  const access: Access =
+    session === undefined ? "checking"
+    : session?.status === "APPROVED" ? "member"
+    : session?.status === "VIEWER" ? "viewer"
+    : "guest";
   // 기본 선택이 하필 교육 미이수 장비이면 신청 정보 요약이 처음부터 막힌 장비를
   // 가리킨다. 링크로 직접 지정해 온 경우가 아니면 신청 가능한 장비를 보여 준다.
   const lockedByDefault = Boolean(!requested && permissions[chosenId] && !permissions[chosenId].eligible);
@@ -178,6 +183,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     setEndHour(endOf(index)); setStage(3); setMessage("");
   }
   async function submit() {
+    if (access === "viewer") { setMessage("보기 전용 계정이라 예약을 신청할 수 없습니다. 예약 현황은 그대로 보실 수 있습니다."); return; }
     if (access === "guest") { setMessage("로그인 후 승인된 회원만 예약을 신청할 수 있습니다."); return; }
     if (selected) {
       const { ok, reason } = eligibility(selected);
@@ -220,6 +226,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     <ol className="reservation-steps" aria-label="장비 예약 진행 단계">{steps.map(([label, Icon], index) => <li className={stage === index + 1 ? "active" : stage > index + 1 ? "done" : ""} key={label}><span>{label}</span><Icon size={23} />{index < steps.length - 1 && <ChevronRight className="step-arrow" size={19} />}</li>)}</ol>
     <div className="booking-guidance"><strong>장비사용 예약 신청 순서</strong><p>장비 모델과 사용 날짜·시간을 선택한 후, 작업 목적을 작성해 예약을 신청합니다.</p><small><CircleAlert size={15} />승인된 예약만 달력과 시간표에서 다른 회원에게 표시됩니다.</small></div>
     {access === "guest" && <p className="booking-signin" role="status"><Lock size={15} />예약 신청은 승인된 회원만 할 수 있습니다. 예약 가능 시간은 로그인 없이도 확인할 수 있습니다. <Link href="/login">로그인하기</Link></p>}
+    {access === "viewer" && <p className="booking-signin" role="status"><Lock size={15} />보기 전용 계정입니다. 예약 현황은 확인하실 수 있지만 신청은 활동 중인 회원만 할 수 있습니다.</p>}
     <section className="booking-equipment" ref={equipmentRef} aria-labelledby="equipment-choice-title"><div className="booking-section-head"><p className="meta">01. EQUIPMENT</p><h3 id="equipment-choice-title">장비 선택</h3><span>예약할 장비와 개별 호기를 먼저 선택하세요.</span></div><div className="booking-equipment-grid">{equipment.map((item) => { const { ok, reason } = eligibility(item); return <button className={`booking-equipment-card${item.id === equipmentId ? " selected" : ""}${ok ? "" : " disabled"}`} type="button" disabled={!ok} onClick={() => chooseEquipment(item.id)} key={item.id}>{item.imageUrl ? <Image src={media(item.imageUrl, 640)} alt="" width={640} height={360} unoptimized={!optimizable(item.imageUrl)} /> : <span className="booking-device-icon"><Wrench size={34} /></span>}<span className="booking-card-category">{item.category}</span><strong>{item.name}</strong><small>{item.availableUnits}개 호기 · {ok ? "예약 가능" : reason}</small>{!ok && reason.startsWith("교육 필요") && <span className="booking-card-lock"><Lock size={13} /> 교육 이수 후 신청할 수 있습니다</span>}</button>; })}</div></section>
     <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title"><div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div><div className="booking-schedule-grid"><article className="booking-date-card"><h4>예약 날짜</h4><label><span>예약 가능 날짜</span><input type="date" min={localDay()} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }}  /></label><p><CalendarDays size={16} />{dateLabel(day)}</p></article><article className="booking-time-card" aria-busy={loading}><h4>예약 시간</h4><div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div><p className="slot-help">한 칸을 누르면 그 시간이 잡히고, 뒤쪽 칸을 다시 누르면 거기까지 늘어납니다. <i>회색은 이미 승인된 예약이거나 지난 시간입니다.</i></p><div className="booking-slots">{times.map((time, index) => { const inRange = Boolean(startHour && endHour && time >= startHour && time < endHour); const gone = past(day, time); return <button type="button" disabled={reserved.has(time) || gone} title={gone ? "이미 지난 시간입니다" : undefined} className={`${startHour === time ? "start" : ""}${inRange ? " range" : ""}${gone ? " gone" : ""}`} onClick={() => chooseSlot(time, index)} key={time}>{time} - {endOf(index)}</button>; })}</div>{!availability && <p className="form-note">{loading ? "예약 현황을 불러오는 중입니다." : "예약 현황이 없습니다."}</p>}</article></div></section>
     <section className="booking-request" aria-labelledby="request-title"><div className="booking-section-head"><p className="meta">03. REQUEST</p><h3 id="request-title">신청 정보</h3><span>신청자 정보는 로그인한 계정으로 자동 기록됩니다.</span></div><div className="booking-summary"><div><span>선택 장비</span><strong>{selected?.name ?? "장비를 선택해 주세요"}</strong></div><div><span>선택 일정</span><strong>{startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "시간을 선택해 주세요"}</strong></div><div><span>선택 호기</span><strong>{selectedUnit?.label ?? "호기를 선택해 주세요"}</strong></div></div><label className="booking-purpose"><span>사용 목적 및 작업 내용</span><textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={2000} placeholder="예: 휴머노이드 로봇 외장 부품 시제품 제작 / 사용 재료와 안전 유의사항" /></label><div className="booking-submit-row"><p>신청 후 운영진이 검토합니다. 승인 전에는 예약이 확정되지 않습니다. 여러 장비를 같은 시간에 함께 쓸 수 있습니다.</p><div className="booking-submit-buttons">{stage === 4 && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}<button className="button" type="button" disabled={loading || stage === 4} onClick={submit}>{stage === 4 ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button></div></div>{booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}</section>

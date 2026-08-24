@@ -201,9 +201,25 @@ CORS → Session → CostGuard → GZip → 라우터
 
 | 층 | 값 | 확인 지점 |
 |---|---|---|
-| 계정 상태 | `PENDING` / `APPROVED` / `REJECTED` / `SUSPENDED` | `approved_user` |
+| 계정 상태 | `PENDING` / `APPROVED` / `VIEWER` / `REJECTED` / `SUSPENDED` | `approved_user`(쓰기) · `reading_user`(읽기) |
 | 소유자 | `users.is_owner` | `owner_only` |
 | 세부 권한 | `permission_grants.permission` 문자열 | `require_permission("…")` |
+
+**등급은 세 갈래입니다.** 운영진은 owner(모든 확인을 통과), 준회원·정회원은
+`APPROVED`, 멤버는 `VIEWER` 입니다.
+
+> **`VIEWER` 는 읽기만 합니다.** 회원 전용 화면에 들어와 공지·자료실·예약 현황을
+> 읽되 글쓰기·댓글·예약 신청은 하지 않습니다. **읽는 창구에는 `reading_user`,
+> 무언가를 남기는 창구에는 `approved_user`** 를 씁니다. 새 창구를 만들 때 이
+> 둘을 헷갈리면 보기 전용 회원이 글을 쓰거나(느슨) 아예 못 들어옵니다(빡빡).
+> 화면 쪽에서도 단추를 감춰야 합니다 — 눌러 봐야 서버가 막으므로 없는 편이 낫고,
+> 그 자리에 `.read-only-note` 로 왜 없는지 적습니다.
+
+> **owner 는 여러 명일 수 있습니다.** 예전에는 `INITIAL_OWNER_EMAILS` 에 적힌
+> 계정만 owner 가 되어, 회장이 바뀌면 환경변수를 고치고 다시 배포해야 했습니다.
+> 이제 기존 owner 가 `PATCH /admin/users/{id}/owner` 로 지명합니다. 지명하면
+> 관리 권한도 함께 채워집니다. 자기 자신은 내릴 수 없고, 마지막 owner 도
+> 내릴 수 없습니다.
 
 쓰이는 권한 문자열은 `content:manage`, `news:manage`, `notices:manage`,
 `equipment:manage`, `roadmap:manage`, `links:manage`, `reservations:manage` 입니다.
@@ -475,6 +491,8 @@ SHOT_SOLID=1 SHOT_TRANSPARENT=1 SHOT_WIDTH=760 SHOT_HEIGHT=475 SHOT_PAD=14 \
 | 회원을 고르는 UI | `PersonPicker` 또는 `FilterBox` 를 썼는가. 회원은 70명을 넘습니다 |
 | 글쓰기 도구 | `sanitize_html` 허용 목록과 `.rich-content` CSS 를 함께 넓혔는가 |
 | 관리자 탭에 폼 추가 | `key={tab}` 을 주었는가. 없으면 앞 탭의 입력이 남습니다 |
+| 회원용 창구 추가 | 읽기면 `reading_user`, 쓰기면 `approved_user` 를 썼는가 |
+| 회원 여러 명을 한 번에 다루는 기능 | 요청을 하나로 묶었는가. 분당 쓰기가 20회입니다 |
 | 홈에 장 추가 | `HomeScrollSnap` 의 `SECTIONS`, 그리고 한 장이 100dvh 를 넘지 않는가 |
 | 무엇이든 화면을 건드릴 때 | **0절의 모바일 확인표** |
 | 로봇 3D 모델 | `scripts/render-robot-check.mjs` 로 그림을 찍어 눈으로 확인했는가 |

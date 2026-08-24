@@ -461,6 +461,29 @@ class PermissionWrite(InputModel):
     permission: str = Field(pattern=PERMISSION_PATTERN)
 
 
+class PermissionSetWrite(InputModel):
+    """이 회원이 가질 기능 권한 전체. 목록에 없는 권한은 회수됩니다.
+
+    한 칸씩 켜고 끄는 창구를 그대로 두면서 이것을 따로 둔 이유는 '전체 부여'
+    입니다. 권한 일곱 개를 한 칸씩 보내면 요청이 일곱 번 나가는데, 분당 쓰기가
+    20회로 묶여 있어 두 사람만 연달아 처리해도 한도에 걸립니다.
+    """
+
+    permissions: list[str] = Field(default_factory=list, max_length=40)
+
+
+class LicenseSetWrite(InputModel):
+    """이 회원이 이수한 교육 전체. 목록에 없는 교육은 취소됩니다."""
+
+    license_ids: list[UUID] = Field(default_factory=list, max_length=80)
+
+
+class OwnerWrite(InputModel):
+    """owner 로 올리거나 내립니다."""
+
+    is_owner: bool
+
+
 class PushSubscriptionWrite(InputModel):
     endpoint: HttpUrl
     keys: dict

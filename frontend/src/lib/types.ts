@@ -1,5 +1,10 @@
 export type EquipmentStatus = "ACTIVE" | "MAINTENANCE" | "INACTIVE";
-export type MemberStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
+/**
+ * 계정 상태. `VIEWER` 는 보기 전용 회원입니다 — 로그인해서 공지·자료실·예약
+ * 현황을 읽지만 글쓰기·댓글·예약 신청은 하지 않습니다. 직전 학기에는 활동했지만
+ * 이번 학기에는 활동하지 않는 인원(부원 카드의 '멤버')에게 줍니다.
+ */
+export type MemberStatus = "PENDING" | "APPROVED" | "VIEWER" | "REJECTED" | "SUSPENDED";
 export type ReservationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "IN_USE" | "COMPLETED";
 
 export interface SessionUser {

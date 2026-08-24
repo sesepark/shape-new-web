@@ -59,8 +59,25 @@ async def optional_user(request: Request, db: AsyncSession = Depends(get_db)) ->
         return None
 
 
+# 회원 전용 화면을 **읽을 수** 있는 상태. 쓰기는 APPROVED 만 한다.
+READING_STATUSES = {UserStatus.APPROVED, UserStatus.VIEWER}
+
+
 async def approved_user(user: User = Depends(current_user)) -> User:
+    """무언가를 남기는 창구. 글·댓글·예약처럼 흔적이 남는 일에 쓴다."""
     if user.status != UserStatus.APPROVED:
+        detail = (
+            "보기 전용 계정입니다. 글쓰기와 예약은 활동 중인 회원만 할 수 있습니다."
+            if user.status == UserStatus.VIEWER
+            else "승인된 회원만 이용할 수 있습니다."
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+    return user
+
+
+async def reading_user(user: User = Depends(current_user)) -> User:
+    """회원 전용 화면을 읽기만 하는 창구. 보기 전용 회원도 통과한다."""
+    if user.status not in READING_STATUSES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="승인된 회원만 이용할 수 있습니다.")
     return user
 

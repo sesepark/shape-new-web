@@ -1,10 +1,11 @@
 "use client";
 
-import { CornerDownRight, Send, Trash2 } from "lucide-react";
+import { CornerDownRight, Eye, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAsk } from "@/components/ask-dialog";
 import { AutoTextarea } from "@/components/auto-textarea";
 import { board, boardSend } from "@/lib/board";
+import { useSession } from "@/lib/session";
 import type { CommentItem } from "@/lib/types";
 
 const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -35,6 +36,8 @@ function CommentForm({ placeholder, onSubmit, onCancel }: { placeholder: string;
 }
 
 export function NoticeComments({ noticeId }: { noticeId: string }) {
+  const { session } = useSession();
+  const readOnly = session?.status === "VIEWER";
   const { ask, dialogNode } = useAsk();
   const [items, setItems] = useState<CommentItem[] | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -78,7 +81,11 @@ export function NoticeComments({ noticeId }: { noticeId: string }) {
     <section className="comment-section" aria-label="댓글">
       <h3>댓글 {total}</h3>
       {message && <p className="save-notice">{message}</p>}
-      <CommentForm placeholder="댓글을 남겨 주세요." onSubmit={(body) => write(body)} />
+      {readOnly ? (
+        <p className="read-only-note"><Eye size={15} /> 보기 전용 계정이라 댓글을 남길 수 없습니다.</p>
+      ) : (
+        <CommentForm placeholder="댓글을 남겨 주세요." onSubmit={(body) => write(body)} />
+      )}
       {items === null ? (
         <p className="form-note">댓글을 불러오고 있습니다.</p>
       ) : roots.length ? (
@@ -92,7 +99,7 @@ export function NoticeComments({ noticeId }: { noticeId: string }) {
                 </header>
                 <p>{comment.body}</p>
                 <div className="comment-actions">
-                  {!comment.isDeleted && (
+                  {!comment.isDeleted && !readOnly && (
                     <button type="button" onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}>
                       <CornerDownRight size={13} /> 답글
                     </button>
