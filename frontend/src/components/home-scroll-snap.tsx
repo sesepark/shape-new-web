@@ -14,6 +14,7 @@ const SECTIONS = [
 const REVEAL = [
   ".home-intro > *",
   ".home-introduction > div > *",
+  ".home-fields li",
   ".home-pillars article",
   ".home-section-head > *",
   ".home-fact-grid > div",

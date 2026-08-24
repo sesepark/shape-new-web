@@ -334,7 +334,17 @@ EQUIPMENT = [
         ),
     },
     {
-        "name": "Unitree G1 휴머노이드", "category": "전신 제어 · 확보 논의 중", "sort": 8,
+        "name": "카메라", "category": "센서 · 데이터 수집", "sort": 8,
+        "units": [f"카메라 {number}호기" for number in range(1, 8)],
+        "license": "카메라 이용 교육", "unit_minutes": 60,
+        "description": (
+            "로봇 비전과 데이터 수집에 사용하는 카메라 7대입니다. 조작 데이터는 카메라 위치와 "
+            "조명이 세션마다 같아야 하나의 데이터셋으로 성립하므로, 세팅을 바꿨다면 사용 후 "
+            "원래 자리로 돌려놓고 배치를 기록으로 남겨 주세요."
+        ),
+    },
+    {
+        "name": "Unitree G1 휴머노이드", "category": "전신 제어 · 확보 논의 중", "sort": 9,
         "units": [], "license": None, "unit_minutes": 60,
         "status": EquipmentStatus.INACTIVE,
         "description": (
@@ -345,7 +355,7 @@ EQUIPMENT = [
     {
         # 지난 학기에 운용했던 플랫폼. 지금 보유하고 있지 않으므로 호기도 교육도
         # 두지 않고 상태를 INACTIVE 로 둔다. 예약 화면에 아예 뜨지 않는다.
-        "name": "AI Sapiens", "category": "휴머노이드 · 이전 운용", "sort": 9,
+        "name": "AI Sapiens", "category": "휴머노이드 · 이전 운용", "sort": 10,
         "units": [], "license": None, "unit_minutes": 60,
         "status": EquipmentStatus.INACTIVE,
         "description": (
@@ -420,7 +430,14 @@ async def main(dry_run: bool) -> None:
         known_equipment = {row.name: row for row in (await db.scalars(select(Equipment))).all()}
         for item in EQUIPMENT:
             if item["name"] in known_equipment:
-                changes.append(f"  건너뜀 (이미 있음) 장비 · {item['name']}")
+                # 설명이나 상태는 관리자가 고쳤을 수 있으니 건드리지 않는다. 다만
+                # 목록에서 보이는 순서는 이 파일이 기준이므로 그것만 맞춰 준다.
+                existing = known_equipment[item["name"]]
+                if existing.sort_order != item["sort"]:
+                    existing.sort_order = item["sort"]
+                    changes.append(f"  순서만 조정 장비 · {item['name']} → {item['sort']}번째")
+                else:
+                    changes.append(f"  건너뜀 (이미 있음) 장비 · {item['name']}")
                 continue
             equipment = Equipment(
                 name=item["name"], category=item["category"], description=item["description"],

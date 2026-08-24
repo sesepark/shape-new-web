@@ -55,6 +55,20 @@ const WEEK = [
   { day: "목", track: "교육", who: "준회원", when: "매주 19:00~22:00" },
 ];
 
+/**
+ * SHAPE가 다루는 분야. 참고 자료의 「분야 설명」 여섯 갈래를 그대로 옮겼습니다.
+ * "화면 밖의 AI" 라는 말만으로는 무엇을 하는지 알 수 없어서, 실제로 다루는
+ * 주제를 이 자리에서 보여 줍니다.
+ */
+const FIELDS = [
+  { title: "인식과 상태 추정", topics: "Computer Vision · 3D Perception · SLAM · 촉각과 힘 센싱" },
+  { title: "로봇 학습과 범용 모델", topics: "VLA · 모방학습 · 강화학습 · Sim2Real · World Model" },
+  { title: "추론과 행동 계획", topics: "Task Planning · Motion Planning · 실패 감지와 복구" },
+  { title: "조작", topics: "Dexterous · 변형체 조작 · Contact-rich · Compliant Control" },
+  { title: "휴머노이드와 제어", topics: "전신 제어 · Loco-manipulation · 보행과 균형 · 모션 리타게팅" },
+  { title: "사람 · 데이터 · 하드웨어", topics: "HRI · 텔레오퍼레이션 · 데이터 파이프라인 · 하드웨어 제작" },
+];
+
 /** 지난 학기에 실제로 운용한 플랫폼. 2기 모집 안내의 목록입니다. */
 const PLATFORMS = ["Unitree G1", "AI Worker", "AI Sapiens", "OMY", "SO-ARM 101"];
 
@@ -76,9 +90,22 @@ export default async function HomePage() {
       </section>
 
       <section id="shape-intro" className="home-introduction">
-        <div><p>WHAT WE SHAPE</p><h2>우리는 화면 밖의<br />AI를 만듭니다.</h2></div>
+        <div>
+          <p>WHAT WE SHAPE</p>
+          <h2>우리는 화면 밖의<br />AI를 만듭니다.</h2>
+          <blockquote className="home-slogan">Fostering Talent,<br />Shaping Physical AI</blockquote>
+        </div>
         <div className="home-intro-body">
           <p>SHAPE는 Physical AI 인재 양성을 목적으로 하는 서울대학교 동아리입니다. 오랫동안 대학원과 기업의 영역이었던 휴머노이드 연구를 학부 단계에서 진행하기 위해 2026년 4월 기계공학부에서 시작했습니다. 지금 아는 것이 적어도 상관없습니다.</p>
+          <ul className="home-fields" aria-label="SHAPE가 다루는 분야">
+            {FIELDS.map((field, index) => (
+              <li key={field.title}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <strong>{field.title}</strong>
+                <small>{field.topics}</small>
+              </li>
+            ))}
+          </ul>
           <Link href="/about">동아리 소개 보기 <ArrowUpRight size={17} /></Link>
         </div>
       </section>
