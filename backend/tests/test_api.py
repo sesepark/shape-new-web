@@ -1550,3 +1550,114 @@ async def test_a_name_changed_on_shape_survives_the_next_login(client, session):
     adopt_google_profile(fresh, {"name": "새 회원", "picture": "https://lh3.googleusercontent.com/a/y"}, owner=False)
     assert fresh.name == "새 회원"
     assert fresh.image_url == "https://lh3.googleusercontent.com/a/y"
+
+
+async def test_the_window_is_spread_so_expiries_do_not_land_together():
+    """같은 창이라도 창구마다 만료 시각이 조금씩 다르다.
+
+    다 같이 만료시키면 그 순간에 질의가 몰린다. Neon 은 5분을 놀아야 잠들므로,
+    30초 안에서 흩어 두어도 '한 번 깨어남' 은 그대로다.
+    """
+    from app.cache import window_end
+
+    keys = [f"z:/api/v1/{name}?" for name in ("news", "equipment", "roadmap", "links", "shape-up")]
+    spread = 30
+    ends = {window_end(3600, key, spread, now=1_000_000.0) for key in keys}
+    assert len(ends) > 1, "만료가 한 시각에 몰려 있습니다"
+    assert max(ends) - min(ends) < spread
+    # Neon 이 잠드는 데 걸리는 5분보다 훨씬 좁아야 한 번의 깨어남으로 끝난다.
+    assert max(ends) - min(ends) < 300
+    # 같은 열쇠는 언제 물어도 같은 자리다(서버를 다시 띄워도 마찬가지).
+    assert window_end(3600, keys[0], spread, now=1_000_000.0) == window_end(3600, keys[0], spread, now=1_000_010.0)
+
+
+async def test_one_request_fills_the_cache_while_the_others_wait(client, session):
+    """같은 창구로 동시에 들어와도 데이터베이스로는 하나만 내려간다.
+
+    창이 끝나는 순간 Vercel 이 여러 지역에서 같은 쪽을 동시에 재검증한다. 묶어
+    두지 않으면 저마다 질의를 보내는데(재어 보니 동시 8건이 24건), 연결이 셋뿐인
+    무료 인스턴스에서는 그대로 줄서기가 된다.
+    """
+    from sqlalchemy import event
+
+    from app import cache
+    from app.database import engine
+    from app.models import Equipment
+
+    cache.clear()
+    logout(client)
+    session.add(Equipment(name="측정용 장비", category="시험", sort_order=0))
+    await session.commit()
+
+    queries: list[int] = []
+
+    def tally(*_args):
+        queries.append(1)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", tally)
+    try:
+        responses = await asyncio.gather(*(client.get("/api/v1/equipment") for _ in range(8)))
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", tally)
+
+    assert all(response.status_code == 200 for response in responses)
+    # 여덟 건이 모두 같은 본문을 받는다. 하나가 채우고 나머지는 그것을 받는다.
+    assert len({response.text for response in responses}) == 1
+    # 한 번 채우는 데 드는 질의만큼만 나가야 한다. 묶기 전에는 여덟 배였다.
+    assert len(queries) <= 4, f"중복 질의가 나갔습니다: {len(queries)}건"
+
+
+async def test_the_board_and_admin_never_touch_the_public_cache(client, session):
+    """게시판·관리자 응답은 캐시에 담기지 않는다. 저장한 것은 즉시 보여야 한다."""
+    from app import cache
+
+    cache.clear()
+    manager = await make_user(session, "nocache@example.com", owner=True)
+    http = login(client, manager)
+    for path in ("/api/v1/notices", "/api/v1/resources", "/api/v1/admin/news", "/api/v1/pages/home"):
+        response = await http.get(path)
+        assert response.headers.get("Cache-Control") == "private, no-store", path
+    assert cache.size() == 0, "회원 요청이 공개 캐시에 담겼습니다"
+    logout(client)
+
+
+async def test_the_roadmap_keeps_the_future_when_it_has_to_cut(client, session):
+    """로드맵이 상한을 넘겨도 앞으로 있을 일정이 남는다.
+
+    시작일 오름차순으로 앞에서 끊으면 잘려 나가는 쪽이 미래다. 홈의 '일정' 칸은
+    아직 끝나지 않은 일정만 쓰므로 그렇게 두면 홈이 조용히 빈다.
+    """
+    from app.models import RoadmapItem
+    from app.routers.public import ROADMAP_PAGE
+
+    start = datetime(2020, 1, 1, tzinfo=UTC)
+    session.add_all([
+        RoadmapItem(title=f"일정 {index}", category="교육", description="",
+                    starts_at=start + timedelta(days=index * 10), is_published=True)
+        for index in range(ROADMAP_PAGE + 50)
+    ])
+    await session.commit()
+
+    logout(client)
+    rows = (await client.get("/api/v1/roadmap")).json()
+    assert len(rows) == ROADMAP_PAGE
+    titles = [row["title"] for row in rows]
+    assert f"일정 {ROADMAP_PAGE + 49}" in titles, "가장 나중 일정이 잘려 나갔습니다"
+    assert "일정 0" not in titles, "오래된 쪽이 아니라 최신 쪽이 잘렸습니다"
+    # 돌려줄 때는 다시 오름차순이어야 한다.
+    assert titles == sorted(titles, key=lambda name: int(name.split()[1]))
+
+
+async def test_the_code_exchange_only_accepts_our_own_return_address(client, session):
+    """코드를 남의 주소로 흘려보낼 수 없다.
+
+    구글이 우리 화면으로 돌아오게 바꾸면서, 코드를 받아 세션으로 바꾸는 창구가
+    생겼다. 돌아올 주소를 아무거나 받으면 그 자체가 구멍이 된다.
+    """
+    assert session is not None
+    bad = await client.post("/api/v1/auth/google/exchange", json={
+        "code": "x" * 10, "redirectUri": "https://evil.example.com/login/google/callback",
+    })
+    assert bad.status_code in {400, 503}, bad.text
+    if bad.status_code == 400:
+        assert "허용" in bad.json()["detail"]

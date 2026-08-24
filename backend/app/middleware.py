@@ -92,27 +92,46 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         gzipped = "gzip" in request.headers.get("accept-encoding", "")
         cache_key = f"{'z' if gzipped else 'p'}:{path}?{request.url.query}"
 
-        if cacheable:
-            hit = cache.get(cache_key)
-            if hit is not None:
-                status, body, headers = hit
-                return Response(content=body, status_code=status, headers=dict(headers))
+        if not cacheable:
+            response = await call_next(request)
+            if path.startswith(API_PREFIX):
+                response.headers.setdefault("Cache-Control", "private, no-store")
+            return response
 
+        stored = cache.get(cache_key)
+        if stored is not None:
+            return self._replay(stored)
+
+        # 창이 끝난 직후에는 같은 창구로 여러 건이 한꺼번에 들어온다(Vercel 이
+        # 여러 지역에서 같은 쪽을 동시에 재검증한다). 하나만 내려보내고 나머지는
+        # 여기서 기다렸다가 채워진 값을 받는다. 기다리는 편이 연결 셋짜리 풀에
+        # 줄을 서는 것보다 언제나 싸다.
+        async with cache.lock_for(cache_key):
+            # 기다리는 동안 앞선 요청이 채웠을 수 있다.
+            stored = cache.get(cache_key)
+            if stored is not None:
+                return self._replay(stored)
+            return await self._fill(request, call_next, path, cache_key)
+
+    @staticmethod
+    def _replay(stored) -> Response:
+        status, body, headers = stored
+        return Response(content=body, status_code=status, headers=dict(headers))
+
+    async def _fill(self, request: Request, call_next, path: str, cache_key: str) -> Response:
+        """실제로 내려가서 받아 오고, 200 이면 담아 둔다."""
         response = await call_next(request)
-        if cacheable:
-            if any(part in path for part in VOLATILE_READS):
-                window = self.settings.volatile_cache_seconds
-                response.headers.setdefault("Cache-Control", f"public, max-age=0, s-maxage={window}, stale-while-revalidate=60")
-            else:
-                window = self.settings.public_cache_seconds
-                response.headers.setdefault("Cache-Control", f"public, max-age=60, s-maxage={window}, stale-while-revalidate=600")
-            # 200 만 담는다. 오류를 담아 두면 백엔드가 잠깐 흔들린 것이 창 하나만큼
-            # 그대로 굳어 버린다.
-            if response.status_code == 200:
-                body = b"".join([chunk async for chunk in response.body_iterator])
-                headers = [(key, value) for key, value in response.headers.items() if key.lower() != "content-length"]
-                cache.set(cache_key, (200, body, headers), window)
-                return Response(content=body, status_code=200, headers=dict(headers))
-        elif path.startswith(API_PREFIX):
-            response.headers.setdefault("Cache-Control", "private, no-store")
-        return response
+        if any(part in path for part in VOLATILE_READS):
+            window = self.settings.volatile_cache_seconds
+            response.headers.setdefault("Cache-Control", f"public, max-age=0, s-maxage={window}, stale-while-revalidate=60")
+        else:
+            window = self.settings.public_cache_seconds
+            response.headers.setdefault("Cache-Control", f"public, max-age=60, s-maxage={window}, stale-while-revalidate=600")
+        # 200 만 담는다. 오류를 담아 두면 백엔드가 잠깐 흔들린 것이 창 하나만큼
+        # 그대로 굳어 버린다.
+        if response.status_code != 200:
+            return response
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        headers = [(key, value) for key, value in response.headers.items() if key.lower() != "content-length"]
+        cache.set(cache_key, (200, body, headers), window, self.settings.cache_spread_seconds)
+        return Response(content=body, status_code=200, headers=dict(headers))

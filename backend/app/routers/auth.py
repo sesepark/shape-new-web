@@ -1,6 +1,7 @@
 import logging
 import unicodedata
 
+import httpx
 from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -12,6 +13,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import ContentPage, License, PermissionGrant, User, UserLicense, UserStatus
 from app.schemas import (
+    GoogleExchange,
     MemberCardClaim,
     MemberCardItem,
     MemberCardRead,
@@ -59,6 +61,77 @@ async def google_start(request: Request):
     return await client.authorize_redirect(request, f"{get_settings().api_base_url}/api/v1/auth/google/callback")
 
 
+@router.post("/google/exchange", response_model=SessionUser)
+async def google_exchange(payload: GoogleExchange, response: Response, db: AsyncSession = Depends(get_db)):
+    """구글이 돌려준 인가 코드를 우리 세션으로 바꿉니다.
+
+    **왜 이 창구가 따로 있는가.** 원래 흐름은 구글이 우리 백엔드 주소
+    (api.snu-shape.com)로 돌아오게 되어 있었습니다. 그런데 홈 화면에 추가해서 앱처럼
+    쓰는 경우, 앱의 영역(www.snu-shape.com)이 아닌 주소로 돌아오면 그 순간 브라우저
+    창이 열리고 **위에 주소 막대가 남습니다.** 로그인하고 나서도 앱으로 돌아오지
+    못합니다.
+
+    그래서 구글이 **우리 화면 주소로** 돌아오게 하고(그 페이지가 앱 영역 안입니다),
+    그 화면이 받은 코드를 여기로 넘깁니다. 코드를 토큰으로 바꾸는 일과 세션 쿠키를
+    굽는 일은 그대로 서버가 합니다 — 비밀 열쇠는 브라우저에 내려보내지 않습니다.
+
+    `state` 확인은 화면 쪽에서 합니다(자기가 만들어 보관한 값과 견줍니다).
+    """
+    settings = get_settings()
+    if not settings.google_client_id or not settings.google_client_secret:
+        raise HTTPException(503, "Google OAuth 설정이 아직 완료되지 않았습니다.")
+    # 돌아올 주소는 우리 화면 주소만 받습니다. 아무 주소나 받으면 코드를 남의
+    # 사이트로 흘려보내는 길이 됩니다.
+    allowed = f"{settings.frontend_url.rstrip('/')}/login/google/callback"
+    if payload.redirect_uri != allowed:
+        raise HTTPException(400, "허용되지 않은 주소입니다.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        token = await client.post("https://oauth2.googleapis.com/token", data={
+            "code": payload.code,
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "redirect_uri": payload.redirect_uri,
+            "grant_type": "authorization_code",
+        })
+        if token.status_code != 200:
+            logger.warning("구글 토큰 교환 실패: %s %s", token.status_code, token.text[:200])
+            raise HTTPException(401, "구글 로그인에 실패했습니다. 다시 시도해 주세요.")
+        access = token.json().get("access_token")
+        profile = await client.get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        if profile.status_code != 200:
+            raise HTTPException(401, "구글 계정 정보를 읽지 못했습니다.")
+    userinfo = profile.json()
+    if not userinfo.get("sub") or not userinfo.get("email"):
+        raise HTTPException(401, "구글 계정 정보가 올바르지 않습니다.")
+
+    user = await upsert_google_user(db, userinfo)
+    response.set_cookie(COOKIE_NAME, create_session_token(user.id), max_age=60 * 60 * 24 * 14, **cookie_options())
+    return await session_for(db, user)
+
+
+async def upsert_google_user(db: AsyncSession, userinfo: dict) -> User:
+    """구글 계정으로 회원을 찾거나 만듭니다. 두 로그인 길이 같은 규칙을 씁니다."""
+    email = userinfo["email"].lower()
+    owner = email in get_settings().owner_emails
+    user = await db.scalar(select(User).where(User.google_sub == userinfo["sub"]))
+    if not user:
+        user = User(
+            google_sub=userinfo["sub"], email=email, name=userinfo.get("name") or email,
+            image_url=userinfo.get("picture"), is_owner=owner,
+            status=UserStatus.APPROVED if owner else UserStatus.PENDING,
+        )
+        db.add(user)
+    else:
+        adopt_google_profile(user, userinfo, owner)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 def adopt_google_profile(user: User, userinfo: dict, owner: bool) -> None:
     """다시 로그인한 회원에게 구글 쪽 값을 어디까지 반영할지 정합니다.
 
@@ -95,15 +168,7 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
         )
         return RedirectResponse(f"{get_settings().frontend_url}/login?error=oauth", status_code=302)
     userinfo = token.get("userinfo") or await client.userinfo(token=token)
-    email = userinfo["email"].lower()
-    user = await db.scalar(select(User).where(User.google_sub == userinfo["sub"]))
-    owner = email in get_settings().owner_emails
-    if not user:
-        user = User(google_sub=userinfo["sub"], email=email, name=userinfo.get("name") or email, image_url=userinfo.get("picture"), is_owner=owner, status=UserStatus.APPROVED if owner else UserStatus.PENDING)
-        db.add(user)
-    else:
-        adopt_google_profile(user, userinfo, owner)
-    await db.commit(); await db.refresh(user)
+    user = await upsert_google_user(db, userinfo)
     response = RedirectResponse(get_settings().frontend_url + "/mypage", status_code=302)
     response.set_cookie(COOKIE_NAME, create_session_token(user.id), max_age=60 * 60 * 24 * 14, **cookie_options())
     return response

@@ -28,20 +28,40 @@ PATHS: dict[str, list[str]] = {
 
 
 async def _post(paths: list[str]) -> None:
+    """공개 페이지를 새로 그리게 한다. 실패하면 한 번만 다시 시도한다.
+
+    공개 데이터의 재검증 주기를 5분에서 한 시간으로 늘리면서, 이 요청이 실패했을
+    때 치르는 값도 그만큼 커졌다. 예전에는 늦어도 5분이면 저절로 맞았지만 지금은
+    한 시간이다. Render 무료 인스턴스는 잠들었다 깨는 중이거나 배포 직후일 수
+    있어 한 번쯤 실패하는 것은 드문 일이 아니므로, 짧게 한 번 더 두드린다.
+
+    두 번 다 실패해도 저장은 성공한 것이다. 화면이 늦게 바뀌는 것과 저장이 안 되는
+    것 중에서는 앞이 낫다. 다만 기록은 남겨 배포 로그에서 보이게 한다.
+    """
     settings = get_settings()
     if not settings.revalidate_secret:
         return
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            await client.post(
-                f"{settings.frontend_url}/api/revalidate",
-                json={"paths": paths},
-                headers={"x-revalidate-secret": settings.revalidate_secret},
-            )
-    except httpx.HTTPError as error:
-        # A refresh failure must never fail the save; the page still updates
-        # on its own within the normal cache window.
-        logger.warning("revalidate failed: %s", error)
+    for attempt in (1, 2):
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                response = await client.post(
+                    f"{settings.frontend_url}/api/revalidate",
+                    json={"paths": paths},
+                    headers={"x-revalidate-secret": settings.revalidate_secret},
+                )
+            if response.is_success:
+                return
+            # 401·503 은 다시 두드려도 같으므로(비밀값이 어긋났거나 아직 설정 전),
+            # 재시도 없이 바로 알린다.
+            if response.status_code in {401, 403, 503}:
+                logger.warning("revalidate 거절됨(%s). 두 서버의 REVALIDATE_SECRET 을 확인하세요.", response.status_code)
+                return
+            reason: object = response.status_code
+        except httpx.HTTPError as error:
+            reason = error
+        if attempt == 1:
+            await asyncio.sleep(1.0)
+    logger.warning("revalidate 두 번 다 실패: %s · 공개 페이지가 최대 한 시간 늦게 바뀝니다.", reason)
 
 
 def refresh(kind: str, extra: list[str] | None = None) -> None:

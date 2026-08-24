@@ -65,7 +65,17 @@ const apiUrl =
  * 내용 대신 최대 1분 전의 응답이 돌아온다. 실제로 부원 카드에 구글 계정을
  * 연결하고 저장해도 곧바로 다시 풀린 것처럼 보였다(서버에는 저장되어 있었다).
  */
-const PUBLIC_READ: RequestInit = { cache: "no-store" };
+/**
+ * 관리자 화면이 고칠 내용을 불러올 때 쓰는 설정.
+ *
+ * 이 화면은 공개 창구(`/pages/*`)를 그대로 읽어 편집기를 채웁니다. 그런데 백엔드는
+ * **세션 쿠키가 없는 요청**만 공개 응답 캐시에 담으므로, 쿠키를 빼고 부르면 편집기가
+ * 최대 한 시간 된 값을 받아 그 위에 덮어쓸 수 있습니다. 저장할 때마다 캐시를 버리므로
+ * 실제로 어긋나기는 어렵지만, 고치려고 여는 화면이 캐시를 거치는 구조 자체가
+ * 위태롭습니다. 쿠키를 실어 보내면 백엔드가 `private, no-store` 로 답하고 캐시를
+ * 완전히 비켜 갑니다.
+ */
+const PUBLIC_READ: RequestInit = { cache: "no-store", credentials: "include" };
 type AdminRow = Record<
   string,
   string | number | boolean | null | Record<string, unknown> | unknown[]

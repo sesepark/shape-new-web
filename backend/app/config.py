@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     public_cache_seconds: int = 3600
     # 예약 가능 시간은 승인 즉시 바뀌므로 훨씬 짧게 둔다.
     volatile_cache_seconds: int = 30
+    # 창이 끝나는 시각을 창구마다 이 초 안에서 조금씩 민다. 0 이면 다 같이
+    # 만료돼 그 순간에 질의가 몰린다. Neon 은 5분을 놀아야 잠들므로 이 정도로
+    # 흩어도 '한 번 깨어남' 은 그대로다.
+    cache_spread_seconds: int = 30
     rate_limit_read_per_minute: int = 120
     rate_limit_write_per_minute: int = 20
     max_request_bytes: int = 2_000_000

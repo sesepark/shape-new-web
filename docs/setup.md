@@ -9,7 +9,16 @@
 ## 2. Google 로그인
 
 1. Google Cloud Console에서 OAuth 웹 클라이언트를 만듭니다.
-2. 승인된 redirect URI에 `https://api.snu-shape.com/api/v1/auth/google/callback`을 등록합니다.
+2. 승인된 redirect URI에 **두 개**를 등록합니다.
+   - `https://www.snu-shape.com/login/google/callback` — 지금 쓰는 길입니다. 구글이
+     **우리 화면 주소로** 돌아와야 홈 화면에 추가한 앱이 그대로 유지됩니다. 백엔드
+     주소로 돌아오면 앱 영역을 벗어나면서 브라우저 창이 열리고 위에 주소 막대가
+     남습니다.
+   - `https://api.snu-shape.com/api/v1/auth/google/callback` — 예전 길입니다.
+     `NEXT_PUBLIC_GOOGLE_CLIENT_ID` 가 설정되기 전까지 쓰이므로 함께 남겨 둡니다.
+3. Vercel 환경 변수에 `NEXT_PUBLIC_GOOGLE_CLIENT_ID`(구글 클라이언트 ID)를 넣습니다.
+   이 값이 있어야 새 길로 갑니다. 비밀 열쇠(client secret)는 **넣지 않습니다** —
+   코드를 세션으로 바꾸는 일은 서버가 합니다.
 3. `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`과 첫 owner의 이메일을 `INITIAL_OWNER_EMAILS`에 설정합니다.
 
 ## 3. Cloudinary

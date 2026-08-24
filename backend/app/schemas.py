@@ -106,6 +106,13 @@ class OrderWrite(InputModel):
     ids: list[UUID] = Field(min_length=1, max_length=200)
 
 
+class GoogleExchange(InputModel):
+    """구글이 돌려준 인가 코드. 화면이 받아 서버로 넘깁니다."""
+
+    code: str = Field(min_length=1, max_length=2048)
+    redirect_uri: str = Field(min_length=1, max_length=500)
+
+
 class ContentPageRead(ORMModel):
     slug: str
     title: str
