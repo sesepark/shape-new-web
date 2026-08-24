@@ -92,6 +92,39 @@ async function adminSend(path: string, method: string, body?: unknown): Promise<
 }
 
 
+/**
+ * 저장하지 않은 변경을 탭 밖으로 들고 나가지 못하게 막습니다.
+ *
+ * 조직도·부원처럼 여러 칸을 고친 뒤 마지막에 한 번 저장하는 화면은, 저장을
+ * 누르지 않고 다른 탭으로 가면 고친 것이 조용히 사라집니다(탭을 바꾸면 화면이
+ * 통째로 다시 만들어집니다). 실제로 조직도에서 부원을 연결해 놓고 저장을 누르지
+ * 않아 연결이 없어진 일이 있었습니다. 화면에는 연결된 것처럼 보였으니 "연결했는데
+ * 끊긴다" 로 보이는 것이 당연합니다.
+ *
+ * 그래서 고친 것이 있으면 탭을 떠날 때와 창을 닫을 때 한 번 물어봅니다.
+ */
+const unsaved = { dirty: false, label: "" };
+
+function useUnsaved(dirty: boolean, label: string) {
+  useEffect(() => {
+    unsaved.dirty = dirty;
+    unsaved.label = label;
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      unsaved.dirty = false;
+    };
+  }, [dirty, label]);
+}
+
+/** 아직 저장하지 않았다는 표시. 저장 단추 옆에 붙습니다. */
+function UnsavedMark({ dirty }: { dirty: boolean }) {
+  if (!dirty) return null;
+  return <span className="unsaved-mark">저장하지 않은 변경이 있습니다</span>;
+}
+
 /** Plain-language orientation for each tab: what it changes and where to see it. */
 const sectionGuide: Record<Section, { what: string; where: string; href?: string }> = {
   "히어로": { what: "홈에 처음 보이는 큰 제목과 한 줄 소개를 고칩니다. 3D 로봇 무대는 화면에서 고칠 수 없어 여기 없습니다.", where: "홈 첫 화면", href: "/" },
@@ -183,6 +216,23 @@ export function AdminConsole({
     .map((group) => ({ label: group.label, tabs: (group.tabs as readonly Section[]).filter(allowed) }))
     .filter((group) => group.tabs.length);
   const [tab, setTab] = useState<Section>(visibleGroups[0]?.tabs[0] ?? "인사말");
+  const { ask, dialogNode } = useAsk();
+  /** 저장하지 않은 변경이 있으면 탭을 떠나기 전에 한 번 물어봅니다. */
+  async function goTo(section: Section) {
+    if (section === tab) return;
+    if (unsaved.dirty) {
+      const go = await ask({
+        title: "저장하지 않은 변경이 있습니다",
+        description: `${unsaved.label} 에서 고친 내용이 아직 저장되지 않았습니다. 지금 탭을 옮기면 고친 내용이 사라집니다.`,
+        confirmLabel: "저장하지 않고 이동",
+        tone: "danger",
+      });
+      if (go === null) return;
+      // 표시는 지우지 않습니다. 탭을 옮기면 그 화면이 사라지면서
+      // `useUnsaved` 의 뒷정리가 스스로 지웁니다.
+    }
+    setTab(section);
+  }
   if (!visibleGroups.length)
     return (
       <div className="empty-state">
@@ -210,7 +260,7 @@ export function AdminConsole({
                 <button
                   key={section}
                   className={tab === section ? "admin-tab active" : "admin-tab"}
-                  onClick={() => setTab(section)}
+                  onClick={() => void goTo(section)}
                 >
                   {section}
                 </button>
@@ -241,6 +291,7 @@ export function AdminConsole({
         <SectionGuide tab={tab} />
         <AdminSection tab={tab} owner={isOwner} />
       </section>
+      {dialogNode}
     </div>
   );
 }
@@ -1180,6 +1231,9 @@ function MembersForm() {
   const [members, setMembers] = useState<ShapeMember[]>([]);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   const { say, node: notice } = useNotice();
+  // 부원 카드도 마지막에 한 번 저장하는 화면이라 같은 함정이 있습니다.
+  const [dirty, setDirty] = useState(false);
+  useUnsaved(dirty, "부원");
   useEffect(() => {
     void adminFetch("/admin/directory").then(async (response) => {
       if (response.ok) setDirectory((await response.json()) as DirectoryUser[]);
@@ -1199,12 +1253,14 @@ function MembersForm() {
   const unlinked = members.filter((member) => !member.userId).map((member) => member.name);
   /** 카드에 붙은 계정을 이름·사진과 함께 보여 주기 위한 표. */
   const accounts = new Map(directory.map((person) => [person.id, person]));
-  const update = (index: number, patch: Partial<ShapeMember>) =>
+  const update = (index: number, patch: Partial<ShapeMember>) => {
+    setDirty(true);
     setMembers((current) =>
       current.map((member, i) =>
         i === index ? { ...member, ...patch } : member,
       ),
     );
+  };
   async function submit() {
     // 예전에 저장된 카드에는 기술 팀(Reasoning·Navigation 같은) 값이 남아 있습니다.
     // 부원을 팀으로 나누지 않기로 했으므로, 저장할 때 그 값을 실제로 지웁니다.
@@ -1225,6 +1281,7 @@ function MembersForm() {
           isPublished: true,
         }),
       });
+      if (response.ok) setDirty(false);
       say(
         response.ok ? "부원 카드를 저장했습니다." : "저장하지 못했습니다. 콘텐츠 관리 권한을 확인해 주세요.",
         response.ok,
@@ -1320,7 +1377,7 @@ function MembersForm() {
               type="button"
               className="text-button danger"
               onClick={() =>
-                setMembers((current) => current.filter((_, i) => i !== index))
+                { setDirty(true); setMembers((current) => current.filter((_, i) => i !== index)); }
               }
             >
               <Trash2 size={15} /> 부원 삭제
@@ -1331,7 +1388,8 @@ function MembersForm() {
       <button
         type="button"
         className="add-team"
-        onClick={() =>
+        onClick={() => {
+          setDirty(true);
           setMembers((current) => [
             ...current,
             {
@@ -1341,14 +1399,17 @@ function MembersForm() {
               affiliation: "서울대학교",
               membership: "준회원",
             },
-          ])
-        }
+          ]);
+        }}
       >
         <Plus size={16} /> 부원 추가
       </button>
-      <button className="button" type="button" onClick={submit}>
-        부원 카드 저장 및 공개
-      </button>
+      <div className="save-row">
+        <button className="button" type="button" onClick={submit}>
+          부원 카드 저장 및 공개
+        </button>
+        <UnsavedMark dirty={dirty} />
+      </div>
       {notice}
       <section className="admin-live-preview">
         <div className="preview-label">
@@ -1479,6 +1540,12 @@ function OrganizationForm() {
   const [data, setData] = useState<OrganizationData>(defaultOrganization);
   const [members, setMembers] = useState<ShapeMember[]>([]);
   const [message, setMessage] = useState("");
+  // 부원을 연결해 놓고 저장을 누르지 않아 연결이 사라지는 일이 있었습니다.
+  // 고친 것이 있으면 화면에 표시하고, 탭을 떠날 때 한 번 물어봅니다.
+  const [dirty, setDirty] = useState(false);
+  useUnsaved(dirty, "조직도");
+  /** 고칠 때마다 '저장 안 함' 으로 표시합니다. */
+  const edit = (next: OrganizationData) => { setData(next); setDirty(true); setMessage(""); };
   useEffect(() => {
     void fetch(`${apiUrl}/pages/organization`, PUBLIC_READ)
       .then(async (response) => {
@@ -1510,8 +1577,13 @@ function OrganizationForm() {
       }),
     });
     setMessage(
-      response.ok ? "조직도를 저장했습니다." : "조직도를 저장하지 못했습니다.",
+      response.ok
+        ? "조직도를 저장했습니다."
+        : response.status === 403
+          ? "저장할 권한이 없습니다. 콘텐츠 관리 권한을 확인해 주세요."
+          : "조직도를 저장하지 못했습니다.",
     );
+    if (response.ok) setDirty(false);
   }
   return (
     <div className="admin-form">
@@ -1525,7 +1597,7 @@ function OrganizationForm() {
           <input
             value={data.advisor}
             onChange={(event) =>
-              setData({ ...data, advisor: event.target.value })
+              edit({ ...data, advisor: event.target.value })
             }
           />
         </label>
@@ -1534,15 +1606,18 @@ function OrganizationForm() {
           <input
             value={data.leadership}
             onChange={(event) =>
-              setData({ ...data, leadership: event.target.value })
+              edit({ ...data, leadership: event.target.value })
             }
           />
         </label>
       </div>
-      <TeamEditor title="조직 팀" value={[...data.operationTeams, ...(data.projectTeams ?? [])]} onChange={(operationTeams) => setData({ ...data, operationTeams, projectTeams: [] })} members={members} />
-      <button className="button" type="button" onClick={submit}>
-        조직도 저장 및 공개
-      </button>
+      <TeamEditor title="조직 팀" value={[...data.operationTeams, ...(data.projectTeams ?? [])]} onChange={(operationTeams) => edit({ ...data, operationTeams, projectTeams: [] })} members={members} />
+      <div className="save-row">
+        <button className="button" type="button" onClick={submit}>
+          조직도 저장 및 공개
+        </button>
+        <UnsavedMark dirty={dirty} />
+      </div>
       {message && <p className="save-notice">{message}</p>}
       <section className="admin-live-preview">
         <div className="preview-label">

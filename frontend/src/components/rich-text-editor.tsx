@@ -31,6 +31,11 @@ export function RichTextEditor({
   const [message, setMessage] = useState("");
   const editor = useEditor({
     immediatelyRender: false,
+    // 커서를 옮길 때마다 도구 막대를 다시 그립니다. TipTap 3 부터는 이 값이
+    // 꺼져 있어서, 굵게·기울임 같은 단추의 눌림 표시와 글자 크기 상자가 커서를
+    // 따라오지 못했습니다. 다른 줄로 가도 상자에는 앞서 고른 크기가 그대로 떠
+    // 있어, 지금 이 줄이 이미 큰 것인지 알 수 없었습니다.
+    shouldRerenderOnTransaction: true,
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } } }),
       TextStyle,
@@ -49,6 +54,36 @@ export function RichTextEditor({
   });
   useEffect(() => { if (editor && editor.getHTML() !== value) editor.commands.setContent(value, { emitUpdate: false }); }, [editor, value]);
   if (!editor) return <div className="editor-loading">편집기를 준비하고 있습니다.</div>;
+
+  /**
+   * 지금 커서가 놓인 글자의 크기. 고른 글자가 있으면 그 크기입니다.
+   *
+   * 예전에는 이 상자가 고른 곳과 아무 상관 없이 마지막으로 누른 값을 계속
+   * 보여 줬습니다. 그래서 다른 줄을 골라도 상자에는 '크게' 가 떠 있어, 지금 이
+   * 줄이 이미 큰 것인지 아닌지 알 수 없었습니다. 같은 값을 다시 고르면 아무 일도
+   * 일어나지 않는 것도 같은 이유였습니다.
+   */
+  const activeSize = (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
+  const pickedSize = sizes.some((size) => size.value === activeSize) ? activeSize : "";
+
+  /**
+   * 글자 크기를 적용합니다.
+   *
+   * **고른 글자가 없으면 커서가 있는 줄 전체에 겁니다.** 예전에는 이럴 때
+   * ProseMirror 가 '다음에 입력할 글자' 에만 크기를 걸어 두었습니다. 화면에는
+   * 아무 변화가 없다가 이어 쓰는 글자마다 커져서, 고르지도 않은 곳이 점점
+   * 커지는 것처럼 보였습니다. 어디에 걸리는지 눈에 보이는 쪽이 낫습니다.
+   */
+  function applySize(fontSize: string) {
+    if (!editor) return;
+    const chain = editor.chain().focus();
+    if (editor.state.selection.empty) {
+      const { $from } = editor.state.selection;
+      chain.setTextSelection({ from: $from.start(), to: $from.end() });
+    }
+    if (fontSize) chain.setFontSize(fontSize).run();
+    else chain.unsetFontSize().run();
+  }
 
   const action = (label: string, run: () => void, active = false, title = label) => <button type="button" title={title} aria-label={title} aria-pressed={active} className={`editor-button${active ? " active" : ""}`} onClick={run}>{label}</button>;
   async function setLink() {
@@ -88,7 +123,13 @@ export function RichTextEditor({
       <span className="editor-tool-group">{action("본문", () => editor.chain().focus().setParagraph().run(), editor.isActive("paragraph"))}{action("H1", () => editor.chain().focus().toggleHeading({ level: 1 }).run(), editor.isActive("heading", { level: 1 }), "큰 제목")}{action("H2", () => editor.chain().focus().toggleHeading({ level: 2 }).run(), editor.isActive("heading", { level: 2 }), "중간 제목")}</span>
       <span className="editor-tool-group">{action("B", () => editor.chain().focus().toggleBold().run(), editor.isActive("bold"), "굵게")}{action("I", () => editor.chain().focus().toggleItalic().run(), editor.isActive("italic"), "기울임")}{action("U", () => editor.chain().focus().toggleUnderline().run(), editor.isActive("underline"), "밑줄")}{action("형광", () => editor.chain().focus().toggleHighlight({ color: "#fff1a8" }).run(), editor.isActive("highlight"), "형광펜")}</span>
       <span className="editor-tool-group editor-color-group" aria-label="글자 색상">{colors.map((color) => <button type="button" className="editor-color" title={`${color} 색상`} aria-label={`${color} 색상`} key={color} style={{ backgroundColor: color }} onClick={() => editor.chain().focus().setColor(color).run()} />)}</span>
-      <select className="editor-size-select" aria-label="글자 크기" defaultValue="" onChange={(event) => { const fontSize = event.target.value; if (fontSize) editor.chain().focus().setFontSize(fontSize).run(); else editor.chain().focus().unsetFontSize().run(); }}>
+      <select
+        className="editor-size-select"
+        aria-label="글자 크기"
+        title="글자 크기 — 고른 글자에 적용됩니다. 고른 글자가 없으면 커서가 있는 줄 전체에 적용됩니다."
+        value={pickedSize}
+        onChange={(event) => applySize(event.target.value)}
+      >
         {sizes.map((size) => <option key={size.label} value={size.value}>{size.label}</option>)}
       </select>
       <span className="editor-tool-group">{action("•", () => editor.chain().focus().toggleBulletList().run(), editor.isActive("bulletList"), "글머리 목록")}{action("1.", () => editor.chain().focus().toggleOrderedList().run(), editor.isActive("orderedList"), "번호 목록")}{action("인용", () => editor.chain().focus().toggleBlockquote().run(), editor.isActive("blockquote"), "인용문")}</span>

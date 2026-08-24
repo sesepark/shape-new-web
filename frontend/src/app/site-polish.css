@@ -3057,3 +3057,22 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 @media (max-width: 620px) {
   .home-form .home-row { grid-template-columns: 1fr; }
 }
+
+/* 저장 단추 옆의 '아직 저장 안 함' 표시. 조직도·부원처럼 마지막에 한 번
+   저장하는 화면에서, 고쳐 놓고 저장을 잊는 것을 막습니다. */
+.save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.unsaved-mark {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #fff4e5;
+  border: 1px solid #f4d3a4;
+  color: #a35a06;
+  font-size: 12px;
+  font-weight: 800;
+}
