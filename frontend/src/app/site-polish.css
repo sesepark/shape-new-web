@@ -3544,3 +3544,53 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
   .home-pillars article > :is(span, small, h3, p) { padding-right: 74px; }
 }
+
+/* ==========================================================================
+   받은 알림 전체 보기
+   --------------------------------------------------------------------------
+   마이페이지 옆칸에는 앞의 여덟 개만 놓습니다. 알림이 쌓여도 화면이 길어지지
+   않아야 하고, 그렇다고 지난 알림을 볼 길이 없어도 곤란합니다. 나머지는 팝업에서
+   한 번에 봅니다.
+   ========================================================================== */
+
+.alert-more { margin-top: 10px; }
+
+.alert-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 30px 70px rgba(16, 29, 63, .28);
+}
+
+.alert-dialog::backdrop { background: rgba(12, 20, 40, .45); }
+
+.alert-dialog > article {
+  max-height: inherit;
+  padding: 24px 26px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.alert-dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alert-dialog header h3 { margin: 4px 0 0; font-size: 20px; letter-spacing: -.03em; }
+
+.alert-dialog .alert-list {
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 620px) {
+  .alert-dialog > article { padding: 20px 18px 18px; }
+}

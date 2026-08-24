@@ -139,9 +139,18 @@ async def list_roadmap(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=ROADMAP_PAGE, ge=1, le=ROADMAP_PAGE),
 ):
-    return (await db.scalars(
-        select(RoadmapItem).where(RoadmapItem.is_published.is_(True)).order_by(RoadmapItem.starts_at).limit(limit)
+    """공개 로드맵. 오래된 쪽부터 차례로 돌려줍니다.
+
+    개수를 끊을 때 **어느 쪽을 남기는지**가 중요합니다. 시작일 오름차순으로 앞에서
+    끊으면 남는 것은 가장 오래된 일정이고, 잘려 나가는 것은 앞으로 있을 일정입니다.
+    홈의 '일정' 칸은 아직 끝나지 않은 일정만 골라 쓰므로, 그렇게 두면 표가 상한을
+    넘긴 순간부터 홈의 일정이 조용히 비어 버립니다. 그래서 최신 쪽에서 끊고
+    돌려줄 때 다시 오름차순으로 맞춥니다.
+    """
+    rows = (await db.scalars(
+        select(RoadmapItem).where(RoadmapItem.is_published.is_(True)).order_by(RoadmapItem.starts_at.desc()).limit(limit)
     )).all()
+    return sorted(rows, key=lambda item: item.starts_at)
 
 
 LINKS_PAGE = 100

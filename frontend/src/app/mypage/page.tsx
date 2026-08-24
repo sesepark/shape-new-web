@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { BellRing, CalendarClock, Check, ChevronRight, ClipboardCheck, Clock3, Eye, ShieldCheck, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { AutoTextarea } from "@/components/auto-textarea";
 import { useAsk } from "@/components/ask-dialog";
@@ -41,6 +41,9 @@ function permissionNote(item: EquipmentPermission) {
 const statusLabel: Record<ReservationItem["status"], string> = { PENDING: "승인 대기", APPROVED: "예약 확정", REJECTED: "반려", CANCELLED: "취소", IN_USE: "사용 중", COMPLETED: "사용 완료" };
 const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
 const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+/** 마이페이지에 바로 보여 주는 알림 수. 나머지는 '전체 보기' 팝업에서 봅니다. */
+const PREVIEW = 8;
+
 const span = new Intl.DateTimeFormat("ko-KR", { year: "2-digit", month: "short", day: "numeric" });
 
 async function call(path: string, init: RequestInit = {}) {
@@ -350,6 +353,12 @@ function NoticeAlerts() {
   const readOnly = session?.status === "VIEWER";
   const [items, setItems] = useState<NotificationItem[] | null>(null);
   const [pushMessage, setPushMessage] = useState("");
+  // 알림이 쌓여도 마이페이지가 길어지지 않도록, 앞의 몇 개만 놓고 나머지는 팝업에서 봅니다.
+  const [allOpen, setAllOpen] = useState(false);
+  const allDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (allOpen && allDialog.current && !allDialog.current.open) allDialog.current.showModal();
+  }, [allOpen]);
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -413,8 +422,9 @@ function NoticeAlerts() {
       {items === null ? (
         <p className="form-note">알림을 불러오는 중입니다.</p>
       ) : items.length ? (
+        <>
         <ul className="alert-list">
-          {items.slice(0, 8).map((item) => (
+          {items.slice(0, PREVIEW).map((item) => (
             <li key={item.id} className={item.isRead ? "" : "unread"}>
               {/* 게시판 공지는 게시판으로, 예약 신청 알림은 관리자 화면으로 갑니다. */}
               <Link href={item.url || "/notices"}>{item.title}</Link>
@@ -422,8 +432,39 @@ function NoticeAlerts() {
             </li>
           ))}
         </ul>
+        {/* 알림이 쌓이면 이 자리에 다 담을 수 없습니다. 앞의 몇 개만 보여 주고
+            나머지는 팝업에서 봅니다. */}
+        {items.length > PREVIEW && (
+          <button type="button" className="text-button alert-more" onClick={() => setAllOpen(true)}>
+            알림 {items.length}건 전체 보기
+          </button>
+        )}
+        </>
       ) : (
         <p className="empty-inline">아직 받은 알림이 없습니다.</p>
+      )}
+      {allOpen && items && (
+        <dialog className="alert-dialog" ref={allDialog} onClose={() => setAllOpen(false)} onClick={(event) => { if (event.target === allDialog.current) allDialog.current?.close(); }}>
+          <article>
+            <header>
+              <div>
+                <p className="meta">NOTIFICATIONS</p>
+                <h3>받은 알림 {items.length}건</h3>
+              </div>
+              <button type="button" className="dialog-close" aria-label="닫기" onClick={() => allDialog.current?.close()}>
+                <X />
+              </button>
+            </header>
+            <ul className="alert-list">
+              {items.map((item) => (
+                <li key={item.id} className={item.isRead ? "" : "unread"}>
+                  <Link href={item.url || "/notices"}>{item.title}</Link>
+                  <time>{stamp.format(new Date(item.createdAt))}</time>
+                </li>
+              ))}
+            </ul>
+          </article>
+        </dialog>
       )}
     </section>
   );
