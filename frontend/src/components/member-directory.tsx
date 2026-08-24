@@ -131,7 +131,7 @@ export function MemberDirectory({
             </button>
             <MemberPhoto member={member} photo={photoOf(member)} index={index} />
             <div className="member-card-copy">
-              <small>{member.membership ?? "정회원"} · {member.team}</small>
+              <small>{member.membership ?? "정회원"}</small>
               <h3>{member.name}</h3>
               <p>{member.role} · {member.affiliation}</p>
             </div>
@@ -160,7 +160,7 @@ export function MemberDirectory({
                 )}
               </div>
               <div>
-                <small>{active.membership ?? "정회원"} · {active.team}</small>
+                <small>{active.membership ?? "정회원"}</small>
                 <h3>{active.name}</h3>
                 <p>{active.role} · {active.affiliation}</p>
               </div>

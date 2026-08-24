@@ -1,11 +1,6 @@
 export interface ShapeMember {
   id: string;
   name: string;
-  /**
-   * 기술 팀 배정. 아직 팀이 정해지지 않은 신입은 "미배정" 으로 둡니다.
-   * 팀을 임의로 찍어 넣는 것보다 정해지지 않았다고 적는 편이 정확합니다.
-   */
-  team: "Management" | "Manipulation" | "Navigation" | "Reasoning" | "미배정";
   role: string;
   affiliation: string;
   imageUrl?: string;

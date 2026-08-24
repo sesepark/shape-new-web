@@ -1,9 +1,11 @@
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from app.models import EquipmentStatus, ReservationStatus, UserStatus
+from app.services.content import deliver_smaller
 
 PERMISSIONS = ("content", "news", "equipment", "reservations", "roadmap", "links", "notices")
 PERMISSION_PATTERN = rf"^({'|'.join(PERMISSIONS)}):manage$"
@@ -63,7 +65,6 @@ class MemberCardItem(ORMModel):
 
     id: str
     name: str
-    team: str = ""
     role: str = ""
     membership: str = ""
     image_url: str | None = None
@@ -88,11 +89,22 @@ class MemberCardClaim(InputModel):
     card_id: str = Field(min_length=1, max_length=120)
 
 
+# 읽을 때 한 번 더 손보는 본문.
+#
+# 저장할 때 `sanitize_html` 이 Cloudinary 원본 주소를 변환본 주소로 바꿉니다.
+# 다만 그 규칙이 생기기 전에 저장된 글은 여전히 원본을 가리킵니다. 예전 글까지
+# DB 를 직접 고치려면 운영 DB 접속이 필요하고, 그 사이에도 글을 여는 사람마다
+# 원본이 통째로 나갑니다. 내보낼 때 한 번 더 고치면 저장된 값과 상관없이 항상
+# 줄어든 사진이 나갑니다. 문자열 치환이라 값이 싸고, 공개 응답은 어차피 캐시에
+# 올라갑니다.
+DeliveredHtml = Annotated[str, AfterValidator(deliver_smaller)]
+
+
 class ContentPageRead(ORMModel):
     slug: str
     title: str
     content_json: dict
-    content_html: str
+    content_html: DeliveredHtml
     updated_at: datetime
 
 
@@ -107,7 +119,7 @@ class NewsRead(ORMModel):
 
 
 class NewsDetailRead(NewsRead):
-    content_html: str
+    content_html: DeliveredHtml
     content_json: dict = Field(default_factory=dict)
 
 
@@ -323,7 +335,7 @@ class NoticeRead(ORMModel):
     category: str
     is_pinned: bool
     published_at: datetime
-    content_html: str = ""
+    content_html: DeliveredHtml = ""
     author_name: str = ""
     comment_count: int = 0
 
@@ -454,7 +466,7 @@ class ShapeUpRead(ORMModel):
 
 
 class ShapeUpDetailRead(ShapeUpRead):
-    content_html: str = ""
+    content_html: DeliveredHtml = ""
     content_json: dict = Field(default_factory=dict)
 
 

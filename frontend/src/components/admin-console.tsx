@@ -936,6 +936,13 @@ function MembersForm() {
       ),
     );
   async function submit() {
+    // 예전에 저장된 카드에는 기술 팀(Reasoning·Navigation 같은) 값이 남아 있습니다.
+    // 부원을 팀으로 나누지 않기로 했으므로, 저장할 때 그 값을 실제로 지웁니다.
+    // 화면에서 안 보이게만 하면 값은 그대로 남아 나중에 다시 새어 나옵니다.
+    const clean = members.map((member) => {
+      const { team: _dropped, ...rest } = member as ShapeMember & { team?: string };
+      return rest;
+    });
     try {
       const response = await fetch(`${apiUrl}/admin/pages/members`, {
         method: "PUT",
@@ -944,7 +951,7 @@ function MembersForm() {
         body: JSON.stringify({
           title: "부원",
           contentHtml: "",
-          contentJson: { members },
+          contentJson: { members: clean },
           isPublished: true,
         }),
       });
@@ -994,23 +1001,6 @@ function MembersForm() {
                     update(index, { name: event.target.value })
                   }
                 />
-              </label>
-              <label>
-                팀
-                <select
-                  value={member.team}
-                  onChange={(event) =>
-                    update(index, {
-                      team: event.target.value as ShapeMember["team"],
-                    })
-                  }
-                >
-                  <option>Management</option>
-                  <option>Manipulation</option>
-                  <option>Navigation</option>
-                  <option>Reasoning</option>
-                  <option>미배정</option>
-                </select>
               </label>
             </div>
             <div className="admin-form-row">
@@ -1077,7 +1067,6 @@ function MembersForm() {
             {
               id: `member-${Date.now()}`,
               name: "",
-              team: "Management",
               role: "팀원",
               affiliation: "서울대학교",
               membership: "준회원",
@@ -1188,7 +1177,7 @@ function TeamEditor({
           <div className="field-block">
             <span className="field-label">연결된 부원</span>
             <PersonPicker
-              people={members.filter((member) => !(team.memberIds ?? []).includes(member.id)).map((member) => ({ id: member.id, name: member.name, detail: `${member.membership ?? "정회원"} · ${member.team}` }))}
+              people={members.filter((member) => !(team.memberIds ?? []).includes(member.id)).map((member) => ({ id: member.id, name: member.name, detail: `${member.membership ?? "정회원"} · ${member.role}` }))}
               onSelect={(id) => { if (id) update(index, { memberIds: [...(team.memberIds ?? []), id] }); }}
               placeholder="부원 이름으로 검색"
               emptyLabel="연결할 부원이 없습니다."

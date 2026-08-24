@@ -19,13 +19,21 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
+    // public/ 안의 파일은 기본값이 `max-age=0` 이라 화면을 넘길 때마다 다시
+    // 받아 옵니다. 실제로 재방문에서도 부원 사진과 마스크 그림이 매번 다시
+    // 나갔습니다. Vercel 무료 요금제에서 세는 것이 요청 수라 이 낭비가 그대로
+    // 한도로 이어집니다. 내용이 바뀌지 않는 파일은 오래 잡아 둡니다.
+    const forever = { key: "Cache-Control", value: "public, max-age=31536000, immutable" };
+    // 부원 사진은 같은 이름으로 갈아 끼우는 일이 있으므로 하루만 잡고, 그 뒤로는
+    // 일주일 동안 옛 사진을 보여 주면서 뒤에서 새로 받아 옵니다.
+    const daily = { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" };
     return [
-      {
-        source: "/models/:path*.glb",
-        headers: [
-          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
-        ],
-      },
+      { source: "/models/:path*.glb", headers: [forever] },
+      { source: "/ai-worker-outline.png", headers: [forever] },
+      { source: "/shape-symbol.:ext(png|svg)", headers: [forever] },
+      { source: "/icon-:size.png", headers: [forever] },
+      { source: "/figs/:path*", headers: [daily] },
+      { source: "/equipment/:path*", headers: [daily] },
     ];
   },
 };

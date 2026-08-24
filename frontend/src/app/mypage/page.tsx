@@ -162,7 +162,7 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
 
   if (state === null) return null;
   const free = state.available.filter((card) =>
-    `${card.name} ${card.team} ${card.role}`.toLowerCase().includes(query.trim().toLowerCase()),
+    `${card.name} ${card.role}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const row = (card: MemberCardItem, label: string) => (
     <li key={card.id}>
@@ -171,7 +171,7 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
         : <span className="account-initial">{card.name.slice(0, 1)}</span>}
       <div>
         <strong>{card.name}</strong>
-        <span>{[card.membership, card.team, card.role].filter(Boolean).join(" · ")}</span>
+        <span>{[card.membership, card.role].filter(Boolean).join(" · ")}</span>
       </div>
       <button type="button" className="button small" disabled={busy} onClick={() => void claim(card.id)}>
         {label}
@@ -190,7 +190,7 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
               : <span className="account-initial">{state.card.name.slice(0, 1)}</span>}
             <div>
               <strong>{state.card.name}</strong>
-              <span>{[state.card.membership, state.card.team, state.card.role].filter(Boolean).join(" · ")}</span>
+              <span>{[state.card.membership, state.card.role].filter(Boolean).join(" · ")}</span>
             </div>
           </div>
           <p className="form-note">
@@ -220,7 +220,7 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
                 <input
                   type="search"
                   value={query}
-                  placeholder="이름·팀·역할로 카드 찾기"
+                  placeholder="이름이나 역할로 카드 찾기"
                   onChange={(event) => setQuery(event.target.value)}
                 />
                 <ul className="card-candidates">{free.slice(0, 8).map((card) => row(card, "이 카드"))}</ul>

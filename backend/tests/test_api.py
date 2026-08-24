@@ -607,7 +607,9 @@ def test_editor_output_survives_sanitising():
         "제목": "<h2>중간 제목</h2>",
         "수평선": "<hr>",
         "코드블록": "<pre><code>print(1)</code></pre>",
-        "이미지": '<img src="https://res.cloudinary.com/x/a.jpg" alt="">',
+        # 사진은 그대로 살아남되 주소가 변환본으로 바뀌고 늦게 받도록 표시된다.
+        # 그 부분은 test_body_images_are_delivered_smaller 에서 따로 본다.
+        "이미지": '<img loading="lazy" decoding="async" src="/figs/a.jpeg" alt="">',
     }
     for label, html in kept.items():
         assert sanitize_html(html) == html, label
@@ -1122,3 +1124,49 @@ async def test_a_name_written_with_split_jamo_still_matches(client, session):
     await member_page_with(session, [{"id": "card-1", "name": unicodedata.normalize("NFD", "장하람")}])
     found = (await login(client, user).get("/api/v1/auth/me/member-card")).json()
     assert [row["id"] for row in found["candidates"]] == ["card-1"]
+
+
+def test_body_images_are_delivered_smaller():
+    """본문에 박힌 원본 사진 주소를 변환본 주소로 고친다.
+
+    편집기는 업로드가 끝나면 받은 주소를 그대로 넣는다. 그 주소는 원본이라
+    휴대폰 사진 3MB 가 글을 여는 사람마다 통째로 나간다. 실제 소식 5장 기준
+    원본 8.5MB, 변환본 0.46MB 였다.
+    """
+    from app.services.content import sanitize_html
+
+    raw = '<img src="https://res.cloudinary.com/demo/image/upload/v1787/shape/news/a.jpg" alt="">'
+    out = sanitize_html(raw)
+    assert "/image/upload/f_auto,q_auto,c_limit,w_1400/v1787/shape/news/a.jpg" in out
+    # 화면에 들어올 때 받도록 표시한다.
+    assert 'loading="lazy"' in out and 'decoding="async"' in out
+
+    # 이미 지시가 붙은 주소는 두 번 붙이지 않는다.
+    once = sanitize_html(out)
+    assert once.count("f_auto") == 1
+    assert once.count('loading="lazy"') == 1
+
+    # 우리 폴더에 있는 사진과 남의 사이트 사진은 건드리지 않는다.
+    kept = sanitize_html('<img src="/figs/a.jpeg" alt=""><img src="https://example.com/b.jpg" alt="">')
+    assert "/figs/a.jpeg" in kept and "https://example.com/b.jpg" in kept
+    assert "f_auto" not in kept
+
+
+async def test_old_posts_are_delivered_smaller_too(client, session):
+    """규칙이 생기기 전에 저장된 글도 내보낼 때 줄여서 나간다.
+
+    운영 DB 를 직접 고치지 않아도 되도록, 저장할 때뿐 아니라 읽을 때도 주소를
+    고친다. 예전 글이 원본 3MB 사진을 그대로 물고 있는 것이 지금 무료 티어에서
+    가장 큰 지출이다.
+    """
+    from app.models import NewsPost
+
+    raw = '<img src="https://res.cloudinary.com/demo/image/upload/v1/old.jpg" alt="">'
+    session.add(NewsPost(title="옛 글", summary="", category="소식", content_html=raw,
+                         cover_image=None, external_url=None,
+                         published_at=datetime(2026, 8, 1, tzinfo=UTC), is_published=True))
+    await session.commit()
+
+    listed = (await client.get("/api/v1/news?limit=5")).json()
+    detail = (await client.get(f"/api/v1/news/{listed[0]['id']}")).json()
+    assert "f_auto,q_auto,c_limit,w_1400/v1/old.jpg" in detail["contentHtml"]

@@ -258,7 +258,6 @@ def card_fields(card: dict) -> dict:
     return {
         "id": str(card.get("id") or ""),
         "name": str(card.get("name") or ""),
-        "team": str(card.get("team") or ""),
         "role": str(card.get("role") or ""),
         "membership": str(card.get("membership") or ""),
         "image_url": card.get("imageUrl") or None,

@@ -103,7 +103,6 @@ export interface AdminRoadmapItem extends RoadmapItem {
 export interface MemberCardItem {
   id: string;
   name: string;
-  team: string;
   role: string;
   membership: string;
   imageUrl?: string | null;

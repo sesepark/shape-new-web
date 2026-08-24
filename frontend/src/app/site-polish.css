@@ -225,7 +225,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .mypage-side .button { display:inline-flex; align-items:center; justify-content:center; gap:6px; margin-top:0; color:#fff; background:var(--blue); border:1px solid var(--blue); border-radius:999px; padding:9px 16px; }
 .mypage-side .button.secondary { color:var(--blue); background:#fff; }
 .account-summary { display:flex; align-items:center; gap:13px; }
-.account-summary img, .account-initial { width:56px; height:56px; border-radius:50%; object-fit:cover; }
+.account-summary img, .account-initial { width:52px; height:52px; border-radius:50%; object-fit:cover; }
 .account-initial { display:grid; place-items:center; background:#e8efff; color:#1d4eb5; font-size:21px; font-weight:900; }
 .account-summary strong { display:block; font-size:15px; }
 .account-summary span { color:#767c87; font-size:12px; }
@@ -376,7 +376,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .member-dialog::backdrop { background:rgba(10,19,39,.5); backdrop-filter:blur(4px); }
 .member-dialog article { position:relative; padding:34px; display:grid; gap:20px; }
 .member-dialog header { display:flex; align-items:center; gap:18px; }
-.member-dialog-photo { flex:0 0 84px; width:84px; height:84px; overflow:hidden; display:grid; place-items:center; border-radius:18px; background:#e8efff; color:#1d4eb5; font-size:30px; font-weight:900; }
+.member-dialog-photo { flex:none; width:96px; aspect-ratio:var(--media-ratio-portrait); overflow:hidden; display:grid; place-items:center; border-radius:14px; background:#e8efff; color:#1d4eb5; font-size:30px; font-weight:900; }
 .member-dialog-photo img { width:100%; height:100%; object-fit:cover; }
 .member-dialog header small { color:var(--blue); font-size:11px; font-weight:900; letter-spacing:.1em; }
 .member-dialog header h3 { margin:5px 0 4px; font-size:24px; letter-spacing:-.045em; }
@@ -2667,13 +2667,6 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   gap: 10px;
 }
 
-.my-member-card .card-link img,
-.card-candidates img {
-  border-radius: 50%;
-  object-fit: cover;
-  flex: none;
-}
-
 .my-member-card .card-link > div,
 .card-account > div,
 .card-candidates li > div {
@@ -2759,3 +2752,42 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   max-height: 320px;
   overflow-y: auto;
 }
+
+/* ==========================================================================
+   인물 사진 규격은 두 가지뿐
+   --------------------------------------------------------------------------
+   같은 얼굴이 부원 격자에서는 세로로, 자세히 보기 팝업에서는 정사각으로 나와
+   턱이나 이마가 잘렸습니다. 사진 놓는 자리마다 비율을 따로 정해 두었기
+   때문입니다. 이제 두 가지만 씁니다.
+
+     - 얼굴을 보여 주는 큰 사진: 4:5 세로(--media-ratio-portrait), 둥근 사각.
+       부원 격자와 자세히 보기 팝업이 여기에 듭니다.
+     - 이름 옆에 붙는 작은 아바타: 1:1 원형. 마이페이지 계정·부원 카드,
+       관리자에서 사람을 고를 때가 여기에 듭니다.
+
+   작은 자리에서 4:5 를 쓰면 세로로 길쭉한 타원이 되어 보기 나쁩니다. 큰 사진은
+   반대로 정사각으로 자르면 얼굴이 잘립니다. 자리 크기에 따라 갈라 씁니다.
+   ========================================================================== */
+
+.my-member-card .card-link img,
+.my-member-card .card-link .account-initial,
+.card-candidates img,
+.card-candidates .account-initial,
+.card-account img,
+.pick-face {
+  flex: none;
+  width: var(--face-size, 44px);
+  height: var(--face-size, 44px);
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.my-member-card .card-link img,
+.my-member-card .card-link .account-initial { --face-size: 52px; font-size: 19px; }
+
+.card-candidates .account-initial { font-size: 16px; }
+
+.pick-face { --face-size: 26px; }
+
+.toggle-field.with-face .pick-face { --face-size: 22px; }
