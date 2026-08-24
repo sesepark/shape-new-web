@@ -16,7 +16,7 @@
 들어오지 않는 새벽에는 알림이 조금 늦게 갈 수 있습니다.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -33,6 +33,8 @@ from app.models import (
 from app.services.notifications import devices_of
 
 SEOUL = ZoneInfo("Asia/Seoul")
+# 사용 시작 뒤 이만큼 지나도 사용 전 사진이 없으면 한 번 더 알립니다.
+BEFORE_PHOTO_GRACE = timedelta(minutes=30)
 # 예약 알림을 누르면 가는 곳. 신청한 사람은 마이페이지에서 자기 예약을 봅니다.
 MEMBER_URL = "/mypage"
 
@@ -63,10 +65,12 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
 
     1. **사용 시간이 된 예약** — 확정된 예약의 시작 시각이 지났는데 아직 알리지
        않았다면 알립니다. 사용 전 사진을 올리고 시작해야 한다는 안내입니다.
-    2. **사용이 끝났는데 사진이 없는 예약** — 끝난 시각이 지났고 사용 후 사진이
+    2. **시작하고 30분이 지나도 사용 전 사진이 없는 예약** — 한 번 더 재촉합니다.
+       사진은 장비 상태를 확인하는 유일한 기록이라 놓치면 되돌릴 수 없습니다.
+    3. **사용이 끝났는데 사진이 없는 예약** — 끝난 시각이 지났고 사용 후 사진이
        아직 없으면 한 번 알립니다.
 
-    이미 보낸 것은 `start_notified_at`·`photo_notified_at` 으로 가려냅니다.
+    이미 보낸 것은 `*_notified_at` 칸으로 가려냅니다.
     """
     now = datetime.now(UTC)
     out: list[tuple[str, str, list[dict]]] = []
@@ -84,6 +88,23 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
         title = f"사용 시간입니다 · {name}"
         item.start_notified_at = now
         out.append((title, "사용 전 사진을 올리고 사용을 시작해 주세요.", await tell_owner(db, item, title)))
+
+    # 사용 시간이 지났는데 사용 전 사진이 없는 예약. 시작 알림과 따로 한 번 더
+    # 알립니다. 사진은 장비 상태를 확인하는 유일한 기록이라 놓치면 되돌릴 수 없습니다.
+    late = (await db.scalars(
+        select(Reservation).where(
+            Reservation.status.in_([ReservationStatus.APPROVED, ReservationStatus.IN_USE]),
+            Reservation.starts_at <= now - BEFORE_PHOTO_GRACE,
+            Reservation.ends_at > now,
+            Reservation.before_photo_url.is_(None),
+            Reservation.before_photo_notified_at.is_(None),
+        ).limit(50)
+    )).all()
+    for item in late:
+        name = await label(db, item)
+        title = f"사용 전 사진이 아직 없습니다 · {name}"
+        item.before_photo_notified_at = now
+        out.append((title, "사용을 시작하기 전에 장비 상태를 사진으로 남겨 주세요.", await tell_owner(db, item, title)))
 
     ended = (await db.scalars(
         select(Reservation).where(
@@ -111,3 +132,34 @@ async def owners_and_managers(db: AsyncSession) -> list[User]:
     return list((await db.scalars(
         select(User).where(User.is_owner.is_(True), User.deleted_at.is_(None), User.status == UserStatus.APPROVED)
     )).all())
+
+
+async def tell_user(db: AsyncSession, user_id, title: str, url: str = MEMBER_URL) -> list[dict]:
+    """회원 한 사람에게 알립니다. 커밋은 부르는 쪽에서 합니다."""
+    db.add(Notification(user_id=user_id, title=title, url=url))
+    await db.flush()
+    return await devices_of(db, [user_id])
+
+
+async def tell_upcoming_users(db: AsyncSession, equipment_id, title: str) -> list[dict]:
+    """이 장비를 앞으로 쓰기로 되어 있는 사람들에게 알립니다.
+
+    장비를 점검 중으로 돌리면 그 시간에 오려던 사람이 헛걸음합니다. 아직 오지
+    않은 예약(대기·확정)만 봅니다 — 이미 끝난 예약에는 알릴 것이 없습니다.
+    """
+    now = datetime.now(UTC)
+    rows = (await db.scalars(
+        select(Reservation)
+        .join(EquipmentUnit, EquipmentUnit.id == Reservation.equipment_unit_id)
+        .where(
+            EquipmentUnit.equipment_id == equipment_id,
+            Reservation.starts_at > now,
+            Reservation.status.in_([ReservationStatus.PENDING, ReservationStatus.APPROVED]),
+        )
+    )).all()
+    people = {row.user_id for row in rows}
+    if not people:
+        return []
+    db.add_all([Notification(user_id=person, title=title, url=MEMBER_URL) for person in people])
+    await db.flush()
+    return await devices_of(db, list(people))

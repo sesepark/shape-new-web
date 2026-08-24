@@ -1723,12 +1723,71 @@ async def test_due_reservations_ask_for_photos(client, session):
     session.add_all([running, finished])
     await session.commit()
 
+    # 시작한 지 30분이 지났는데 사용 전 사진이 없는 예약
+    stale = Reservation(equipment_unit_id=unit.id, user_id=member.id, purpose="사진 없음",
+                        starts_at=now - timedelta(minutes=45), ends_at=now + timedelta(minutes=30),
+                        status=ReservationStatus.APPROVED, start_notified_at=now)
+    session.add(stale)
+    await session.commit()
+
     sent = await sweep_due(session)
     titles = [title for title, _, _ in sent]
     assert any("사용 시간입니다" in t for t in titles), titles
+    assert any("사용 전 사진이 아직 없습니다" in t for t in titles), titles
     assert any("사용 후 사진" in t for t in titles), titles
 
     # 두 번 훑어도 같은 알림이 다시 가지 않는다.
     assert await sweep_due(session) == []
     alerts = (await login(client, member).get("/api/v1/notifications")).json()
-    assert len(alerts) == 2, alerts
+    assert len(alerts) == 3, alerts
+
+
+async def test_approval_license_and_maintenance_reach_the_member(client, session):
+    """가입 승인·라이선스 부여·장비 점검이 당사자에게 간다.
+
+    셋 다 '직접 들어와 봐야 아는' 자리였다. 승인됐는지, 이제 무엇을 예약할 수
+    있는지, 내가 예약한 장비가 점검에 들어갔는지.
+    """
+    from app.models import Equipment, EquipmentStatus, EquipmentUnit, License, UserStatus
+
+    owner = await make_user(session, "alertowner@example.com", owner=True)
+    member = await make_user(session, "alerted@example.com")
+    member.status = UserStatus.PENDING
+    licence = License(name="로봇 팔 기초 교육")
+    equipment = Equipment(name="알림 시험 장비", category="로봇 팔")
+    session.add_all([licence, equipment])
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    session.add(EquipmentLicenseRequirement(equipment_id=equipment.id, license_id=licence.id))
+    await session.commit()
+
+    http = login(client, owner)
+    # 1) 가입 승인
+    assert (await http.patch(f"/api/v1/admin/users/{member.id}/status", json={"status": "APPROVED"})).status_code == 200
+    alerts = (await login(client, member).get("/api/v1/notifications")).json()
+    assert any("가입이 승인" in row["title"] for row in alerts), alerts
+
+    # 2) 라이선스 부여 — 무엇이 열렸는지 함께
+    http = login(client, owner)
+    granted = await http.post(f"/api/v1/admin/users/{member.id}/licenses", json={"licenseId": str(licence.id)})
+    assert granted.status_code == 201
+    alerts = (await login(client, member).get("/api/v1/notifications")).json()
+    assert any("로봇 팔 기초 교육" in row["title"] for row in alerts), alerts
+
+    # 3) 앞으로 쓸 예약이 있는 장비가 점검에 들어가면
+    starts = (datetime.now(UTC) + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+    made = await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "실험 준비",
+    })
+    assert made.status_code == 201, made.text
+    http = login(client, owner)
+    changed = await http.patch(f"/api/v1/admin/equipment/{equipment.id}", json={
+        "name": equipment.name, "category": equipment.category, "description": "",
+        "imageUrl": None, "status": EquipmentStatus.MAINTENANCE.value,
+        "reservationUnitMinutes": 60, "sortOrder": 0,
+    })
+    assert changed.status_code == 200, changed.text
+    alerts = (await login(client, member).get("/api/v1/notifications")).json()
+    assert any("점검 중" in row["title"] for row in alerts), alerts

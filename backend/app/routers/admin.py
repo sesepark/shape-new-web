@@ -11,6 +11,7 @@ from app.models import (
     ContentPage,
     Equipment,
     EquipmentLicenseRequirement,
+    EquipmentStatus,
     EquipmentUnit,
     License,
     NewsPost,
@@ -63,6 +64,7 @@ from app.services.member_cards import ensure_card
 from app.services.notifications import deliver_push, publish_notice_notifications
 from app.services.reservation_alerts import label as reservation_label
 from app.services.reservation_alerts import tell_owner as tell_reservation_owner
+from app.services.reservation_alerts import tell_upcoming_users, tell_user
 from app.services.reservation_alerts import when as reservation_when
 from app.services.reservations import approve, cancel, read_models
 from app.services.revalidate import refresh
@@ -279,14 +281,25 @@ async def update_equipment(equipment_id: UUID, payload: EquipmentWrite, _: User 
     item = await db.get(Equipment, equipment_id)
     if not item:
         raise HTTPException(404, "장비를 찾을 수 없습니다.")
+    was = item.status
     for key, value in payload.model_dump().items():
         setattr(item, key, value)
+    # 점검 중이나 운영 중지로 바뀌면, 그 시간에 오려던 사람이 헛걸음합니다.
+    devices: list[dict] = []
+    title = body = ""
+    if was == EquipmentStatus.ACTIVE and item.status != EquipmentStatus.ACTIVE:
+        label = "점검 중" if item.status == EquipmentStatus.MAINTENANCE else "운영 중지"
+        title = f"{item.name} 이(가) {label} 상태로 바뀌었습니다"
+        body = "예정된 예약이 있다면 운영진에게 확인해 주세요."
+        devices = await tell_upcoming_users(db, item.id, title)
     try:
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(409, "같은 이름의 장비가 이미 있습니다.") from exc
     refresh("equipment", [f"/equipment/{equipment_id}"])
+    if title:
+        await deliver_push(devices, title, body=body, path="/mypage")
     return {"ok": True}
 
 
@@ -599,14 +612,29 @@ async def set_user_status(user_id: UUID, payload: UserDecision, actor: User = De
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
     if user.id == actor.id and payload.status != UserStatus.APPROVED:
         raise HTTPException(409, "자신의 계정 상태는 변경할 수 없습니다.")
+    became = payload.status != user.status
     user.status = payload.status
     # 부원이 되는 순간 부원 카드도 생깁니다. 명단에 미리 이름이 없던 새 부원은
     # 이것이 없으면 부원 페이지에 아예 나오지 않습니다.
+    devices: list[dict] = []
+    title = body = ""
     if payload.status in READING_STATUSES:
         await ensure_card(db, user)
+        if became:
+            # 승인됐는지 직접 들어와 봐야 알던 것을 알려 줍니다.
+            viewer = payload.status == UserStatus.VIEWER
+            title = "SHAPE 가입이 승인되었습니다" if not viewer else "SHAPE 계정이 보기 전용으로 열렸습니다"
+            body = (
+                "이제 게시판·자료실과 장비 예약을 쓸 수 있습니다."
+                if not viewer
+                else "공지와 자료실을 읽을 수 있습니다. 글쓰기와 예약은 활동 중인 회원만 가능합니다."
+            )
+            devices = await tell_user(db, user.id, title)
     await db.commit()
     if payload.status in READING_STATUSES:
         refresh("pages")
+    if devices or title:
+        await deliver_push(devices, title, body=body, path="/mypage")
     return {"ok": True}
 
 
@@ -701,9 +729,23 @@ async def grant_license(user_id: UUID, payload: LicenseAssignment, _: User = Dep
     if not await db.get(License, payload.license_id):
         raise HTTPException(404, "라이선스를 찾을 수 없습니다.")
     existing = await db.scalar(select(UserLicense).where(UserLicense.user_id == user_id, UserLicense.license_id == payload.license_id))
-    if not existing:
-        db.add(UserLicense(user_id=user_id, license_id=payload.license_id))
-        await db.commit()
+    if existing:
+        return {"ok": True}
+    db.add(UserLicense(user_id=user_id, license_id=payload.license_id))
+    licence = await db.get(License, payload.license_id)
+    # 이 교육을 요구하던 장비 이름을 함께 알려 주면, 받은 사람이 바로 예약으로
+    # 이어집니다. "라이선스를 받았다" 만으로는 무엇이 열렸는지 알 수 없습니다.
+    opened = list((await db.scalars(
+        select(Equipment.name)
+        .join(EquipmentLicenseRequirement, EquipmentLicenseRequirement.equipment_id == Equipment.id)
+        .where(EquipmentLicenseRequirement.license_id == payload.license_id)
+        .order_by(Equipment.sort_order, Equipment.name)
+    )).all())
+    title = f"‘{licence.name}’ 이수가 등록되었습니다"
+    body = f"이제 {', '.join(opened)} 을(를) 예약할 수 있습니다." if opened else "마이페이지에서 보유 라이선스를 확인할 수 있습니다."
+    devices = await tell_user(db, user_id, title)
+    await db.commit()
+    await deliver_push(devices, title, body=body, path="/mypage")
     return {"ok": True}
 
 
