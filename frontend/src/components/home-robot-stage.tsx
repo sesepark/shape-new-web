@@ -25,6 +25,13 @@ const robotCopy: Record<Robot, { tab: string; label: string; title: string; desc
     description: "정밀한 파지와 조작 데이터를 쌓아 올리는 로봇 팔 OMY를 다룹니다.",
     axis: "GRASPING",
   },
+  so101: {
+    tab: "SO-ARM 101",
+    label: "04 · SO-ARM 101",
+    title: "Teach it by hand.",
+    description: "직접 시연한 동작으로 배우는 교육용 로봇 팔 SO-ARM 101을 다룹니다.",
+    axis: "IMITATION",
+  },
 };
 
 export function HomeRobotStage() {

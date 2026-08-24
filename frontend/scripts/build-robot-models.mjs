@@ -161,6 +161,15 @@ const sources = [
     urdf: "urdf/omy_f3m/omy_f3m.urdf",
     repository: "https://github.com/ROBOTIS-GIT/open_manipulator.git",
   },
+  {
+    // The maintained description is a xacro tree; `urdf/legacy` holds the same
+    // arm already flattened to plain URDF (identical link and joint names), so
+    // it is what this exporter reads.
+    name: "so-arm101",
+    root: process.env.SO_ARM101_ROOT ?? "/tmp/shape-so101/so101_description",
+    urdf: "urdf/legacy/so101_follower.urdf",
+    repository: "https://github.com/legalaspro/so101-ros-physical-ai.git",
+  },
 ];
 
 const only = process.argv.slice(2);

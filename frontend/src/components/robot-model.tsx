@@ -3,17 +3,33 @@
 import { useEffect, useRef } from "react";
 import type { Group, PerspectiveCamera, Scene, WebGLRenderer } from "three";
 
-export type Robot = "worker" | "sapiens" | "omy";
+export type Robot = "worker" | "sapiens" | "omy" | "so101";
 
 // ROS uses Z-up and every robot's front is its X axis. After converting to
 // Three.js Y-up, this quarter turn presents the robot to the camera.
 const FACING = -Math.PI / 2;
-const MODEL_VERSION = "20260823-4";
+const MODEL_VERSION = "20260824-1";
 const SIDES = ["left", "right"] as const;
-const MODELS: Record<Robot, { file: string; scale: number }> = {
+// `pose` 는 URDF 의 0 자세가 화면에 어울리지 않을 때 쓰는 시작 자세입니다.
+// 가운데 맞추기 전에 적용하므로 이 자세 그대로 화면 중앙에 놓이고, 아래
+// 애니메이션의 각도는 모두 이 자세를 기준으로 한 차이가 됩니다.
+type Pose = readonly (readonly [string, "x" | "y" | "z", number])[];
+const MODELS: Record<Robot, { file: string; scale: number; pose?: Pose }> = {
   worker: { file: "ai-worker", scale: 2.05 },
   sapiens: { file: "ai-sapiens", scale: 2.55 },
   omy: { file: "omy", scale: 3.7 },
+  // SO-ARM 101 은 실물이 24cm 남짓이라 같은 화면을 채우려면 배율이 큽니다.
+  // URDF 0 자세는 팔이 앞으로 완전히 뻗어 누운 모습이라, 어깨를 세우고 팔꿈치를
+  // 접어 실제로 교육에서 쓰는 대기 자세로 세워 둡니다.
+  so101: {
+    file: "so-arm101",
+    scale: 11.5,
+    pose: [
+      ["upper_arm_link", "z", -1.25],
+      ["lower_arm_link", "z", 1.35],
+      ["wrist_link", "z", 0.55],
+    ],
+  },
 };
 const ROBOTS = Object.keys(MODELS) as Robot[];
 
@@ -60,7 +76,11 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
       const fill = new DirectionalLight(0x7398ff, 1.8); fill.position.set(-4, 2, 3); scene.add(fill);
       const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 
-      const prepare = (model: Group, scale: number) => {
+      const prepare = (model: Group, scale: number, pose?: Pose) => {
+        pose?.forEach(([name, axis, angle]) => {
+          const joint = model.getObjectByName(name);
+          if (joint) joint.rotation[axis] += angle;
+        });
         model.traverse((node) => {
           node.userData.restRotation = node.rotation.clone();
           node.userData.restPosition = node.position.clone();
@@ -86,7 +106,7 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
         loader.loadAsync(`/models/${MODELS[robot].file}.glb?v=${MODEL_VERSION}`)
           .then((gltf) => {
             if (disposed || !scene) return;
-            const pivot = prepare(gltf.scene, MODELS[robot].scale);
+            const pivot = prepare(gltf.scene, MODELS[robot].scale, MODELS[robot].pose);
             pivot.visible = robot === activeRef.current;
             models.current[robot] = pivot;
             scene.add(pivot);
@@ -159,6 +179,16 @@ export function RobotModel({ active, pointer, preload = [] }: { active: Robot; p
             moveJoint("sapiens", `${side}_elbow_link`, "y", .72 - Math.abs(y) * .25 + swing * .1 * mirror);
             moveJoint("sapiens", `${side}_wrist_roll_rubber_hand`, "x", mirror * breathe * .18);
           }
+        } else if (current === "so101") {
+          // 여섯 관절 모두 URDF 축이 +Z 라 링크 그룹의 z 회전이 곧 관절 각도이고,
+          // 값은 대기 자세에서의 차이라 URDF 의 limit 안에 들어갑니다.
+          moveJoint("so101", "shoulder_link", "z", x * .7 + sway * .2);
+          moveJoint("so101", "upper_arm_link", "z", y * .22 + breathe * .1);
+          moveJoint("so101", "lower_arm_link", "z", -y * .2 + swing * .16);
+          moveJoint("so101", "wrist_link", "z", y * .18 - breathe * .12);
+          moveJoint("so101", "gripper_link", "z", x * .5 + sway * .35);
+          // 집게는 한쪽 턱만 움직이고, 열림 한계가 1.75rad 입니다.
+          moveJoint("so101", "moving_jaw_so101_v1_link", "z", .8 + Math.sin(seconds * .9) * .7);
         } else {
           moveJoint("omy", "link1", "z", x * .5 + sway * .12);
           moveJoint("omy", "link2", "y", .78 + swing * .16 + y * .18);
