@@ -1,5 +1,6 @@
 import { PageShell } from "@/components/page-shell";
 import { api } from "@/lib/api";
+import { MathContent } from "@/components/math-content";
 
 export const metadata = {
   title: "인사말",
@@ -11,7 +12,10 @@ export default async function GreetingPage() {
   return (
     <PageShell eyebrow="" title="인사말" contentTitle={page?.title || "SHAPE에 오신 것을 환영합니다"}>
       {page?.contentHtml ? (
-        <article className="greeting-content is-managed rich-content" dangerouslySetInnerHTML={{ __html: page.contentHtml }} />
+        <>
+          <article className="greeting-content is-managed rich-content" dangerouslySetInnerHTML={{ __html: page.contentHtml }} />
+          <MathContent html={page.contentHtml} />
+        </>
       ) : (
         <article className="greeting-content">
           <div className="greeting-column">

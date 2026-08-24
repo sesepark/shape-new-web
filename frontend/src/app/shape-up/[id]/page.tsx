@@ -8,6 +8,7 @@ import { ShapeUpOwnerActions } from "@/components/shape-up-owner-actions";
 import { api, itemOrNull, listOrEmpty } from "@/lib/api";
 import { date } from "@/lib/format";
 import { media, optimizable } from "@/lib/media";
+import { MathContent } from "@/components/math-content";
 
 /** 빌드 때 미리 그려 둔다. 이유는 `news/[id]/page.tsx` 의 같은 함수 주석에 있다. */
 export async function generateStaticParams() {
@@ -61,6 +62,7 @@ export default async function ShapeUpDetailPage({ params }: { params: Promise<{ 
         <Image className="news-detail-cover" src={media(item.coverImage, 1400)} alt="" width={1400} height={800} unoptimized={!optimizable(item.coverImage)} />
       )}
       <article className="rich-content news-detail-content" dangerouslySetInnerHTML={{ __html: item.contentHtml }} />
+      <MathContent html={item.contentHtml} />
       {item.videoUrl && <ExternalLinkBlock url={item.videoUrl} />}
     </PageShell>
   );

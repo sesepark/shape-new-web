@@ -5,6 +5,7 @@ import { PageShell } from "@/components/page-shell";
 import { api, itemOrNull, listOrEmpty } from "@/lib/api";
 import { date } from "@/lib/format";
 import { media, optimizable } from "@/lib/media";
+import { MathContent } from "@/components/math-content";
 
 async function newsItem(id: string) {
   return itemOrNull(api.newsDetail(id));
@@ -47,6 +48,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
       <p className="article-meta">{item.category} · {date(item.publishedAt)}</p>
       {item.coverImage && <Image className="news-detail-cover" src={media(item.coverImage, 1400)} alt="" width={1400} height={800} unoptimized={!optimizable(item.coverImage)} />}
       <article className="rich-content news-detail-content" dangerouslySetInnerHTML={{ __html: item.contentHtml }} />
+      <MathContent html={item.contentHtml} />
       {showLink && item.externalUrl && <ExternalLinkBlock url={item.externalUrl} preview={item.contentJson?.preview} />}
     </PageShell>
   );

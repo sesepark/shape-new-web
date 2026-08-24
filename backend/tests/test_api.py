@@ -1287,3 +1287,28 @@ async def test_the_resource_library_takes_many_file_kinds(client, session):
     for blocked in ("html", "htm", "svg", "exe", "dll", "bat"):
         assert blocked not in RAW_EXTENSIONS, blocked
     assert signed.status_code in {200, 503}
+
+
+def test_the_editor_can_save_tables_alignment_and_math():
+    """글쓰기 도구가 새로 지원하는 서식이 저장까지 살아남는다.
+
+    표·정렬·줄 간격·취소선·수식은 저장할 때 지우개(sanitizer)를 지난다. 허용
+    목록에 없으면 저장하는 순간 조용히 사라지므로, 도구를 늘릴 때는 이쪽도 함께
+    늘려야 한다.
+    """
+    from app.services.content import sanitize_html
+
+    saved = sanitize_html(
+        '<p style="text-align: center; line-height: 1.8">가운데</p>'
+        '<table><tbody><tr><th colspan="2">머리</th></tr><tr><td>가</td><td>나</td></tr></tbody></table>'
+        '<div data-math="x^2" class="math-block">x^2</div>'
+        '<p><s>취소선</s><sup>위</sup><sub>아래</sub></p>'
+    )
+    assert 'style="text-align: center; line-height: 1.8;"' in saved
+    assert "<table>" in saved and 'colspan="2"' in saved
+    assert 'data-math="x^2"' in saved
+    assert "<s>취소선</s>" in saved
+
+    # 위험한 것은 그대로 막는다.
+    blocked = sanitize_html('<script>alert(1)</script><p style="position:fixed">x</p><iframe src="x"></iframe>')
+    assert "<script" not in blocked and "<iframe" not in blocked and "position" not in blocked

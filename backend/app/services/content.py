@@ -6,12 +6,28 @@ from bleach.css_sanitizer import CSSSanitizer
 # 편집기가 실제로 만들어 내는 태그는 모두 통과시켜야 합니다. 예전에는 형광펜
 # (<mark>), 수평선, 코드 블록이 저장하는 순간 조용히 사라졌습니다.
 ALLOWED_TAGS = [
-    "p", "br", "strong", "b", "em", "i", "u", "s", "mark", "span",
+    "p", "br", "strong", "b", "em", "i", "u", "s", "mark", "span", "sub", "sup",
     "h1", "h2", "h3", "ul", "ol", "li", "blockquote", "hr",
     "code", "pre", "a", "img",
+    # 표. 편집기가 네 조각(표·줄·머리칸·칸)을 그대로 내보냅니다.
+    "table", "thead", "tbody", "tr", "th", "td", "colgroup", "col",
+    # 수식 한 덩이. 안에는 LaTeX 원문만 들어 있고, 그리는 일은 화면이 합니다.
+    "div",
 ]
 ALLOWED_ATTRIBUTES = {
     "a": ["href", "target", "rel"],
+    # 정렬과 줄 간격은 style 로 나갑니다. 아래 ALLOWED_CSS 가 값을 다시 거릅니다.
+    "p": ["style"],
+    "h1": ["style"],
+    "h2": ["style"],
+    "h3": ["style"],
+    # 표는 칸 합치기와 열 너비를 함께 저장해야 모양이 유지됩니다.
+    "table": ["style"],
+    "th": ["colspan", "rowspan", "colwidth", "style"],
+    "td": ["colspan", "rowspan", "colwidth", "style"],
+    "col": ["style"],
+    # 수식은 원문을 담는 칸 하나뿐입니다. class 는 화면에서 찾을 때 씁니다.
+    "div": ["data-math", "class"],
     # 본문 사진은 화면에 들어올 때 받습니다. 긴 글에서 아래쪽 사진까지 미리
     # 받으면 데이터만 쓰고 아무도 보지 않는 경우가 많습니다.
     "img": ["src", "alt", "loading", "decoding"],
@@ -21,7 +37,11 @@ ALLOWED_ATTRIBUTES = {
     # 로 내보낸다. 이 값을 지우면 저장하는 순간 번호가 1 부터 다시 시작한다.
     "ol": ["start"],
 }
-ALLOWED_CSS = CSSSanitizer(allowed_css_properties=["color", "background-color", "font-size", "font-weight", "text-decoration"])
+ALLOWED_CSS = CSSSanitizer(allowed_css_properties=[
+    "color", "background-color", "font-size", "font-weight", "text-decoration",
+    # 글쓰기 도구의 정렬·줄 간격·표 열 너비.
+    "text-align", "line-height", "width", "min-width",
+])
 
 
 # Cloudinary 주소에서 원본이 그대로 나가는 자리를 찾습니다.

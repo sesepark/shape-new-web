@@ -9,6 +9,7 @@ import { NoticeComments } from "@/components/notice-comments";
 import { board } from "@/lib/board";
 import { date } from "@/lib/format";
 import type { NoticeDetail } from "@/lib/types";
+import { MathContent } from "@/components/math-content";
 
 export function NoticeDetailView({ noticeId }: { noticeId: string }) {
   const router = useRouter();
@@ -59,23 +60,28 @@ export function NoticeDetailView({ noticeId }: { noticeId: string }) {
           {item.category}
         </span>
         <h2>{item.title}</h2>
-        <p>
-          {item.authorName}
-          <time>{date(item.publishedAt)}</time>
-        </p>
-        {item.canEdit && (
-          <div className="inline-actions">
-            <Link className="button secondary small" href={`/notices/write?id=${item.id}`}>
-              <Pencil size={14} /> 수정
-            </Link>
-            <button type="button" className="text-button danger" onClick={remove}>
-              <Trash2 size={14} /> 삭제
-            </button>
-          </div>
-        )}
+        {/* 글쓴이·날짜는 왼쪽, 수정·삭제는 오른쪽에 둡니다. 넷을 모두 왼쪽에
+            쌓으면 한쪽만 빽빽하고 오른쪽이 비어 보입니다. */}
+        <div className="board-detail-meta">
+          <p>
+            {item.authorName}
+            <time>{date(item.publishedAt)}</time>
+          </p>
+          {item.canEdit && (
+            <div className="inline-actions">
+              <Link className="button secondary small" href={`/notices/write?id=${item.id}`}>
+                <Pencil size={14} /> 수정
+              </Link>
+              <button type="button" className="text-button danger" onClick={remove}>
+                <Trash2 size={14} /> 삭제
+              </button>
+            </div>
+          )}
+        </div>
       </header>
       {message && <p className="save-notice">{message}</p>}
       <article className="rich-content board-body" dangerouslySetInnerHTML={{ __html: item.contentHtml }} />
+      <MathContent html={item.contentHtml} />
       <NoticeComments noticeId={item.id} />
       {dialogNode}
     </div>
