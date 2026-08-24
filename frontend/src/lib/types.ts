@@ -248,12 +248,22 @@ export interface NotificationItem {
   createdAt: string;
 }
 
+/**
+ * 바로가기 링크를 누구까지 볼 수 있는지.
+ *
+ * `PUBLIC` 은 비로그인 방문자까지, `MEMBER` 는 승인된 회원과 보기 전용
+ * 회원(멤버), `STAFF` 는 링크를 관리하는 운영진입니다. 서버가 볼 수 없는
+ * 링크는 목록에서 아예 빼고 보내므로, 화면에서는 표를 다는 데만 씁니다.
+ */
+export type LinkVisibility = "PUBLIC" | "MEMBER" | "STAFF";
+
 export interface RelatedLink {
   id: string;
   title: string;
   description?: string;
   url: string;
   icon?: string;
+  visibility?: LinkVisibility;
 }
 
 export type NoticeCategory = "공지" | "질문" | "정보" | "일반";

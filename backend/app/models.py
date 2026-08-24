@@ -234,6 +234,22 @@ class RoadmapMember(Base, Timestamped):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
 
 
+class LinkVisibility(str, enum.Enum):
+    """바로가기 링크를 누구까지 볼 수 있는지.
+
+    `is_published` 와는 다른 축이다. `is_published` 는 '내보냈는가'(임시 저장이면
+    운영진 관리 화면에만 남는다)이고, 이 값은 '내보낸 것을 누가 보는가'다. 둘을
+    한 칸으로 합치지 않은 이유는, 아직 다듬는 중인 링크를 감춰 두는 일과 다
+    만든 링크를 부원에게만 여는 일이 서로 독립이기 때문이다.
+    """
+
+    PUBLIC = "PUBLIC"
+    # 승인된 회원과 보기 전용 회원(멤버). 자료실의 회원 전용 자료와 같은 기준이다.
+    MEMBER = "MEMBER"
+    # `links:manage` 권한자와 소유자. 운영진끼리 쓰는 관리 도구 주소를 둔다.
+    STAFF = "STAFF"
+
+
 class RelatedLink(Base, Timestamped):
     __tablename__ = "related_links"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -242,6 +258,9 @@ class RelatedLink(Base, Timestamped):
     url: Mapped[str] = mapped_column(String(1000))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_published: Mapped[bool] = mapped_column(Boolean, default=True)
+    visibility: Mapped[LinkVisibility] = mapped_column(
+        Enum(LinkVisibility), default=LinkVisibility.PUBLIC, server_default=LinkVisibility.PUBLIC.value
+    )
 
 
 class Notice(Base, Timestamped):

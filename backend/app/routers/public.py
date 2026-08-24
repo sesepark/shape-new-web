@@ -15,6 +15,7 @@ from app.models import (
     EquipmentStatus,
     EquipmentUnit,
     License,
+    LinkVisibility,
     NewsPost,
     RelatedLink,
     ReservationSlot,
@@ -32,7 +33,7 @@ from app.schemas import (
     NewsRead,
     RoadmapRead,
 )
-from app.security import READING_STATUSES
+from app.security import READING_STATUSES, has_permission, optional_user
 
 router = APIRouter(tags=["public"])
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -157,9 +158,31 @@ LINKS_PAGE = 100
 
 
 @router.get("/links", response_model=list[LinkRead])
-async def list_links(db: AsyncSession = Depends(get_db)):
+async def list_links(viewer: User | None = Depends(optional_user), db: AsyncSession = Depends(get_db)):
+    """바로가기 링크. 보는 사람이 볼 수 있는 범위까지만 돌려줍니다.
+
+    범위 밖의 링크는 **목록에 아예 넣지 않습니다.** 제목만 보여 주고 잠갔다고
+    쓰는 방법도 있지만, 운영진 전용으로 둔 링크는 제목 자체가 알릴 것이 아닐 수
+    있습니다(예: 채점 시트, 지원자 명단).
+
+    로그인한 사람의 요청은 미들웨어가 공유 캐시를 건너뛰고 `private, no-store`
+    로 답하므로(app/middleware.py), 부원용 링크가 캐시에 남아 다음 방문자에게
+    나갈 일은 없습니다. 캐시에 담기는 것은 쿠키 없는 요청, 곧 전체 공개 목록뿐
+    입니다.
+    """
+    allowed = {LinkVisibility.PUBLIC}
+    if viewer and viewer.status in READING_STATUSES:
+        allowed.add(LinkVisibility.MEMBER)
+        # 운영진 전용은 링크를 관리하는 사람에게만 엽니다. 다른 분야의 운영진
+        # (장비·소식)까지 열지 않는 이유는, 이 칸을 쓰는 목적이 '링크를 다루는
+        # 사람끼리 쓰는 주소' 이기 때문입니다.
+        if await has_permission(db, viewer, "links:manage"):
+            allowed.add(LinkVisibility.STAFF)
     return (await db.scalars(
-        select(RelatedLink).where(RelatedLink.is_published.is_(True)).order_by(RelatedLink.sort_order, RelatedLink.title).limit(LINKS_PAGE)
+        select(RelatedLink)
+        .where(RelatedLink.is_published.is_(True), RelatedLink.visibility.in_(allowed))
+        .order_by(RelatedLink.sort_order, RelatedLink.title)
+        .limit(LINKS_PAGE)
     )).all()
 
 

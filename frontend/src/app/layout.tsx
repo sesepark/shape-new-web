@@ -25,10 +25,18 @@ export const metadata: Metadata = {
     "로보틱스",
     "학생 동아리",
   ],
-  icons: {
-    icon: [{ url: "/icon-192.png", type: "image/png" }],
-    apple: "/icon-192.png",
-  },
+  /**
+   * 파비콘은 여기서 지정하지 않습니다.
+   *
+   * 예전에는 `icons` 로 `/icon-192.png` 만 가리켰는데, 브라우저·검색엔진·슬랙
+   * 미리보기 중 상당수는 그 태그를 보기 전에 `/favicon.ico` 부터 찾습니다.
+   * 그 자리에 아무것도 없으면 Vercel 이 자기 기본 아이콘을 대신 내주고,
+   * 그래서 탭에 SHAPE 심볼 대신 Vercel 삼각형이 떴습니다.
+   *
+   * 그래서 Next 의 파일 규칙(`app/favicon.ico`, `app/icon.png`,
+   * `app/apple-icon.png`)으로 옮겼습니다. 파일 규칙은 이 `metadata` 객체보다
+   * 우선하므로 둘을 함께 두면 한쪽이 조용히 무시됩니다.
+   */
   appleWebApp: { capable: true, title: "SHAPE", statusBarStyle: "default" },
   openGraph: {
     type: "website",

@@ -65,6 +65,37 @@ async def test_related_link_can_be_created_and_published(client, session):
     assert [item["title"] for item in links.json()] == ["SHAPE Drive"]
 
 
+async def test_related_link_visibility_narrows_the_public_list(client, session):
+    """공개 범위 밖의 링크는 목록에 아예 들어오지 않는다."""
+    editor = await make_user(session, "links@example.com", permissions=["links:manage"])
+    http = login(client, editor)
+    for title, scope in (("공개 링크", "PUBLIC"), ("부원 링크", "MEMBER"), ("운영진 링크", "STAFF")):
+        created = await http.post("/api/v1/admin/links", json={
+            "title": title, "url": f"https://example.com/{scope.lower()}", "isPublished": True, "visibility": scope,
+        })
+        assert created.status_code == 201, created.text
+
+    # 링크를 관리하는 운영진은 셋 다 본다.
+    assert {item["title"] for item in (await http.get("/api/v1/links")).json()} == {"공개 링크", "부원 링크", "운영진 링크"}
+
+    # 보기 전용 회원(멤버)도 부원 전용까지는 읽는다. 운영진 전용은 아니다.
+    viewer = await make_user(session, "viewer@example.com", status=UserStatus.VIEWER)
+    assert {item["title"] for item in (await login(client, viewer).get("/api/v1/links")).json()} == {"공개 링크", "부원 링크"}
+
+    # 로그인하지 않은 방문자에게는 전체 공개만 나간다.
+    visitor = (await logout(client).get("/api/v1/links")).json()
+    assert [item["title"] for item in visitor] == ["공개 링크"]
+    assert visitor[0]["visibility"] == "PUBLIC"
+
+
+async def test_related_link_defaults_to_public(client, session):
+    """공개 범위를 보내지 않는 예전 화면이 저장해도 지금까지처럼 전체 공개다."""
+    editor = await make_user(session, "links@example.com", permissions=["links:manage"])
+    http = login(client, editor)
+    await http.post("/api/v1/admin/links", json={"title": "Drive", "url": "https://drive.example.com", "isPublished": True})
+    assert (await logout(client).get("/api/v1/links")).json()[0]["visibility"] == "PUBLIC"
+
+
 async def test_news_keeps_its_external_url(client, session):
     editor = await make_user(session, "news@example.com", permissions=["news:manage"])
     http = login(client, editor)

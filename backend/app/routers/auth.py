@@ -324,13 +324,49 @@ async def update_me(payload: ProfileWrite, user: User = Depends(current_user), d
     user.name = payload.name
     user.image_url = payload.image_url or None
     user.introduction = (payload.introduction or "").strip() or None
+    await sync_card_photo(db, user)
     await db.commit(); await db.refresh(user)
     # 얼굴 사진을 바꿨으면 옛 사진은 지운다. 남겨 두면 본인이 내린 사진이
     # 공개 주소로 계속 열린다. 구글 계정 사진처럼 우리가 올린 것이 아닌
     # 주소는 `destroy` 가 알아서 그냥 넘어간다.
     if before_image and before_image != user.image_url:
         await cloudinary.destroy(before_image)
+    if before_image != user.image_url:
+        refresh("pages")
     return await session_for(db, user)
+
+
+async def sync_card_photo(db: AsyncSession, user: User) -> None:
+    """본인이 바꾼 사진을 연결된 부원 카드에도 넣습니다.
+
+    부원 페이지는 **카드에 저장된 사진을 먼저** 씁니다(components/member-directory.tsx).
+    계정 사진을 먼저 쓰던 때에는, 카드에 올려 둔 증명사진이 계정을 연결하는 순간
+    구글 프로필 사진으로 바뀌어 버렸습니다.
+
+    그런데 카드를 먼저 보게 두기만 하면, 이번에는 마이페이지에서 사진을 바꿔도
+    부원 페이지가 꿈쩍하지 않습니다. 본인이 할 수 있어야 할 일이 운영진에게
+    넘어가는 셈입니다. 그래서 사진을 바꾸는 그 자리에서 카드까지 함께 고칩니다.
+    이러면 '카드가 우선' 과 '내 사진은 내가 바꾼다' 가 둘 다 성립합니다.
+
+    이름은 건드리지 않습니다. 카드의 이름은 운영진이 명단을 보고 적어 둔 값이고,
+    후보 카드를 이름으로 찾는 데에도 쓰입니다. 사진처럼 본인 것만의 문제가
+    아닙니다.
+
+    커밋은 부르는 쪽에서 합니다. 사진 변경과 한 묶음으로 저장되어야 계정과
+    카드가 어긋난 채로 남지 않습니다.
+    """
+    page = await db.scalar(select(ContentPage).where(ContentPage.slug == "members"))
+    if not page:
+        return
+    cards = [card for card in (page.content_json or {}).get("members", []) if isinstance(card, dict)]
+    if not any(str(card.get("userId") or "") == str(user.id) for card in cards):
+        return
+    updated = [
+        {**card, "imageUrl": user.image_url} if str(card.get("userId") or "") == str(user.id) else card
+        for card in cards
+    ]
+    # JSON 칸은 제자리에서 고치면 저장되지 않습니다. 새 목록으로 갈아 끼웁니다.
+    page.content_json = {**(page.content_json or {}), "members": updated}
 
 
 @router.post("/logout", status_code=204)

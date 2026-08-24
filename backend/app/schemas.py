@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from app.models import EquipmentStatus, ReservationStatus, UserStatus
+from app.models import EquipmentStatus, LinkVisibility, ReservationStatus, UserStatus
 from app.services.content import deliver_smaller
 
 PERMISSIONS = ("content", "news", "equipment", "reservations", "roadmap", "links", "notices")
@@ -332,6 +332,10 @@ class LinkRead(ORMModel):
     description: str | None = None
     url: str
     sort_order: int
+    # 화면에서 '부원 전용'·'운영진 전용' 표를 달아 주려면 어떤 범위로 열린
+    # 링크인지 읽는 쪽도 알아야 합니다. 볼 수 없는 링크는 애초에 목록에
+    # 들어오지 않으므로 이 값이 새어 나가 문제가 되지는 않습니다.
+    visibility: LinkVisibility = LinkVisibility.PUBLIC
 
 
 class AdminLinkRead(LinkRead):
@@ -344,6 +348,7 @@ class LinkWrite(InputModel):
     url: HttpUrl
     sort_order: int = Field(default=0, ge=0)
     is_published: bool = True
+    visibility: LinkVisibility = LinkVisibility.PUBLIC
 
 
 class NoticeRead(ORMModel):

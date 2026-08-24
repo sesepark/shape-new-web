@@ -2,7 +2,9 @@
 
 import { ArrowDown, ArrowUp, ExternalLink, Eye, GripVertical, PencilLine, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLinkBlock } from "@/components/external-link-block";
 import { ImageUploadField } from "@/components/image-upload-field";
 import { ScrollingName } from "@/components/scrolling-name";
 import { MemberDirectory } from "@/components/member-directory";
@@ -15,10 +17,11 @@ import {
 import { HomeHero, HomeIntro, HomeNext, HomeNumbers, HomePillars } from "@/components/home-sections";
 import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
-import { useAsk } from "@/components/ask-dialog";
+import { ASK_ALT, useAsk } from "@/components/ask-dialog";
+import { date as longDate } from "@/lib/format";
 import { media, optimizable } from "@/lib/media";
 import type { ShapeMember } from "@/lib/members";
-import type { AdminEquipmentItem, AdminReservationItem, AdminRoadmapItem, AdminUserItem, DirectoryUser, LicenseItem, MemberStatus } from "@/lib/types";
+import type { AdminEquipmentItem, AdminReservationItem, AdminRoadmapItem, AdminUserItem, DirectoryUser, LicenseItem, LinkPreview, MemberStatus } from "@/lib/types";
 
 const groups = [
   // 홈은 한 화면씩 스크롤로 넘어가므로, 그 장을 그대로 탭으로 나눕니다.
@@ -105,30 +108,60 @@ async function adminSend(path: string, method: string, body?: unknown): Promise<
 
 
 /**
- * 저장하지 않은 변경을 탭 밖으로 들고 나가지 못하게 막습니다.
+ * 저장하지 않은 변경을 화면 밖으로 들고 나가지 못하게 막습니다.
  *
- * 조직도·부원처럼 여러 칸을 고친 뒤 마지막에 한 번 저장하는 화면은, 저장을
- * 누르지 않고 다른 탭으로 가면 고친 것이 조용히 사라집니다(탭을 바꾸면 화면이
- * 통째로 다시 만들어집니다). 실제로 조직도에서 부원을 연결해 놓고 저장을 누르지
- * 않아 연결이 없어진 일이 있었습니다. 화면에는 연결된 것처럼 보였으니 "연결했는데
- * 끊긴다" 로 보이는 것이 당연합니다.
+ * 관리자 화면은 거의 모두 "고치고 마지막에 저장을 누른다" 는 구조입니다. 저장을
+ * 누르지 않고 다른 탭이나 다른 쪽으로 가면 고친 것이 조용히 사라집니다(탭을
+ * 바꾸면 화면이 통째로 다시 만들어집니다). 실제로 조직도에서 부원을 연결해 놓고
+ * 저장을 누르지 않아 연결이 없어진 일이 있었습니다. 화면에는 연결된 것처럼
+ * 보였으니 "연결했는데 끊긴다" 로 보이는 것이 당연합니다.
  *
- * 그래서 고친 것이 있으면 탭을 떠날 때와 창을 닫을 때 한 번 물어봅니다.
+ * 그래서 고친 것이 있으면 세 자리에서 한 번 물어봅니다.
+ *
+ * 1. 탭을 옮길 때(`AdminConsole.goTo`)
+ * 2. 사이트 안의 다른 쪽으로 갈 때(`AdminConsole` 의 링크 가로채기)
+ * 3. 새로 고침·창 닫기·주소 직접 입력(`beforeunload`)
+ *
+ * `save` 를 준 화면은 물음에 '저장하고 이동' 이 함께 뜹니다. 새 항목을 만드는
+ * 폼은 주지 않습니다. 반쯤 쓰다 만 것이 실제로 등록되면 지우러 가야 합니다.
+ *
+ * 되돌아가기(브라우저 뒤로 가기)는 잡지 않습니다. App Router 에서 그것을
+ * 가로채려면 히스토리에 가짜 칸을 하나 밀어 넣어야 하는데, 그 칸으로 돌아오는
+ * 순간 화면이 다시 만들어지면서 오히려 고치던 내용이 날아갈 수 있습니다.
  */
-const unsaved = { dirty: false, label: "" };
+const unsaved: {
+  dirty: boolean;
+  label: string;
+  /** 저장까지 해 주고 나갈 수 있는 화면이면 참. 저장에 성공했는지 돌려줍니다. */
+  save: (() => Promise<boolean>) | null;
+} = { dirty: false, label: "", save: null };
 
-function useUnsaved(dirty: boolean, label: string) {
+function useUnsaved(dirty: boolean, label: string, save?: () => Promise<boolean>) {
+  const canSave = Boolean(save);
+  // 저장 함수는 그릴 때마다 새로 만들어집니다. 그대로 의존성에 넣으면 효과가
+  // 매번 다시 도므로, 최신 것만 ref 로 붙들고 등록은 필요할 때만 합니다.
+  // ref 는 그리는 도중이 아니라 그린 뒤에 채웁니다. 아래 등록 효과보다 먼저
+  // 선언되어 있으므로 언제나 먼저 돕니다.
+  const latest = useRef(save);
+  useEffect(() => { latest.current = save; });
   useEffect(() => {
     unsaved.dirty = dirty;
     unsaved.label = label;
+    unsaved.save = canSave ? async () => Boolean(await latest.current?.()) : null;
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => {
       window.removeEventListener("beforeunload", warn);
       unsaved.dirty = false;
+      unsaved.save = null;
     };
-  }, [dirty, label]);
+  }, [dirty, label, canSave]);
+}
+
+/** 지금 화면의 값이 기준값과 다른지. 저장하지 않은 변경을 가려내는 데 씁니다. */
+function changed(current: unknown, baseline: unknown) {
+  return JSON.stringify(current) !== JSON.stringify(baseline);
 }
 
 /** 아직 저장하지 않았다는 표시. 저장 단추 옆에 붙습니다. */
@@ -209,6 +242,44 @@ function PublishChoice({ value, onChange }: { value: boolean; onChange: (next: b
   );
 }
 
+/**
+ * 바로가기 링크를 누구까지 볼지.
+ *
+ * 위의 '공개 여부' 와는 다른 축입니다. 그쪽은 **내보냈는가**(임시 저장이면
+ * 이 관리 화면에만 남습니다)이고, 이쪽은 **내보낸 것을 누가 보는가** 입니다.
+ * 아직 다듬는 중이라 감춰 두는 일과, 다 만든 링크를 부원에게만 여는 일은
+ * 서로 다른 판단이라 칸을 합치지 않았습니다.
+ *
+ * 라디오의 `name` 이 '공개 여부' 와 겹치면 안 됩니다. 같은 폼 안의 두 무리가
+ * 한 무리로 묶여 서로를 꺼 버립니다.
+ */
+type LinkScope = "PUBLIC" | "MEMBER" | "STAFF";
+const linkScopes: { value: LinkScope; title: string; hint: string }[] = [
+  { value: "PUBLIC", title: "전체 공개", hint: "로그인하지 않은 방문자도 볼 수 있습니다." },
+  { value: "MEMBER", title: "부원에게만", hint: "승인된 회원과 보기 전용 회원(멤버)만 볼 수 있습니다." },
+  { value: "STAFF", title: "운영진에게만", hint: "관련 링크 권한이 있는 운영진만 볼 수 있습니다." },
+];
+
+function VisibilityChoice({ value, onChange }: { value: LinkScope; onChange: (next: LinkScope) => void }) {
+  return (
+    <fieldset className="publish-choice">
+      <legend>공개 범위</legend>
+      {linkScopes.map((scope) => (
+        <label className={value === scope.value ? "active" : ""} key={scope.value}>
+          <input
+            type="radio"
+            name="link-visibility"
+            checked={value === scope.value}
+            onChange={() => onChange(scope.value)}
+          />
+          <b>{scope.title}</b>
+          <small>{scope.hint}</small>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 export function AdminConsole({
   name,
   isOwner,
@@ -229,22 +300,71 @@ export function AdminConsole({
     .filter((group) => group.tabs.length);
   const [tab, setTab] = useState<Section>(visibleGroups[0]?.tabs[0] ?? "인사말");
   const { ask, dialogNode } = useAsk();
+  const router = useRouter();
+
+  /**
+   * 여기서 나가도 되는지 묻습니다. 나가도 되면 참을 돌려줍니다.
+   *
+   * 저장할 수 있는 화면이면 '저장하고 이동' 이 함께 뜨고, 그것을 고르면 여기서
+   * 저장까지 마친 뒤에 보냅니다. 저장이 실패하면 보내지 않습니다. 실패한 줄
+   * 모르고 화면을 옮기면 결국 고친 내용을 잃습니다.
+   */
+  const confirmLeave = useCallback(async (where: string) => {
+    if (!unsaved.dirty) return true;
+    const canSave = Boolean(unsaved.save);
+    const answer = await ask({
+      title: "저장하지 않은 변경이 있습니다",
+      description: canSave
+        ? `${unsaved.label}에서 고친 내용이 아직 저장되지 않았습니다. 지금 저장할까요?`
+        : `${unsaved.label}에서 쓰던 내용이 아직 저장되지 않았습니다. 지금 ${where} 고친 내용이 사라집니다.`,
+      confirmLabel: canSave ? "저장하고 이동" : "저장하지 않고 이동",
+      altLabel: canSave ? "저장하지 않고 이동" : undefined,
+      cancelLabel: "여기 머무르기",
+      tone: canSave ? "default" : "danger",
+    });
+    if (answer === null) return false;
+    if (answer !== ASK_ALT && unsaved.save) return await unsaved.save();
+    // 표시는 지우지 않습니다. 화면이 사라지면서 `useUnsaved` 의 뒷정리가
+    // 스스로 지웁니다.
+    return true;
+  }, [ask]);
+
   /** 저장하지 않은 변경이 있으면 탭을 떠나기 전에 한 번 물어봅니다. */
   async function goTo(section: Section) {
     if (section === tab) return;
-    if (unsaved.dirty) {
-      const go = await ask({
-        title: "저장하지 않은 변경이 있습니다",
-        description: `${unsaved.label} 에서 고친 내용이 아직 저장되지 않았습니다. 지금 탭을 옮기면 고친 내용이 사라집니다.`,
-        confirmLabel: "저장하지 않고 이동",
-        tone: "danger",
-      });
-      if (go === null) return;
-      // 표시는 지우지 않습니다. 탭을 옮기면 그 화면이 사라지면서
-      // `useUnsaved` 의 뒷정리가 스스로 지웁니다.
-    }
+    if (!(await confirmLeave("탭을 옮기면"))) return;
     setTab(section);
   }
+
+  /**
+   * 사이트 안의 다른 쪽으로 가는 링크를 가로챕니다.
+   *
+   * `beforeunload` 는 새로 고침·창 닫기에만 뜹니다. 머리글의 메뉴처럼 Next 가
+   * 화면만 갈아 끼우는 이동(soft navigation)에는 아무 일도 일어나지 않아서,
+   * 고치던 내용이 소리 없이 사라졌습니다.
+   *
+   * 누름을 잡는 단계(capture)에서 봐야 Next 의 `<Link>` 보다 먼저 끼어들 수
+   * 있습니다. 새 창으로 여는 링크, 다른 사이트, 같은 쪽 안의 `#` 이동, 그리고
+   * 새 탭으로 여는 누름(⌘·Ctrl·가운데 단추)은 그대로 둡니다.
+   */
+  useEffect(() => {
+    const intercept = (event: MouseEvent) => {
+      if (!unsaved.dirty || event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      const next = new URL(anchor.href, window.location.href);
+      if (next.origin !== window.location.origin) return;
+      if (next.pathname === window.location.pathname && next.search === window.location.search) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void confirmLeave("이 쪽을 떠나면").then((go) => {
+        if (go) router.push(`${next.pathname}${next.search}${next.hash}`);
+      });
+    };
+    document.addEventListener("click", intercept, true);
+    return () => document.removeEventListener("click", intercept, true);
+  }, [confirmLeave, router]);
   if (!visibleGroups.length)
     return (
       <div className="empty-state">
@@ -598,6 +718,11 @@ function AdminItems({
                 <strong>{String(row.title ?? row.name ?? "항목")}</strong>
                 <span>
                   <b className={published ? "badge live" : "badge draft"}>{published ? "공개 중" : "임시 저장"}</b>
+                  {/* 공개 범위가 좁혀진 항목(지금은 관련 링크뿐)은 목록에서도
+                      바로 보여야 합니다. 안 그러면 '공개 중' 만 보고 아무나
+                      볼 수 있다고 읽게 됩니다. */}
+                  {row.visibility === "MEMBER" ? <b className="badge scope">부원 전용</b> : null}
+                  {row.visibility === "STAFF" ? <b className="badge scope staff">운영진 전용</b> : null}
                   {row.category ? <i>{String(row.category)}</i> : null}
                   {when ? <time>{listDate(String(when))}</time> : null}
                 </span>
@@ -630,43 +755,188 @@ function listDate(value: string) {
   return Number.isNaN(parsed.getTime()) ? "" : listDateFormat.format(parsed);
 }
 
+/**
+ * 목록에 이 글이 어떻게 한 줄로 보이는지.
+ *
+ * 상세 화면만 미리 보여 주면 '한 줄 요약' 과 '대표 이미지' 를 어디에 쓰는지
+ * 알 수 없습니다. 요약은 상세 화면에 아예 나오지 않고 **목록에만** 나오는데,
+ * 예전 미리보기는 그 요약을 상세 화면 안에 그려서 실제와 어긋났습니다.
+ *
+ * 언론보도와 SHAPE 뉴스는 목록 모양이 서로 다릅니다(언론보도는 번호와 작은
+ * 썸네일이 붙은 표, 소식은 큰 사진이 앞에 오는 카드). 공개 화면과 같은 클래스를
+ * 그대로 쓰므로 css 를 두 번 손볼 일이 없습니다.
+ */
+function ListRowPreview({ press, title, summary, coverImage, publishedAt }: {
+  press: boolean;
+  title: string;
+  summary: string;
+  coverImage: string;
+  publishedAt: string;
+}) {
+  const shown = title || "제목을 입력해 주세요";
+  const line = summary || title;
+  const when = publishedAt ? longDate(`${publishedAt}T09:00:00+09:00`) : "";
+  if (press) {
+    return (
+      <div className="press-directory preview-list">
+        <ol className="press-list">
+          <li>
+            {/* 공개 화면의 목록 규칙(.press-list a)이 `a` 를 고르므로 여기서도
+                `a` 를 씁니다. href 를 주지 않았으니 링크로 동작하지는 않습니다. */}
+            <a>
+              <span className="press-number">1</span>
+              <span className="press-thumb" aria-hidden="true">
+                {coverImage ? (
+                  <Image src={media(coverImage, 400, "eco")} alt="" width={400} height={250} unoptimized={!optimizable(coverImage)} />
+                ) : (
+                  <span className="press-thumb-blank">PRESS</span>
+                )}
+              </span>
+              <span className="press-copy">
+                <strong className="press-title">{shown}</strong>
+                {line && <span className="press-summary">{line}</span>}
+              </span>
+              <time>{when}</time>
+            </a>
+          </li>
+        </ol>
+      </div>
+    );
+  }
+  return (
+    <div className="news-featured-list preview-list">
+      <article className="news-featured-card">
+        {coverImage ? (
+          <Image src={media(coverImage, 1200, "high")} alt="" width={1200} height={760} unoptimized={!optimizable(coverImage)} />
+        ) : (
+          <div className="news-featured-placeholder" aria-hidden="true">SHAPE NEWS</div>
+        )}
+        <div className="news-featured-copy">
+          <span className="meta">활동 · {when}</span>
+          <h3>{shown}</h3>
+          <p>{line}</p>
+          <span className="card-action">자세히 보기</span>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+/**
+ * 저장하면 공개 화면에 어떻게 보이는지.
+ *
+ * 소식·언론보도는 공개 화면(app/news/[id]/page.tsx)이 쓰는 조각과 클래스를
+ * 그대로 씁니다. 예전에는 이 자리에서 흉내만 내다 보니 실제와 세 군데가
+ * 어긋났습니다.
+ *
+ * - 머리줄이 늘 "SHAPE CONTENT" 였습니다. 실제로는 `분류 · 발행일` 입니다.
+ * - 대표 이미지가 아예 나오지 않았습니다. 실제로는 본문 앞의 가장 큰 요소입니다.
+ * - 외부 링크 자리에 "저장하면 미리보기가 만들어집니다" 라는 안내만 있었습니다.
+ *   실제로는 유튜브·인스타그램이면 화면 안에서 재생되고, 기사면 썸네일이 담긴
+ *   카드가 나옵니다. 그 미리보기는 주소를 붙여 넣는 순간 이미 읽어 두므로
+ *   (`/admin/link-preview`), 저장하기 전에도 진짜 모습을 보여 줄 수 있습니다.
+ */
 function ContentPreview({
   title,
   body,
   summary,
   externalUrl,
   showLinkPreview,
+  news = false,
+  press = false,
+  category,
+  publishedAt = "",
+  coverImage = "",
+  preview,
 }: {
   title: string;
   body: string;
   summary?: string;
   externalUrl?: string;
   showLinkPreview?: boolean;
+  /** 소식·언론보도면 공개 화면과 같은 머리줄·대표 이미지·링크 블록을 그립니다. */
+  news?: boolean;
+  press?: boolean;
+  category?: string;
+  publishedAt?: string;
+  coverImage?: string;
+  preview?: LinkPreview;
 }) {
+  const when = publishedAt ? longDate(`${publishedAt}T09:00:00+09:00`) : "";
   return (
     <section className="admin-live-preview">
       <div className="preview-label">
         <Eye size={15} /> 공개 화면 미리보기
       </div>
+      {news && (
+        <>
+          <p className="preview-caption">{press ? "언론보도 목록" : "소식 목록"}에서 이렇게 보입니다</p>
+          <ListRowPreview press={press} title={title} summary={summary ?? ""} coverImage={coverImage} publishedAt={publishedAt} />
+          <p className="preview-caption">눌러서 들어가면 이렇게 보입니다</p>
+        </>
+      )}
       <article className="preview-sheet">
-        <p className="article-meta">SHAPE CONTENT</p>
+        <p className="article-meta">{news ? `${category ?? "활동"}${when ? ` · ${when}` : ""}` : "SHAPE CONTENT"}</p>
         <h3>{title || "제목을 입력해 주세요"}</h3>
-        {summary && <p className="preview-summary">{summary}</p>}
+        {/* 한 줄 요약은 상세 화면에 나오지 않습니다. 목록 미리보기에만 둡니다. */}
+        {!news && summary && <p className="preview-summary">{summary}</p>}
+        {news && coverImage && (
+          <Image
+            className="news-detail-cover"
+            src={media(coverImage, 1400, "high")}
+            alt=""
+            width={1400}
+            height={800}
+            unoptimized={!optimizable(coverImage)}
+          />
+        )}
         {body ? (
           <div className="rich-content" dangerouslySetInnerHTML={{ __html: body }} />
         ) : (
           <p>본문을 작성하면 이곳에서 실제 공개 화면과 비슷하게 확인할 수 있습니다.</p>
         )}
         {externalUrl && showLinkPreview && (
-          <a className="external-preview" href={externalUrl} target="_blank" rel="noreferrer">
-            <small>EXTERNAL LINK</small>
-            <strong>{externalUrl}</strong>
-            <span>저장하면 이 링크의 영상 또는 기사 미리보기가 만들어집니다</span>
-          </a>
+          news ? (
+            <ExternalLinkBlock url={externalUrl} preview={preview} />
+          ) : (
+            <a className="external-preview" href={externalUrl} target="_blank" rel="noreferrer">
+              <small>EXTERNAL LINK</small>
+              <strong>{externalUrl}</strong>
+              <span>저장하면 이 링크의 영상 또는 기사 미리보기가 만들어집니다</span>
+            </a>
+          )
         )}
       </article>
     </section>
   );
+}
+
+/**
+ * 글 편집 폼이 들고 있는, 사람이 고치는 값 전부.
+ *
+ * 저장하지 않은 변경을 가려낼 때 이 꾸러미를 통째로 견줍니다. 읽어 온 링크
+ * 미리보기처럼 사람이 고치지 않는 값은 여기 넣지 않습니다. 넣으면 주소를
+ * 붙여 넣은 순간 원문을 읽어 오는 것만으로 '고쳤다' 가 되어 버립니다.
+ */
+type ContentDraft = {
+  title: string;
+  summary: string;
+  body: string;
+  externalUrl: string;
+  coverImage: string;
+  noticeCategory: string;
+  pinned: boolean;
+  linkPreview: boolean;
+  publishedAt: string;
+  published: boolean;
+};
+
+function blankDraft(title: string, body: string): ContentDraft {
+  return {
+    title, body, summary: "", externalUrl: "", coverImage: "",
+    noticeCategory: "공지", pinned: false, linkPreview: true,
+    publishedAt: today(), published: true,
+  };
 }
 
 function ContentForm({
@@ -695,6 +965,15 @@ function ContentForm({
   const [noticeCategory, setNoticeCategory] = useState("공지");
   const [pinned, setPinned] = useState(false);
   const [linkPreview, setLinkPreview] = useState(true);
+  /**
+   * 마지막으로 저장(또는 불러온) 상태. 지금 값과 견주어 '저장하지 않은 변경'
+   * 을 가려냅니다. 값이 바뀔 때마다 깃발을 세우는 대신 기준값과 견주는 이유는,
+   * 고쳤다가 되돌려 놓은 경우까지 '고쳤다' 로 잡히지 않게 하기 위해서입니다.
+   */
+  const [baseline, setBaseline] = useState<ContentDraft>(() => blankDraft(method === "PUT" ? tab : "", ""));
+  // 주소를 붙여 넣는 순간 읽어 둔 원문 미리보기. 저장하기 전에도 공개 화면과
+  // 똑같은 모습(영상 재생기 또는 기사 카드)을 보여 주는 데 씁니다.
+  const [preview, setPreview] = useState<LinkPreview | undefined>(undefined);
   // 소식이 실제로 있었던 날. 기본은 오늘이고, 언론보도는 주소를 붙여 넣으면
   // 원문의 발행일로 바뀝니다.
   const [publishedAt, setPublishedAt] = useState(today);
@@ -708,28 +987,50 @@ function ContentForm({
   // show each other's articles and editing one silently moves it.
   const rows = news ? allRows.filter((row) => String(row.category ?? "활동") === newsCategory) : allRows;
 
+  const draft: ContentDraft = { title, summary, body, externalUrl, coverImage, noticeCategory, pinned, linkPreview, publishedAt, published };
+  const dirty = changed(draft, baseline);
+  /**
+   * 저장하고 나갈 수 있는 화면인지.
+   *
+   * 이미 있는 글을 고치는 중이면(수정 또는 인사말처럼 한 쪽을 통째로 고치는
+   * 탭) 저장까지 해 주고 보냅니다. **새 글을 쓰는 중이면 주지 않습니다.**
+   * 쓰다 만 글이 실제로 등록되면 지우러 가야 하고, 공개로 두었다면 그사이
+   * 알림까지 나갑니다.
+   */
+  const savable = method === "PUT" || Boolean(selectedId);
+  useUnsaved(dirty, tab, savable ? submit : undefined);
+
+  /** 여러 칸을 한 번에 갈아 끼우고, 그 값을 곧 기준으로 삼습니다. */
+  function apply(next: ContentDraft) {
+    setTitle(next.title);
+    setSummary(next.summary);
+    setBody(next.body);
+    setExternalUrl(next.externalUrl);
+    setCoverImage(next.coverImage);
+    setNoticeCategory(next.noticeCategory);
+    setPinned(next.pinned);
+    setLinkPreview(next.linkPreview);
+    setPublishedAt(next.publishedAt);
+    setPublished(next.published);
+    setBaseline(next);
+  }
+
   useEffect(() => {
     if (method !== "PUT") return;
     const slug = endpoint.split("/").pop();
     void adminFetch(`/pages/${slug}`).then(async (response) => {
       if (!response.ok) return;
       const page = (await response.json()) as { title?: string; contentHtml?: string };
-      setTitle(page.title ?? tab);
-      setBody(page.contentHtml ?? "");
+      apply(blankDraft(page.title ?? tab, page.contentHtml ?? ""));
     });
+    // 탭을 바꿀 때만 다시 읽습니다. `apply` 는 그릴 때마다 새로 만들어지지만
+    // 하는 일이 같으므로 여기서 다시 도는 것은 의미가 없습니다.
   }, [endpoint, method, tab]);
 
   function reset() {
     setSelectedId("");
-    if (method !== "PUT") setTitle("");
-    setSummary("");
-    setBody(method === "PUT" ? body : "");
-    setExternalUrl("");
-    setCoverImage("");
-    setPinned(false);
-    setLinkPreview(true);
-    setPublishedAt(today());
-    setPublished(true);
+    setPreview(undefined);
+    apply(blankDraft(method === "PUT" ? title : "", method === "PUT" ? body : ""));
   }
 
   /**
@@ -740,28 +1041,38 @@ function ContentForm({
    * 날짜를 못 찾으면 오늘 날짜를 그대로 둡니다.
    */
   async function readLink(url: string) {
-    if (!news || !url.trim()) return;
+    if (!news) return;
+    if (!url.trim()) {
+      // 주소를 지웠으면 읽어 둔 미리보기도 함께 버립니다. 남겨 두면 링크 없는
+      // 글의 미리보기 자리에 옛 기사 카드가 그대로 붙어 있습니다.
+      setPreview(undefined);
+      return;
+    }
     setLinkChecking(true);
     const response = await adminSend("/admin/link-preview", "POST", { url: url.trim() });
     setLinkChecking(false);
     if (!response.ok) {
+      setPreview(undefined);
       say("링크를 읽지 못했습니다. 발행일은 직접 입력해 주세요.", false);
       return;
     }
-    const preview = (await response.json()) as { publishedAt?: string; title?: string; siteName?: string };
-    const found = dateOnly(preview.publishedAt);
+    const read = (await response.json()) as LinkPreview & { publishedAt?: string };
+    // 발행일을 못 찾더라도 미리보기 자체는 쓸 수 있습니다. 먼저 챙겨 둡니다.
+    setPreview(read);
+    const found = dateOnly(read.publishedAt);
     if (!found) {
       say("원문에서 발행일을 찾지 못했습니다. 날짜를 확인해 주세요.", false);
       return;
     }
     setPublishedAt(found);
-    say(`${preview.siteName || "원문"} 발행일 ${found} 을(를) 넣었습니다.`);
+    say(`${read.siteName || "원문"} 발행일 ${found} 을(를) 넣었습니다.`);
   }
 
-  async function submit() {
+  /** 저장합니다. 저장에 성공했는지 돌려줍니다(나가기 전 저장에 쓰입니다). */
+  async function submit(): Promise<boolean> {
     if (!title.trim()) {
       say("제목을 입력해 주세요.", false);
-      return;
+      return false;
     }
     const payload = news
       ? {
@@ -797,26 +1108,38 @@ function ContentForm({
             : "저장하지 못했습니다. 입력한 내용을 확인해 주세요.",
         false,
       );
-      return;
+      return false;
     }
     say(published ? `${tab}을(를) 저장하고 공개했습니다.` : `${tab}을(를) 임시 저장했습니다.`);
     reset();
     await reload();
+    return true;
   }
 
   function edit(row: AdminRow) {
     setSelectedId(String(row.id));
-    setTitle(String(row.title ?? ""));
-    setSummary(String(row.summary ?? ""));
-    setBody(String(row.contentHtml ?? ""));
-    setExternalUrl(String(row.externalUrl ?? ""));
-    setCoverImage(String(row.coverImage ?? ""));
-    setNoticeCategory(String(row.category ?? "공지"));
-    setPinned(Boolean(row.isPinned));
-    setPublishedAt(dateOnly(row.publishedAt) || today());
-    setPublished(row.isPublished !== false);
     const json = row.contentJson;
-    if (json && typeof json === "object") setLinkPreview((json as { linkPreview?: boolean }).linkPreview ?? true);
+    const stored = json && typeof json === "object" ? (json as { linkPreview?: boolean }) : {};
+    apply({
+      title: String(row.title ?? ""),
+      summary: String(row.summary ?? ""),
+      body: String(row.contentHtml ?? ""),
+      externalUrl: String(row.externalUrl ?? ""),
+      coverImage: String(row.coverImage ?? ""),
+      noticeCategory: String(row.category ?? "공지"),
+      pinned: Boolean(row.isPinned),
+      linkPreview: stored.linkPreview ?? true,
+      publishedAt: dateOnly(row.publishedAt) || today(),
+      published: row.isPublished !== false,
+    });
+    if (json && typeof json === "object") {
+      // 저장할 때 백엔드가 읽어 둔 미리보기입니다. 공개 화면이 쓰는 바로 그 값이라
+      // 수정 화면에서도 실제와 똑같은 모습이 나옵니다. 미리보기는 사람이 고치는
+      // 값이 아니므로 기준값(baseline)에는 넣지 않습니다.
+      setPreview((json as { preview?: LinkPreview }).preview);
+    } else {
+      setPreview(undefined);
+    }
   }
 
   async function remove(row: AdminRow) {
@@ -835,7 +1158,10 @@ function ContentForm({
     }
     const response = await adminSend(`/admin/news/${selectedId}/preview`, "POST");
     say(response.ok ? "링크 미리보기를 다시 가져왔습니다." : "링크에서 미리보기를 가져오지 못했습니다.", response.ok);
-    if (response.ok) await reload();
+    if (response.ok) {
+      setPreview((await response.json()) as LinkPreview);
+      await reload();
+    }
   }
 
   return (
@@ -932,9 +1258,10 @@ function ContentForm({
       </div>
       <PublishChoice value={published} onChange={setPublished} />
       <div className="admin-actions">
-        <button type="button" className="button" onClick={submit}>
+        <button type="button" className="button" onClick={() => void submit()}>
           {selectedId ? "수정 내용 저장" : published ? "저장하고 공개" : "임시 저장"}
         </button>
+        <UnsavedMark dirty={dirty} />
         {selectedId && (
           <button type="button" className="button secondary" onClick={reset}>
             취소
@@ -942,7 +1269,19 @@ function ContentForm({
         )}
         {saveNotice}
       </div>
-      <ContentPreview title={title} body={body} externalUrl={externalUrl} showLinkPreview={linkPreview} summary={summary} />
+      <ContentPreview
+        title={title}
+        body={body}
+        externalUrl={externalUrl}
+        showLinkPreview={linkPreview}
+        summary={summary}
+        news={news}
+        press={press}
+        category={newsCategory}
+        publishedAt={publishedAt}
+        coverImage={coverImage}
+        preview={preview}
+      />
       <AdminItems rows={rows} onEdit={edit} onDelete={remove} selectedId={selectedId} />
       {dialogNode}
     </div>
@@ -985,21 +1324,29 @@ function HomeText({ label, value, hint, onChange, rows = 0 }: {
 
 function HomeForm({ section }: { section: "히어로" | "인트로" | "단계" | "현황" | "일정" }) {
   const [content, setContent] = useState<HomeContent | null>(null);
+  // 마지막으로 저장(또는 불러온) 내용. 지금 값과 견주어 저장하지 않은 변경을
+  // 가려냅니다. 홈은 다섯 탭이 한 덩어리를 나눠 고치므로, 어느 탭에서 고쳤든
+  // 저장하지 않고 나가면 그 덩어리째 사라집니다.
+  const [baseline, setBaseline] = useState<HomeContent | null>(null);
   const [saving, setSaving] = useState(false);
   const { say, node } = useNotice();
+  const dirty = Boolean(content) && changed(content, baseline);
+  useUnsaved(dirty, `홈 ${section}`, submit);
 
   useEffect(() => {
     void fetch(`${apiUrl}/pages/home`, PUBLIC_READ)
       .then(async (response) => {
         // 아직 한 번도 저장하지 않았으면 페이지가 없습니다. 그때는 기본값으로 엽니다.
         const page = response.ok ? await response.json() : null;
-        setContent(mergeHome(page?.contentJson));
+        const merged = mergeHome(page?.contentJson);
+        setContent(merged);
+        setBaseline(merged);
       })
-      .catch(() => setContent(mergeHome(null)));
+      .catch(() => { setContent(mergeHome(null)); setBaseline(mergeHome(null)); });
   }, []);
 
-  async function submit() {
-    if (!content) return;
+  async function submit(): Promise<boolean> {
+    if (!content) return false;
     setSaving(true);
     const response = await adminSend("/admin/pages/home", "PUT", {
       title: "홈",
@@ -1016,6 +1363,8 @@ function HomeForm({ section }: { section: "히어로" | "인트로" | "단계" |
           : "저장하지 못했습니다.",
       response.ok,
     );
+    if (response.ok) setBaseline(content);
+    return response.ok;
   }
 
   if (!content) return <p className="form-note">홈 화면 내용을 불러오는 중입니다.</p>;
@@ -1204,9 +1553,12 @@ function HomeForm({ section }: { section: "히어로" | "인트로" | "단계" |
         </>
       )}
 
-      <button className="button" type="button" disabled={saving} onClick={() => void submit()}>
-        {saving ? "저장 중…" : "저장"}
-      </button>
+      <div className="admin-actions">
+        <button className="button" type="button" disabled={saving} onClick={() => void submit()}>
+          {saving ? "저장 중…" : "저장"}
+        </button>
+        <UnsavedMark dirty={dirty} />
+      </div>
       {node}
       <section className="admin-live-preview">
         <div className="preview-label">
@@ -1245,19 +1597,32 @@ function ClubIntroductionForm() {
     { value: "3", label: "핵심 연구 분야" },
   ]);
   const [message, setMessage] = useState("");
+  // 불러온 뒤 아직 아무것도 안 고쳤으면 기준값과 같습니다. 불러오기 전에는
+  // 처음 값이 곧 기준이라 '고쳤다' 로 잡히지 않습니다.
+  const [baseline, setBaseline] = useState(() => ({ title: "동아리 소개", body: "", facts }));
+  const draft = { title, body, facts };
+  const dirty = changed(draft, baseline);
+  useUnsaved(dirty, "동아리 소개", submit);
   useEffect(() => {
     void fetch(`${apiUrl}/pages/club-introduction`, PUBLIC_READ)
       .then(async (response) => {
         if (!response.ok) return;
         const page = await response.json();
-        setTitle(page.title || "동아리 소개");
-        setBody(page.contentHtml ?? "");
-        if (Array.isArray(page.contentJson?.facts))
-          setFacts(page.contentJson.facts);
+        const loaded = {
+          title: page.title || "동아리 소개",
+          body: (page.contentHtml ?? "") as string,
+          facts: Array.isArray(page.contentJson?.facts) ? page.contentJson.facts : facts,
+        };
+        setTitle(loaded.title);
+        setBody(loaded.body);
+        setFacts(loaded.facts);
+        setBaseline(loaded);
       })
       .catch(() => undefined);
+    // 처음 한 번만 읽습니다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  async function submit() {
+  async function submit(): Promise<boolean> {
     const response = await fetch(`${apiUrl}/admin/pages/club-introduction`, {
       method: "PUT",
       credentials: "include",
@@ -1268,10 +1633,11 @@ function ClubIntroductionForm() {
         contentJson: { facts },
         isPublished: true,
       }),
-    });
-    setMessage(
-      response.ok ? "동아리 소개를 저장했습니다." : "저장하지 못했습니다.",
-    );
+    }).catch(() => null);
+    const ok = Boolean(response?.ok);
+    setMessage(ok ? "동아리 소개를 저장했습니다." : "저장하지 못했습니다.");
+    if (ok) setBaseline(draft);
+    return ok;
   }
   return (
     <div className="admin-form">
@@ -1338,9 +1704,12 @@ function ClubIntroductionForm() {
           </div>
         ))}
       </div>
-      <button className="button" type="button" onClick={submit}>
-        동아리 소개 저장 및 공개
-      </button>
+      <div className="admin-actions">
+        <button className="button" type="button" onClick={() => void submit()}>
+          동아리 소개 저장 및 공개
+        </button>
+        <UnsavedMark dirty={dirty} />
+      </div>
       {message && <p className="save-notice">{message}</p>}
       <ContentPreview title={title} body={body} />
     </div>
@@ -1353,7 +1722,7 @@ function MembersForm() {
   const { say, node: notice } = useNotice();
   // 부원 카드도 마지막에 한 번 저장하는 화면이라 같은 함정이 있습니다.
   const [dirty, setDirty] = useState(false);
-  useUnsaved(dirty, "부원");
+  useUnsaved(dirty, "부원", submit);
   useEffect(() => {
     void adminFetch("/admin/directory").then(async (response) => {
       if (response.ok) setDirectory((await response.json()) as DirectoryUser[]);
@@ -1381,7 +1750,7 @@ function MembersForm() {
       ),
     );
   };
-  async function submit() {
+  async function submit(): Promise<boolean> {
     // 예전에 저장된 카드에는 기술 팀(Reasoning·Navigation 같은) 값이 남아 있습니다.
     // 부원을 팀으로 나누지 않기로 했으므로, 저장할 때 그 값을 실제로 지웁니다.
     // 화면에서 안 보이게만 하면 값은 그대로 남아 나중에 다시 새어 나옵니다.
@@ -1406,8 +1775,10 @@ function MembersForm() {
         response.ok ? "부원 카드를 저장했습니다." : "저장하지 못했습니다. 콘텐츠 관리 권한을 확인해 주세요.",
         response.ok,
       );
+      return response.ok;
     } catch {
       say("저장하지 못했습니다. 서버에 연결할 수 없습니다.", false);
+      return false;
     }
   }
   return (
@@ -1424,8 +1795,10 @@ function MembersForm() {
       <p className="form-note">
         <b>계정 연결은 부원 본인이 마이페이지에서 합니다.</b> 로그인하면 이름이 같은 카드가 후보로 뜨고, 본인이
         고르면 연결됩니다. 운영진이 마흔 장을 하나씩 맞출 일이 아니고, 본인이 고르는 편이 정확합니다. 여기서는
-        연결 상태를 확인하고, 잘못 연결된 카드만 풀어 줍니다. 연결된 카드는 <b>사진과 소개말</b>에 본인이
-        마이페이지에서 설정한 값이 나오고, 아직 연결되지 않은 카드는 카드에 저장된 사진을 그대로 씁니다.
+        연결 상태를 확인하고, 잘못 연결된 카드만 풀어 줍니다. 공개 페이지에 나가는 사진은 <b>여기 이 카드에
+        올린 사진이 먼저</b>이고, 카드에 사진이 없을 때만 연결된 계정의 사진을 씁니다. 부원이 마이페이지에서
+        사진을 바꾸면 그 카드의 사진까지 함께 바뀌므로, 본인이 고친 사진도 그대로 반영됩니다. 소개말은
+        본인이 마이페이지에서 쓴 것만 나갑니다.
       </p>
       <div className="member-admin-list">
         {members.map((member, index) => (
@@ -1525,7 +1898,7 @@ function MembersForm() {
         <Plus size={16} /> 부원 추가
       </button>
       <div className="save-row">
-        <button className="button" type="button" onClick={submit}>
+        <button className="button" type="button" onClick={() => void submit()}>
           부원 카드 저장 및 공개
         </button>
         <UnsavedMark dirty={dirty} />
@@ -1663,7 +2036,7 @@ function OrganizationForm() {
   // 부원을 연결해 놓고 저장을 누르지 않아 연결이 사라지는 일이 있었습니다.
   // 고친 것이 있으면 화면에 표시하고, 탭을 떠날 때 한 번 물어봅니다.
   const [dirty, setDirty] = useState(false);
-  useUnsaved(dirty, "조직도");
+  useUnsaved(dirty, "조직도", submit);
   /** 고칠 때마다 '저장 안 함' 으로 표시합니다. */
   const edit = (next: OrganizationData) => { setData(next); setDirty(true); setMessage(""); };
   useEffect(() => {
@@ -1684,7 +2057,7 @@ function OrganizationForm() {
       if (Array.isArray(stored)) setMembers(stored);
     }).catch(() => undefined);
   }, []);
-  async function submit() {
+  async function submit(): Promise<boolean> {
     const response = await fetch(`${apiUrl}/admin/pages/organization`, {
       method: "PUT",
       credentials: "include",
@@ -1704,6 +2077,7 @@ function OrganizationForm() {
           : "조직도를 저장하지 못했습니다.",
     );
     if (response.ok) setDirty(false);
+    return response.ok;
   }
   return (
     <div className="admin-form">
@@ -1733,7 +2107,7 @@ function OrganizationForm() {
       </div>
       <TeamEditor title="조직 팀" value={[...data.operationTeams, ...(data.projectTeams ?? [])]} onChange={(operationTeams) => edit({ ...data, operationTeams, projectTeams: [] })} members={members} />
       <div className="save-row">
-        <button className="button" type="button" onClick={submit}>
+        <button className="button" type="button" onClick={() => void submit()}>
           조직도 저장 및 공개
         </button>
         <UnsavedMark dirty={dirty} />
@@ -1887,17 +2261,41 @@ function EquipmentForm() {
     setMessage("장비 차례를 저장했습니다. 공개 화면에 바로 반영됩니다.");
   }
 
-  async function submit() {
+  /**
+   * 지금 폼의 값과, 지금 고치고 있는 대상의 원래 값.
+   *
+   * 저장하지 않은 변경을 '고칠 때마다 깃발을 세우는' 방식으로 잡지 않고 두 값을
+   * 견주어 잡습니다. 그래야 고쳤다가 되돌려 놓은 경우에 헛물음이 뜨지 않고,
+   * 저장 뒤 목록을 다시 읽으면 기준값이 저절로 새 값이 됩니다.
+   *
+   * 라이선스는 켰다 끄면 차례가 달라질 수 있어 정렬해서 견줍니다.
+   */
+  const draft = { name, category, description, imageUrl, unit, status, sortOrder, licenseIds: [...licenseIds].sort() };
+  const editingRow = selectedId ? (items.find((item) => String(item.id) === selectedId) as AdminEquipmentItem | undefined) : undefined;
+  const baseline = editingRow
+    ? {
+        name: editingRow.name ?? "", category: editingRow.category ?? "", description: editingRow.description ?? "",
+        imageUrl: editingRow.imageUrl ?? "", unit: Number(editingRow.reservationUnitMinutes ?? 30),
+        status: editingRow.status ?? "ACTIVE", sortOrder: Number(editingRow.sortOrder ?? 0),
+        licenseIds: (editingRow.requiredLicenseIds ?? []).map(String).sort(),
+      }
+    : { name: "", category: "", description: "", imageUrl: "", unit: 60, status: "ACTIVE", sortOrder: 0, licenseIds: [] };
+  const dirty = changed(draft, baseline);
+  // 새 장비를 등록하는 중에는 '저장하고 이동' 을 주지 않습니다. 반쯤 쓰다 만
+  // 장비가 실제로 등록되면 회원 화면에 그대로 뜹니다.
+  useUnsaved(dirty, "보유 장비", selectedId ? submit : undefined);
+
+  async function submit(): Promise<boolean> {
     if (!name.trim() || !category.trim()) {
       setMessage("장비명과 분류를 입력해 주세요.");
-      return;
+      return false;
     }
     const target = selectedId ? `/admin/equipment/${selectedId}` : "/admin/equipment";
     const payload = { name, category, description, imageUrl: imageUrl || null, status, reservationUnitMinutes: unit, sortOrder };
     const response = await adminSend(target, selectedId ? "PATCH" : "POST", payload).catch(() => null);
     if (!response?.ok) {
       setMessage(response?.status === 409 ? "같은 이름의 장비가 이미 있습니다." : "저장하지 못했습니다. 로그인과 권한을 확인해 주세요.");
-      return;
+      return false;
     }
     // The licence requirement is a separate resource, so it is written right
     // after the equipment row exists.
@@ -1906,6 +2304,7 @@ function EquipmentForm() {
     setMessage(`장비를 ${selectedId ? "수정" : "등록"}했습니다.`);
     reset();
     await reload();
+    return true;
   }
   function edit(row: AdminRow) {
     const item = row as unknown as AdminEquipmentItem;
@@ -2015,9 +2414,10 @@ function EquipmentForm() {
       </fieldset>
       <p className="form-note">모든 장비의 예약 가능 시간은 00:00–24:00으로 고정됩니다.</p>
       <div className="admin-actions">
-        <button className="button" type="button" onClick={submit}>
+        <button className="button" type="button" onClick={() => void submit()}>
           {selectedId ? "장비 수정" : "장비 등록"}
         </button>
+        <UnsavedMark dirty={dirty} />
         {selectedId && (
           <button className="button secondary" type="button" onClick={reset}>
             취소
@@ -2066,10 +2466,29 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
   const rows = fixedCategory
     ? allRows.filter((row) => row.category === fixedCategory)
     : allRows;
-  async function submit() {
+  const inputDate = (value: unknown) =>
+    value ? new Date(String(value)).toISOString().slice(0, 16) : "";
+  // 지금 폼의 값과, 고치고 있는 일정의 원래 값(EquipmentForm 의 설명 참고).
+  const draft = { title, category, startsAt, endsAt, description, published, memberIds: [...memberIds].sort() };
+  const editingRow = selectedId ? allRows.find((row) => String(row.id) === selectedId) : undefined;
+  const baseline = editingRow
+    ? {
+        title: String(editingRow.title ?? ""),
+        category: String(editingRow.category ?? fixedCategory ?? "SHAPE-UP"),
+        startsAt: inputDate(editingRow.starts_at ?? editingRow.startsAt),
+        endsAt: inputDate(editingRow.ends_at ?? editingRow.endsAt),
+        description: String(editingRow.description ?? ""),
+        published: editingRow.isPublished !== false,
+        memberIds: ((editingRow as unknown as AdminRoadmapItem).memberIds ?? []).map(String).sort(),
+      }
+    : { title: "", category: fixedCategory ?? "SHAPE-UP", startsAt: "", endsAt: "", description: "", published: true, memberIds: [] };
+  const dirty = changed(draft, baseline);
+  useUnsaved(dirty, fixedCategory ?? "전체 로드맵", selectedId ? submit : undefined);
+
+  async function submit(): Promise<boolean> {
     if (!startsAt) {
       setMessage("시작 날짜를 입력해 주세요.");
-      return;
+      return false;
     }
     const target = selectedId
       ? `/admin/roadmap/${selectedId}`
@@ -2098,6 +2517,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
         setMemberIds([]);
         await reload();
       }
+      return response.ok;
     } catch {
       const local = {
         id: selectedId || `unsaved-${Date.now()}`,
@@ -2112,10 +2532,9 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
         "개발 미리보기 일정에 반영했습니다. 백엔드 연결 후에는 실제 저장됩니다.",
       );
       setSelectedId("");
+      return true;
     }
   }
-  const inputDate = (value: unknown) =>
-    value ? new Date(String(value)).toISOString().slice(0, 16) : "";
   function edit(row: AdminRow) {
     setSelectedId(String(row.id));
     setTitle(String(row.title ?? ""));
@@ -2239,9 +2658,10 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
       </fieldset>
       <PublishChoice value={published} onChange={setPublished} />
       <div className="admin-actions">
-        <button className="button" type="button" onClick={submit}>
+        <button className="button" type="button" onClick={() => void submit()}>
           {selectedId ? "일정 수정" : published ? "일정 등록하고 공개" : "일정 임시 저장"}
         </button>
+        <UnsavedMark dirty={dirty} />
         {selectedId && (
           <button
             className="button secondary"
@@ -2265,27 +2685,44 @@ function LinkForm() {
   const [description, setDescription] = useState("");
   const [sortOrder, setSortOrder] = useState(0);
   const [published, setPublished] = useState(true);
+  const [visibility, setVisibility] = useState<LinkScope>("PUBLIC");
   const [message, setMessage] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const { ask, dialogNode } = useAsk();
   const { rows, reload } = useAdminRows("/admin/links");
+  // 지금 폼의 값과, 고치고 있는 링크의 원래 값(EquipmentForm 의 설명 참고).
+  const draft = { title, url, description, sortOrder, published, visibility };
+  const editingRow = selectedId ? rows.find((row) => String(row.id) === selectedId) : undefined;
+  const baseline = editingRow
+    ? {
+        title: String(editingRow.title ?? ""),
+        url: String(editingRow.url ?? ""),
+        description: String(editingRow.description ?? ""),
+        sortOrder: Number(editingRow.sortOrder ?? 0),
+        published: editingRow.isPublished !== false,
+        visibility: (["PUBLIC", "MEMBER", "STAFF"] as const).find((scope) => scope === editingRow.visibility) ?? "PUBLIC",
+      }
+    : { title: "", url: "", description: "", sortOrder: 0, published: true, visibility: "PUBLIC" as LinkScope };
+  const dirty = changed(draft, baseline);
+  useUnsaved(dirty, "관련 링크", selectedId ? submit : undefined);
   function reset() {
-    setSelectedId(""); setTitle(""); setUrl(""); setDescription(""); setSortOrder(0); setPublished(true);
+    setSelectedId(""); setTitle(""); setUrl(""); setDescription(""); setSortOrder(0); setPublished(true); setVisibility("PUBLIC");
   }
-  async function submit() {
+  async function submit(): Promise<boolean> {
     if (!title.trim() || !/^https?:\/\//.test(url.trim())) {
       setMessage("링크 이름과 http:// 또는 https:// 로 시작하는 주소를 입력해 주세요.");
-      return;
+      return false;
     }
     const target = selectedId ? `/admin/links/${selectedId}` : "/admin/links";
     const response = await adminSend(target, selectedId ? "PATCH" : "POST", {
-      title: title.trim(), url: url.trim(), description, sortOrder, isPublished: published,
+      title: title.trim(), url: url.trim(), description, sortOrder, isPublished: published, visibility,
     });
     setMessage(response.ok ? "링크를 저장했습니다." : "저장하지 못했습니다. 주소 형식과 권한을 확인해 주세요.");
     if (response.ok) {
       reset();
       await reload();
     }
+    return response.ok;
   }
   function edit(row: AdminRow) {
     setSelectedId(String(row.id));
@@ -2294,6 +2731,8 @@ function LinkForm() {
     setDescription(String(row.description ?? ""));
     setSortOrder(Number(row.sortOrder ?? 0));
     setPublished(row.isPublished !== false);
+    // 예전에 만든 링크에는 이 칸이 없습니다. 없으면 지금까지의 동작대로 전체 공개입니다.
+    setVisibility((["PUBLIC", "MEMBER", "STAFF"] as const).find((scope) => scope === row.visibility) ?? "PUBLIC");
   }
   async function remove(row: AdminRow) {
     const confirmed = await ask({ title: "이 링크를 삭제할까요?", description: `${String(row.title ?? "선택한 링크")} · 공개 페이지에서 즉시 사라집니다.`, confirmLabel: "삭제", tone: "danger" });
@@ -2333,10 +2772,12 @@ function LinkForm() {
         </label>
       </div>
       <PublishChoice value={published} onChange={setPublished} />
+      <VisibilityChoice value={visibility} onChange={setVisibility} />
       <div className="admin-actions">
-        <button className="button" type="button" onClick={submit}>
+        <button className="button" type="button" onClick={() => void submit()}>
           {selectedId ? "링크 수정" : published ? "링크 등록하고 공개" : "링크 임시 저장"}
         </button>
+        <UnsavedMark dirty={dirty} />
         {selectedId && <button className="button secondary" type="button" onClick={reset}>취소</button>}
         {message && <p className="save-notice" role="status">{message}</p>}
       </div>
@@ -2395,22 +2836,30 @@ function LicenseManager() {
     const load = async () => { await reload(); };
     void load();
   }, [reload]);
-  async function submit() {
+  // 지금 폼의 값과, 고치고 있는 라이선스의 원래 값(EquipmentForm 의 설명 참고).
+  const editingLicense = selectedId ? licenses.find((license) => license.id === selectedId) : undefined;
+  const dirty = changed(
+    { name, description },
+    editingLicense ? { name: editingLicense.name, description: editingLicense.description ?? "" } : { name: "", description: "" },
+  );
+  useUnsaved(dirty, "라이선스", selectedId ? submit : undefined);
+  async function submit(): Promise<boolean> {
     if (!name.trim()) {
       setMessage("라이선스 이름을 입력해 주세요.");
-      return;
+      return false;
     }
     const target = selectedId ? `/admin/licenses/${selectedId}` : "/admin/licenses";
     const response = await adminSend(target, selectedId ? "PATCH" : "POST", { name: name.trim(), description: description || null, isActive: true }).catch(() => null);
     if (!response?.ok) {
       setMessage(response?.status === 409 ? "같은 이름의 라이선스가 이미 있습니다." : "저장하지 못했습니다.");
-      return;
+      return false;
     }
     setMessage(selectedId ? "라이선스를 수정했습니다." : "라이선스를 등록했습니다.");
     setSelectedId("");
     setName("");
     setDescription("");
     await reload();
+    return true;
   }
   async function remove(license: LicenseItem) {
     const confirmed = await ask({ title: "이 라이선스를 삭제할까요?", description: `${license.name} · 부원에게 부여된 이력과 장비 조건도 함께 사라집니다.`, confirmLabel: "삭제", tone: "danger" });
@@ -2431,9 +2880,10 @@ function LicenseManager() {
         <textarea value={description} maxLength={2000} placeholder="이수 조건과 교육 방식을 적어 주세요." onChange={(event) => setDescription(event.target.value)} />
       </label>
       <div className="admin-actions">
-        <button className="button" type="button" onClick={submit}>
+        <button className="button" type="button" onClick={() => void submit()}>
           {selectedId ? "라이선스 수정" : "라이선스 등록"}
         </button>
+        <UnsavedMark dirty={dirty} />
         {selectedId && (
           <button className="button secondary" type="button" onClick={() => { setSelectedId(""); setName(""); setDescription(""); }}>
             취소

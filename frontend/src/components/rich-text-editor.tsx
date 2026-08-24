@@ -17,7 +17,8 @@ import {
   Image as ImageIcon, Italic, Link2, List, ListOrdered, Minus, Quote, Redo2, Rows3,
   ChevronDown, Sigma, Strikethrough, Table2, Trash2, Underline as UnderlineIcon, Undo2,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useAsk } from "@/components/ask-dialog";
 import { LineHeight, MathBlock } from "@/components/editor-extensions";
 import { uploadImage, type UploadPurpose } from "@/lib/upload";
@@ -58,7 +59,26 @@ const blocks = [
  *
  * 그래서 단추와 작은 목록으로 직접 만듭니다. 고른 뒤에는 편집기로 초점을
  * 돌려주므로 이어서 바로 쓸 수 있습니다.
+ *
+ * ## 목록은 `<body>` 에 붙여 띄웁니다
+ *
+ * 펼친 목록이 아래 본문에 가려 보이지 않는 일이 있었습니다. z-index 를 올려도
+ * 소용이 없었는데, 가려진 것이 아니라 **잘려 나가고** 있었기 때문입니다. 목록을
+ * 감싼 상자 둘이 각각 목록을 자릅니다.
+ *
+ * - `.editor-toolbar` 는 좁은 화면에서 도구를 좌우로 밀어 쓰려고
+ *   `overflow-x:auto; overflow-y:hidden` 입니다. 스크롤 상자가 된 이상 그 안의
+ *   `position:absolute` 는 상자 밖으로 나가지 못합니다.
+ * - `.rich-editor` 는 둥근 모서리를 살리려고 `overflow:clip` 입니다.
+ *
+ * 둘 다 그 자리에 있어야 하는 규칙이라, 목록만 부모 밖으로 꺼냅니다. 포털로
+ * `<body>` 에 붙이고 단추의 화면 좌표에 `position:fixed` 로 띄우면 어떤
+ * `overflow` 도 어떤 쌓임 맥락(stacking context)도 지나갈 일이 없습니다.
  */
+type MenuSpot = { top: number; left: number; width: number; drop: "down" | "up" };
+/** 목록과 화면 가장자리 사이에 남겨 두는 여백. */
+const MENU_EDGE = 8;
+
 function ToolMenu({ label, value, options, onPick, title }: {
   label: string;
   value: string;
@@ -67,27 +87,65 @@ function ToolMenu({ label, value, options, onPick, title }: {
   title?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+  const [spot, setSpot] = useState<MenuSpot | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const current = options.find((option) => option.value === value) ?? options[0];
+
+  /** 단추가 지금 화면 어디에 있는지 재어 목록을 그 아래(또는 위)에 놓습니다. */
+  const place = useCallback(() => {
+    const anchor = trigger.current?.getBoundingClientRect();
+    if (!anchor) return;
+    // 목록 높이는 한 줄 높이 + 위아래 여백으로 어림잡습니다. 실제 높이를 재려면
+    // 먼저 그려야 하고, 그러면 한 프레임 동안 엉뚱한 자리에 보입니다. 좁은
+    // 화면에서는 한 줄을 손가락 크기로 키우므로(site-polish.css) 함께 맞춥니다.
+    const row = window.innerWidth <= 620 ? 44 : 34;
+    const cap = window.innerWidth <= 620 ? Math.min(320, window.innerHeight * 0.5) : Math.min(320, window.innerHeight * 0.6);
+    const height = Math.min(options.length * row + 10, cap);
+    const below = window.innerHeight - anchor.bottom - MENU_EDGE;
+    const drop: "down" | "up" = below < height && anchor.top > below ? "up" : "down";
+    setSpot({
+      top: drop === "down" ? anchor.bottom + 4 : anchor.top - 4 - height,
+      // 좁은 화면에서 오른쪽 끝 도구를 누르면 목록이 화면 밖으로 나갑니다.
+      left: Math.max(MENU_EDGE, Math.min(anchor.left, window.innerWidth - anchor.width - MENU_EDGE)),
+      width: anchor.width,
+      drop,
+    });
+  }, [options.length]);
+
+  // 열자마자, 그리고 그리기 전에 자리를 잡습니다. `useEffect` 로 두면 목록이
+  // 좌표 없이 한 번 그려졌다가 옮겨 가서 깜빡입니다.
+  useLayoutEffect(() => { if (open) place(); }, [open, place]);
 
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      // 목록은 이제 `<body>` 밑에 있으므로 감싼 상자만 보면 안 됩니다. 목록을
+      // 빼먹으면 항목을 누르는 순간 목록이 사라져 click 이 오지 않습니다.
+      if (trigger.current?.contains(target) || list.current?.contains(target)) return;
+      setOpen(false);
     };
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    // 화면에 고정해 띄웠으므로 무엇이든 굴러가면 따라가야 합니다. capture 로
+    // 들어야 도구줄 자신의 가로 스크롤까지 잡힙니다.
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", escape);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", escape);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
     };
-  }, [open]);
+  }, [open, place]);
 
   return (
-    <div className="editor-menu" ref={box}>
+    <div className="editor-menu">
       <button
         type="button"
+        ref={trigger}
         className={`editor-select${open ? " open" : ""}`}
         aria-label={label}
         aria-haspopup="listbox"
@@ -98,8 +156,14 @@ function ToolMenu({ label, value, options, onPick, title }: {
         {current.label}
         <ChevronDown size={14} />
       </button>
-      {open && (
-        <ul className="editor-menu-list" role="listbox" aria-label={label}>
+      {open && spot && createPortal(
+        <ul
+          ref={list}
+          className={`editor-menu-list ${spot.drop}`}
+          role="listbox"
+          aria-label={label}
+          style={{ top: spot.top, left: spot.left, minWidth: spot.width }}
+        >
           {options.map((option) => (
             <li key={option.label}>
               <button
@@ -113,7 +177,8 @@ function ToolMenu({ label, value, options, onPick, title }: {
               </button>
             </li>
           ))}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );

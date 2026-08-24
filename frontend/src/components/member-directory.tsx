@@ -91,12 +91,21 @@ export function MemberDirectory({
   /**
    * 카드에 쓸 사진.
    *
-   * 구글 계정과 SHAPE 부원 카드에 사진이 따로 있어서, 계정을 연결해 두고도
-   * 격자에는 옛 사진이 남아 두 개가 갈렸습니다. 연결된 계정이 있으면 그쪽을
-   * 먼저 쓰고, 아직 가입하지 않은 1기 부원은 카드에 저장된 사진을 씁니다.
+   * **부원 카드에 저장된 사진이 먼저입니다.** 연결된 계정의 사진은 카드가 비어
+   * 있을 때만 씁니다.
+   *
+   * 반대로 두었더니, 카드에 올려 둔 증명사진이 계정을 연결한 순간 구글 계정
+   * 프로필 사진으로 바뀌었습니다. 구글 사진은 본인이 SHAPE 를 생각하고 고른
+   * 사진이 아니고(기본 이니셜 이미지인 경우도 많습니다), 로그인할 때마다
+   * 주소가 바뀌기도 해서 부원 페이지가 그때그때 흐트러졌습니다.
+   *
+   * 본인이 사진을 바꾸는 길이 막히지는 않습니다. 마이페이지에서 사진을 바꾸면
+   * 백엔드가 연결된 카드의 사진까지 함께 갈아 끼웁니다(routers/auth.py 의
+   * `update_me`). 그래서 여기서 카드를 먼저 보아도 본인이 고른 사진이 그대로
+   * 반영됩니다.
    */
   const photoOf = (member: ShapeMember) =>
-    (member.userId ? byUser.get(member.userId)?.imageUrl : null) ?? member.imageUrl ?? null;
+    member.imageUrl ?? (member.userId ? byUser.get(member.userId)?.imageUrl : null) ?? null;
 
   useEffect(() => {
     if (active && dialog.current && !dialog.current.open) dialog.current.showModal();
@@ -176,8 +185,10 @@ export function MemberDirectory({
             </button>
             <header>
               <div className="member-dialog-photo">
-                {(profile?.imageUrl ?? active.imageUrl) ? (
-                  <Image src={media(profile?.imageUrl ?? active.imageUrl ?? "", 260)} alt="" width={480} height={600} unoptimized={!optimizable(profile?.imageUrl ?? active.imageUrl)} />
+                {/* 격자와 같은 규칙으로 고릅니다. 여기만 따로 계산하면 카드에서
+                    본 사진과 눌러서 연 사진이 서로 달라집니다. */}
+                {photoOf(active) ? (
+                  <Image src={media(photoOf(active) ?? "", 260)} alt="" width={480} height={600} unoptimized={!optimizable(photoOf(active))} />
                 ) : (
                   <span aria-hidden="true">{givenName(active.name)}</span>
                 )}
