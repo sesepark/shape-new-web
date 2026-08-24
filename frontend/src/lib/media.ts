@@ -9,7 +9,25 @@ const UPLOAD_MARKER = "/image/upload/";
 /** 옛 사이트에서 옮겨 와 우리 public 폴더가 그대로 들고 있는 사진. */
 const LEGACY_PHOTOS = "https://www.snu-shape.com/figs/";
 
-export function media(url: string | null | undefined, width: number): string {
+/**
+ * 사진을 얼마나 아껴 보낼지.
+ *
+ * 크게 보이는 사진은 조금이라도 뭉개지면 바로 눈에 띄고, 작게 보이는 사진은
+ * 많이 눌러도 알아채기 어렵습니다. 그래서 자리마다 다르게 씁니다.
+ *
+ *   high — 화면에서 크게 놓이는 사진(장비 상세, 소식 대표 사진).
+ *   auto — 보통. Cloudinary 가 알아서 고릅니다.
+ *   eco  — 이름 옆 작은 얼굴처럼 작게 놓이는 사진.
+ */
+export type MediaQuality = "high" | "auto" | "eco";
+
+const QUALITY: Record<MediaQuality, string> = {
+  high: "q_auto:good",
+  auto: "q_auto",
+  eco: "q_auto:eco",
+};
+
+export function media(url: string | null | undefined, width: number, quality: MediaQuality = "auto"): string {
   if (!url) return "";
   // 옛 사이트 주소로 저장된 부원 사진은 우리 public 폴더에 그대로 있는 파일이다.
   // 절대 주소로 두면 Next.js 이미지 최적화가 제 사이트에 다시 HTTP 요청을 보내
@@ -21,7 +39,7 @@ export function media(url: string | null | undefined, width: number): string {
   const tail = url.slice(marker + UPLOAD_MARKER.length);
   // A URL that already carries a transformation is left untouched.
   if (/^[a-z]_[^/]*\//.test(tail)) return url;
-  return `${head}f_auto,q_auto,c_limit,w_${width}/${tail}`;
+  return `${head}f_auto,${QUALITY[quality]},c_limit,w_${width}/${tail}`;
 }
 
 /**

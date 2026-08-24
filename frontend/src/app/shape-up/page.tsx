@@ -35,7 +35,7 @@ export default async function ShapeUpPage() {
               <Link href={`/shape-up/${post.id}`}>
                 <div className="shape-up-cover">
                   {post.coverImage ? (
-                    <Image src={media(post.coverImage, 900)} alt="" width={900} height={560} unoptimized={!optimizable(post.coverImage)} />
+                    <Image src={media(post.coverImage, 900, "high")} sizes="(max-width: 900px) 100vw, 420px" quality={88} alt="" width={900} height={560} unoptimized={!optimizable(post.coverImage)} />
                   ) : (
                     <span aria-hidden="true">SHAPE-UP</span>
                   )}

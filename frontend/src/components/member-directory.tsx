@@ -58,7 +58,7 @@ function MemberPhoto({ member, photo, index }: { member: ShapeMember; photo?: st
     <div className="member-photo" ref={box}>
       {near && (
         <Image
-          src={media(photo, 560)}
+          src={media(photo, 640, "high")} quality={88}
           alt={`${member.name} 부원`}
           width={560}
           height={700}
@@ -177,7 +177,7 @@ export function MemberDirectory({
             <header>
               <div className="member-dialog-photo">
                 {(profile?.imageUrl ?? active.imageUrl) ? (
-                  <Image src={media(profile?.imageUrl ?? active.imageUrl ?? "", 480)} alt="" width={480} height={600} unoptimized={!optimizable(profile?.imageUrl ?? active.imageUrl)} />
+                  <Image src={media(profile?.imageUrl ?? active.imageUrl ?? "", 260)} alt="" width={480} height={600} unoptimized={!optimizable(profile?.imageUrl ?? active.imageUrl)} />
                 ) : (
                   <span aria-hidden="true">{givenName(active.name)}</span>
                 )}

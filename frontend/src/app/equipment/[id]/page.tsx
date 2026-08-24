@@ -66,7 +66,9 @@ export default async function EquipmentDetailPage({
         <div className="equipment-detail-media">
           {equipment.imageUrl ? (
             <Image
-              src={media(equipment.imageUrl, 980)}
+              src={media(equipment.imageUrl, 1200, "high")}
+              sizes="(max-width: 900px) 92vw, 620px"
+              quality={92}
               alt={`${equipment.name} 장비`}
               width={980}
               height={820}

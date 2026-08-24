@@ -358,7 +358,7 @@ function Avatar({ name, imageUrl }: { name: string; imageUrl?: string | null }) 
   return (
     <Image
       className="pick-face"
-      src={media(imageUrl, 72)}
+      src={media(imageUrl, 80, "eco")}
       alt=""
       width={36}
       height={36}

@@ -48,7 +48,7 @@ export function PressDirectory({ items }: { items: NewsItem[] }) {
                 <span className="press-thumb" aria-hidden="true">
                   {item.coverImage ? (
                     <Image
-                      src={media(item.coverImage, 400)}
+                      src={media(item.coverImage, 400, "eco")}
                       alt=""
                       width={400}
                       height={250}

@@ -183,7 +183,7 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
   const row = (card: MemberCardItem, label: string) => (
     <li key={card.id}>
       {card.imageUrl
-        ? <Image src={media(card.imageUrl, 96)} alt="" width={44} height={44} unoptimized={!optimizable(card.imageUrl)} />
+        ? <Image src={media(card.imageUrl, 110, "eco")} alt="" width={44} height={44} unoptimized={!optimizable(card.imageUrl)} />
         : <span className="account-initial">{card.name.slice(0, 1)}</span>}
       <div>
         <strong>{card.name}</strong>
@@ -202,7 +202,7 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
         <>
           <div className="card-link">
             {state.card.imageUrl
-              ? <Image src={media(state.card.imageUrl, 112)} alt="" width={56} height={56} unoptimized={!optimizable(state.card.imageUrl)} />
+              ? <Image src={media(state.card.imageUrl, 130, "eco")} alt="" width={56} height={56} unoptimized={!optimizable(state.card.imageUrl)} />
               : <span className="account-initial">{state.card.name.slice(0, 1)}</span>}
             <div>
               <strong>{state.card.name}</strong>
@@ -297,7 +297,7 @@ function ProfileCard({ profile, onProfile }: { profile: SessionUser; onProfile: 
       <p className="meta">ACCOUNT</p>
       <h3>계정과 알림</h3>
       <div className="account-summary">
-        {profile.imageUrl ? <Image src={media(profile.imageUrl, 112)} alt="" width={56} height={56} unoptimized={!optimizable(profile.imageUrl)} /> : <span className="account-initial">{profile.name.slice(0, 1)}</span>}
+        {profile.imageUrl ? <Image src={media(profile.imageUrl, 130, "eco")} alt="" width={56} height={56} unoptimized={!optimizable(profile.imageUrl)} /> : <span className="account-initial">{profile.name.slice(0, 1)}</span>}
         <div>
           <strong>{profile.name}</strong>
           <span>{profile.email}</span>
