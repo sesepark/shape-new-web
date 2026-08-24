@@ -984,3 +984,328 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   .footer-socials { gap:22px; }
   .footer-socials a::after { content:""; position:absolute; inset:-11px; }
 }
+
+/* ==========================================================================
+   사진이 놓이는 자리를 하나로 맞춘다
+   --------------------------------------------------------------------------
+   지금까지 모서리가 0·16·18·22px 로 제각각이었고, 커버 사진은 비율을 정해 두지
+   않아 세로로 긴 사진이 올라오면 화면 하나를 통째로 먹었다. 관리자가 어떤 사진을
+   올리든 같은 모양으로 놓이도록, 자리마다 비율과 모서리를 아래 값으로 고정한다.
+
+   새로 사진 자리를 만들 때도 이 변수를 쓴다. 픽셀을 직접 적지 않는다.
+   ========================================================================== */
+
+:root {
+  /* 카드와 커버처럼 큰 사진 */
+  --media-radius: 16px;
+  /* 글 본문 안에 들어가는 사진처럼 작은 사진 */
+  --media-radius-inline: 12px;
+  /* 목록 카드의 썸네일 */
+  --media-ratio-card: 16 / 10;
+  /* 글 맨 위에 놓이는 대표 사진 */
+  --media-ratio-cover: 16 / 9;
+  /* 인물 사진 */
+  --media-ratio-portrait: 4 / 5;
+  /* 사진을 기다리는 동안, 그리고 사진이 없을 때 깔리는 바탕 */
+  --media-placeholder: #eef2f9;
+}
+
+/* --- 뉴스 목록 --------------------------------------------------------- */
+/* 카드가 SHAPE-UP 카드와 같은 모서리를 갖는다. 사진은 카드가 잘라 낸다. */
+.news-featured-card { border-radius: var(--media-radius); }
+.news-featured-card > img,
+.news-featured-placeholder { background: var(--media-placeholder); }
+
+/* --- 뉴스 상세 대표 사진 ----------------------------------------------- */
+/* 예전에는 높이만 620px 로 묶어 두어, 가로로 긴 사진과 세로로 긴 사진이 전혀
+   다른 크기로 놓였다. 비율을 고정하고 잘라 내면 어떤 사진이 와도 같은 자리다. */
+.news-detail-cover {
+  aspect-ratio: var(--media-ratio-cover);
+  height: auto;
+  max-height: none;
+  border-radius: var(--media-radius);
+  background: var(--media-placeholder);
+}
+
+/* --- 글 본문 안의 사진 (뉴스 · 게시판 · SHAPE-UP · 편집기 미리보기) ----- */
+/* 본문 사진은 원본 비율을 지킨다. 잘라 내면 도표나 사진 설명이 잘린다.
+   대신 화면 하나를 넘지 않게 높이를 묶고, 가운데로 모아 준다. */
+.rich-content img,
+.preview-sheet > .rich-content img,
+.editor-content .tiptap img {
+  display: block;
+  margin: 26px auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: var(--media-radius-inline);
+  background: var(--media-placeholder);
+}
+
+/* --- 원문 미리보기 카드 ------------------------------------------------- */
+.external-embed,
+.external-card { border-radius: var(--media-radius); }
+.external-card img {
+  aspect-ratio: var(--media-ratio-card);
+  height: auto;
+  min-height: 0;
+  background: var(--media-placeholder);
+}
+.external-card-blank { min-height: 0; aspect-ratio: var(--media-ratio-card); }
+
+/* --- 장비 카드 --------------------------------------------------------- */
+/* 장비 사진은 제품 사진이라 잘라 내지 않고(contain) 흰 바탕 위에 통째로 둔다.
+   자리 크기만 다른 카드와 맞춘다. */
+.equipment-catalog-card { overflow: hidden; border-radius: var(--media-radius); }
+.equipment-catalog-media {
+  height: auto;
+  aspect-ratio: var(--media-ratio-card);
+  background: var(--media-placeholder);
+}
+
+/* --- 부원 카드 --------------------------------------------------------- */
+.member-card { border-radius: var(--media-radius); }
+.member-photo {
+  aspect-ratio: var(--media-ratio-portrait);
+  border-radius: var(--media-radius-inline);
+  background: var(--media-placeholder);
+}
+
+/* --- SHAPE-UP 카드 ----------------------------------------------------- */
+.shape-up-card { border-radius: var(--media-radius); }
+.shape-up-cover { aspect-ratio: var(--media-ratio-card); background: var(--media-placeholder); }
+
+/* --- 자료실 · 예약 사진 ------------------------------------------------- */
+.reservation-photos img,
+.reservation-shots img { border-radius: var(--media-radius-inline); }
+
+/* ==========================================================================
+   언론보도 목록
+   --------------------------------------------------------------------------
+   번호와 제목만 있던 줄에 원문 대표 사진과 요약을 더한다. 사진은 신문사 서버에서
+   그대로 오므로 크기가 제각각이라, 자리가 비율을 고정하고 잘라 낸다.
+   ========================================================================== */
+
+.press-list a {
+  min-height: 0;
+  padding: 18px 20px;
+  grid-template-columns: 46px 168px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.press-thumb {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: var(--media-ratio-card);
+  border-radius: var(--media-radius-inline);
+  background: var(--media-placeholder);
+}
+
+.press-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+.press-thumb-blank {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #9aa4b6;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+
+.press-copy { display: grid; gap: 6px; min-width: 0; }
+
+/* 제목은 두 줄까지 보여 준다. 한 줄로 자르면 기사 제목이 대부분 잘린다. */
+.press-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+.press-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  color: #646b76;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.press-list a:hover .press-summary { color: #4d5665; }
+
+@media (max-width: 900px) {
+  .press-list a { padding: 15px 4px; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; }
+  .press-number { display: none; }
+  .press-summary { -webkit-line-clamp: 3; line-clamp: 3; font-size: 13px; }
+}
+
+/* ==========================================================================
+   예약 — 같은 시간에 여러 장비 신청
+   --------------------------------------------------------------------------
+   한 건을 신청하고 나면 버튼이 "신청 완료" 로 잠긴다. 그 옆에 장비 선택으로
+   돌아가는 버튼을 두어, 새로고침 없이 같은 시간의 다음 장비로 넘어가게 한다.
+   ========================================================================== */
+
+.booking-submit-buttons { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+.button.ghost {
+  color: var(--blue);
+  background: #fff;
+  border: 1px solid #c3d0ec;
+}
+
+.button.ghost:hover { background: #f4f7ff; border-color: #93a9dd; }
+
+.booking-basket {
+  margin-top: 20px;
+  padding: 18px 20px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #cfdcf5;
+  border-radius: var(--media-radius);
+  background: #f6f9ff;
+}
+
+.booking-basket > strong { color: var(--blue); font-size: 13px; letter-spacing: -.02em; }
+
+.booking-basket ul { margin: 0; padding: 0; display: grid; gap: 7px; list-style: none; }
+
+.booking-basket li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.booking-basket li b { font-weight: 800; }
+
+.booking-basket li span { color: #646b76; font-size: 13px; }
+
+.booking-basket > a { color: var(--blue); font-size: 13px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+
+@media (max-width: 640px) {
+  .booking-submit-buttons { width: 100%; }
+  .booking-submit-buttons .button { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ==========================================================================
+   관리자 — 회원 검색
+   --------------------------------------------------------------------------
+   회원이 일흔 명을 넘어가면 `select` 하나에 전체를 담아 두는 방식이 무너진다.
+   이름이나 이메일로 좁혀서 고르게 한다. 부원 카드의 계정 연결, 조직도 팀원,
+   로드맵 참여 부원, 회원·권한 목록이 모두 이 모양을 쓴다.
+   ========================================================================== */
+
+.admin-filter {
+  margin: 0 0 12px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d7dde8;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.admin-filter:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(45, 87, 196, .12); }
+
+.admin-filter svg { flex: none; color: #98a1b0; }
+
+.admin-filter input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+}
+
+.admin-filter input:focus { outline: none; }
+
+.admin-filter > span { flex: none; color: #7b8496; font-size: 12px; font-weight: 800; }
+
+.field-block { display: grid; gap: 7px; }
+
+.field-label { font-size: 13px; font-weight: 800; letter-spacing: -.02em; }
+
+.person-picker { display: grid; gap: 0; }
+
+.person-options {
+  margin: 0;
+  padding: 0;
+  max-height: 232px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid #e2e7ef;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.person-options li + li { border-top: 1px solid #eef1f6; }
+
+.person-options button {
+  width: 100%;
+  padding: 10px 13px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person-options button:hover { background: #f4f7ff; }
+
+.person-options strong { font-size: 14px; font-weight: 800; }
+
+.person-options small { color: #7b8496; font-size: 12px; }
+
+.person-none { padding: 12px 13px; color: #7b8496; font-size: 13px; }
+
+.person-picked {
+  padding: 10px 12px 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  border: 1px solid #cfdcf5;
+  border-radius: 10px;
+  background: #f6f9ff;
+}
+
+.person-picked span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+
+.person-picked strong { font-size: 14px; font-weight: 800; }
+
+.person-picked small { color: #7b8496; font-size: 12px; }
+
+.picked-tags { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+.picked-tags button {
+  padding: 5px 10px;
+  border: 1px solid #cfdcf5;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.picked-tags button:hover { background: #e0e9ff; border-color: #a9bff0; }

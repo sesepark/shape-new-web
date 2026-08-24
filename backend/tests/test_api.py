@@ -763,3 +763,45 @@ async def test_responses_are_compressed(client, session):
     packed = await client.get("/api/v1/news?limit=50", headers={"accept-encoding": "gzip"})
     assert packed.headers.get("content-encoding") == "gzip"
     assert int(packed.headers["content-length"]) < len(plain.content) / 2
+
+
+async def test_one_member_can_hold_two_machines_at_the_same_time(client, session):
+    """한 사람이 서로 다른 장비를 같은 시간대에 예약할 수 있어야 한다.
+
+    실험 하나에 로봇 팔과 GPU 워크스테이션을 함께 쓰는 일이 흔하다. 겹침을 막는
+    기준은 사람이 아니라 호기이므로, 같은 호기만 아니면 시간이 겹쳐도 승인까지
+    이어져야 한다.
+    """
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    arm = Equipment(name="OMY", category="로봇 팔", reservation_unit_minutes=30)
+    gpu = Equipment(name="GPU 워크스테이션", category="GPU", reservation_unit_minutes=30)
+    session.add_all([arm, gpu])
+    await session.flush()
+    arm_unit = EquipmentUnit(equipment_id=arm.id, label="OMY 1호기")
+    gpu_unit = EquipmentUnit(equipment_id=gpu.id, label="GPU 1호기")
+    session.add_all([arm_unit, gpu_unit])
+    await session.commit()
+
+    starts = next_half_hour()
+    window = {"startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=2)).isoformat()}
+    http = login(client, member)
+    first = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "purpose": "데이터 수집", **window})
+    second = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(gpu_unit.id), "purpose": "정책 학습", **window})
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+
+    # 승인도 둘 다 되어야 한다. 확정 슬롯은 호기별로만 잠긴다.
+    http = login(client, officer)
+    for reservation in (first, second):
+        decided = await http.post(f"/api/v1/admin/reservations/{reservation.json()['id']}/decision", json={"approve": True})
+        assert decided.status_code == 200, decided.text
+
+    http = login(client, member)
+    mine = (await http.get("/api/v1/reservations/me")).json()
+    assert {row["equipmentName"] for row in mine} == {"OMY", "GPU 워크스테이션"}
+    assert all(row["status"] == "APPROVED" for row in mine)
+
+    # 반대로 같은 호기의 같은 시간은 여전히 막혀야 한다.
+    clash = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "purpose": "겹치는 신청", **window})
+    assert clash.status_code == 409

@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ExternalLink, Eye, PencilLine, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Eye, PencilLine, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ImageUploadField } from "@/components/image-upload-field";
 import { MemberDirectory } from "@/components/member-directory";
 import {
@@ -256,6 +256,78 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
     );
   if (tab === "관련 링크") return <LinkForm />;
   return <MembersPanel owner={owner} />;
+}
+
+/**
+ * 회원이 늘어나면 이름을 찾는 일이 먼저 힘들어진다. 아래 두 도구가 관리자
+ * 페이지의 회원 고르기를 모두 담당한다.
+ *
+ * `matches` 는 이름·이메일 어느 쪽으로 쳐도 걸리게 하고, 한글은 대소문자
+ * 구분이 없지만 이메일이 섞여 있어 소문자로 맞춰 비교한다.
+ */
+function matches(haystack: string, keyword: string) {
+  return haystack.toLocaleLowerCase("ko").includes(keyword.trim().toLocaleLowerCase("ko"));
+}
+
+/** 목록 위에 놓는 검색 상자. 값은 부르는 쪽이 들고 있는다. */
+function FilterBox({ value, onChange, placeholder, count }: { value: string; onChange: (next: string) => void; placeholder: string; count?: number }) {
+  return (
+    <div className="admin-filter">
+      <Search size={15} aria-hidden="true" />
+      <input type="search" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      {typeof count === "number" && <span>{count}명</span>}
+    </div>
+  );
+}
+
+/**
+ * 한 사람을 골라 붙이는 상자. 예전에는 `select` 하나에 회원 전체를 넣어 두었는데,
+ * 일흔 명이 넘어가면 원하는 이름까지 굴려 내려가야 한다. 검색으로 좁히고
+ * 좁혀진 목록에서 누르게 한다.
+ *
+ * `value` 가 있으면 고른 사람을 칩으로 보여 주고 검색 상자는 감춘다.
+ */
+function PersonPicker({ people, value, onSelect, placeholder, emptyLabel, clearLabel }: {
+  people: { id: string; name: string; detail?: string }[];
+  value?: string;
+  onSelect: (id: string | undefined) => void;
+  placeholder: string;
+  emptyLabel: string;
+  clearLabel: string;
+}) {
+  const [keyword, setKeyword] = useState("");
+  const chosen = people.find((person) => person.id === value);
+  const found = useMemo(() => {
+    if (!keyword.trim()) return people;
+    return people.filter((person) => matches(`${person.name} ${person.detail ?? ""}`, keyword));
+  }, [people, keyword]);
+
+  if (chosen) {
+    return (
+      <div className="person-picked">
+        <span><strong>{chosen.name}</strong>{chosen.detail && <small>{chosen.detail}</small>}</span>
+        <button type="button" className="text-button" onClick={() => { onSelect(undefined); setKeyword(""); }}>{clearLabel}</button>
+      </div>
+    );
+  }
+  if (!people.length) return <p className="form-note">{emptyLabel}</p>;
+  return (
+    <div className="person-picker">
+      <FilterBox value={keyword} onChange={setKeyword} placeholder={placeholder} />
+      <ul className="person-options">
+        {found.slice(0, 30).map((person) => (
+          <li key={person.id}>
+            <button type="button" onClick={() => { onSelect(person.id); setKeyword(""); }}>
+              <strong>{person.name}</strong>
+              {person.detail && <small>{person.detail}</small>}
+            </button>
+          </li>
+        ))}
+        {found.length === 0 && <li className="person-none">검색 결과가 없습니다.</li>}
+        {found.length > 30 && <li className="person-none">30명까지만 보입니다. 검색어를 더 좁혀 주세요.</li>}
+      </ul>
+    </div>
+  );
 }
 
 function useAdminRows(path: string) {
@@ -832,15 +904,17 @@ function MembersForm() {
                 />
               </label>
             </div>
-            <label>
-              연결할 계정
-              <select value={member.userId ?? ""} onChange={(event) => update(index, { userId: event.target.value || undefined })}>
-                <option value="">연결하지 않음</option>
-                {directory.map((person) => (
-                  <option value={person.id} key={person.id}>{person.name} · {person.email}</option>
-                ))}
-              </select>
-            </label>
+            <div className="field-block">
+              <span className="field-label">연결할 계정</span>
+              <PersonPicker
+                people={directory.map((person) => ({ id: person.id, name: person.name, detail: person.email }))}
+                value={member.userId}
+                onSelect={(id) => update(index, { userId: id })}
+                placeholder="이름이나 이메일로 검색"
+                emptyLabel="승인된 회원이 아직 없습니다."
+                clearLabel="연결 해제"
+              />
+            </div>
             <p className="form-note">
               계정을 연결하면 이 카드의 <b>사진과 소개말</b>은 본인이 마이페이지에서 설정한 값으로 표시되고,
               카드를 누르면 참여 중인 프로젝트가 함께 보입니다. 운영진은 이름·팀·역할·소속만 관리합니다.
@@ -974,13 +1048,16 @@ function TeamEditor({
               }
             />
           </label>
-          <label>
-            연결된 부원
-            <select value="" onChange={(event) => { const id = event.target.value; if (id && !(team.memberIds ?? []).includes(id)) update(index, { memberIds: [...(team.memberIds ?? []), id] }); }}>
-              <option value="">부원 프로필 연결</option>
-              {members.filter((member) => !(team.memberIds ?? []).includes(member.id)).map((member) => <option value={member.id} key={member.id}>{member.name} · {member.membership ?? "정회원"}</option>)}
-            </select>
-          </label>
+          <div className="field-block">
+            <span className="field-label">연결된 부원</span>
+            <PersonPicker
+              people={members.filter((member) => !(team.memberIds ?? []).includes(member.id)).map((member) => ({ id: member.id, name: member.name, detail: `${member.membership ?? "정회원"} · ${member.team}` }))}
+              onSelect={(id) => { if (id) update(index, { memberIds: [...(team.memberIds ?? []), id] }); }}
+              placeholder="부원 이름으로 검색"
+              emptyLabel="연결할 부원이 없습니다."
+              clearLabel="해제"
+            />
+          </div>
           {team.memberIds?.length ? <div className="org-editor-tags">{team.memberIds.map((id) => <button type="button" key={id} onClick={() => update(index, { memberIds: team.memberIds?.filter((memberId) => memberId !== id) })}>{members.find((member) => member.id === id)?.name ?? id} ×</button>)}</div> : null}
           <button
             type="button"
@@ -1317,6 +1394,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
   const [endsAt, setEndsAt] = useState("");
   const [description, setDescription] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [memberQuery, setMemberQuery] = useState("");
   const [published, setPublished] = useState(true);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   const { ask, dialogNode } = useAsk();
@@ -1468,22 +1546,38 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
           선택한 부원의 마이페이지에 이 프로젝트가 &ldquo;참여 중인 프로젝트&rdquo;로 표시됩니다.
         </p>
         {directory.length ? (
-          <div className="permission-grid">
-            {directory.map((person) => (
-              <label className="toggle-field" key={person.id}>
-                <input
-                  type="checkbox"
-                  checked={memberIds.includes(person.id)}
-                  onChange={(event) =>
-                    setMemberIds((current) =>
-                      event.target.checked ? [...current, person.id] : current.filter((id) => id !== person.id),
-                    )
-                  }
-                />
-                <span>{person.name}</span>
-              </label>
-            ))}
-          </div>
+          <>
+            {/* 고른 사람은 검색과 무관하게 항상 위에 남는다. 검색으로 목록이
+                좁아진 사이에 누구를 넣어 두었는지 놓치지 않도록. */}
+            {memberIds.length > 0 && (
+              <div className="picked-tags">
+                {memberIds.map((id) => (
+                  <button type="button" key={id} onClick={() => setMemberIds((current) => current.filter((each) => each !== id))}>
+                    {directory.find((person) => person.id === id)?.name ?? id} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            <FilterBox value={memberQuery} onChange={setMemberQuery} placeholder="이름이나 이메일로 검색" count={memberIds.length} />
+            <div className="permission-grid">
+              {directory
+                .filter((person) => !memberQuery.trim() || matches(`${person.name} ${person.email}`, memberQuery))
+                .map((person) => (
+                  <label className="toggle-field" key={person.id}>
+                    <input
+                      type="checkbox"
+                      checked={memberIds.includes(person.id)}
+                      onChange={(event) =>
+                        setMemberIds((current) =>
+                          event.target.checked ? [...current, person.id] : current.filter((id) => id !== person.id),
+                        )
+                      }
+                    />
+                    <span>{person.name}</span>
+                  </label>
+                ))}
+            </div>
+          </>
         ) : (
           <p className="form-note">승인된 회원이 아직 없습니다.</p>
         )}
@@ -1865,6 +1959,7 @@ function MembersPanel({ owner }: { owner: boolean }) {
   const [rows, setRows] = useState<AdminUserItem[] | null>(null);
   const [licenses, setLicenses] = useState<LicenseItem[]>([]);
   const [message, setMessage] = useState("");
+  const [query, setQuery] = useState("");
   const reload = useCallback(async () => {
     const response = await adminFetch("/admin/users").catch(() => null);
     if (!response?.ok) {
@@ -1904,6 +1999,8 @@ function MembersPanel({ owner }: { owner: boolean }) {
     if (response.ok) await reload();
   }
   const waiting = rows?.filter((row) => row.status === "PENDING") ?? [];
+  // 승인 대기는 늘 위에 다 보여 준다. 검색은 그 아래 전체 명단에만 건다.
+  const shown = (rows ?? []).filter((row) => !query.trim() || matches(`${row.name} ${row.email}`, query));
   return (
     <div className="admin-form">
       <p className="form-note">
@@ -1933,7 +2030,9 @@ function MembersPanel({ owner }: { owner: boolean }) {
         <p className="form-note">회원 목록을 불러오는 중입니다.</p>
       ) : rows.length ? (
         <div className="member-permission-list">
-          {rows.map((row) => (
+          <FilterBox value={query} onChange={setQuery} placeholder="이름이나 이메일로 회원 검색" count={shown.length} />
+          {shown.length === 0 && <p className="form-note">검색 결과가 없습니다.</p>}
+          {shown.map((row) => (
             <fieldset key={row.id}>
               <legend>
                 {row.name} {row.isOwner && <em>Owner</em>}
