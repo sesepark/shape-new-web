@@ -613,7 +613,7 @@ button { color:inherit; }
 
 .account-link span { display:none; }
 
-.all-menu { padding:22px 24px 60px; }
+.all-menu { padding:22px 24px max(60px,calc(env(safe-area-inset-bottom) + 60px)); }
 
 .all-menu-brand span { display:none; }
 
@@ -805,7 +805,10 @@ button { color:inherit; }
  }
 
 /* Administrator ergonomics */
-.all-menu { overflow:hidden; }
+/* 장식용 물결이 밖으로 새지 않게 가로만 자르고, 세로는 스크롤을 허용합니다.
+   전부 hidden 이면 화면이 짧은 폰에서 마지막 그룹과 로그인·마이페이지
+   줄이 잘린 채 닿지 않았습니다. */
+.all-menu { overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
 
 .admin-live-preview { min-width:0; margin-top:10px; padding-top:25px; overflow:hidden; border-top:1px solid #d5d9e1; }
 
