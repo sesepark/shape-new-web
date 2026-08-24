@@ -2735,3 +2735,27 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   border: 1px solid #e6e9f0;
   border-radius: 10px;
 }
+
+/* 이름이 안 맞아 후보가 안 뜰 때, 빈 카드에서 직접 고르는 자리. */
+.card-chooser {
+  margin-top: 10px;
+}
+
+.card-chooser input[type="search"] {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  border: 1px solid #d8dde7;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.card-chooser input[type="search"]:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.card-chooser .card-candidates {
+  max-height: 320px;
+  overflow-y: auto;
+}

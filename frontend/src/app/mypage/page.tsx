@@ -15,7 +15,7 @@ import { API_URL } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
 import { loadSession, useSession } from "@/lib/session";
 import { currentSubscription, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
-import type { MemberCardState, NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
+import type { MemberCardItem, MemberCardState, NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
 
 type EquipmentPermission = {
   equipmentId: string;
@@ -111,15 +111,20 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
  * 하나씩 맞춰 주는 대신, 각자 로그인해서 자기 카드를 집습니다. 이름이 같은
  * 카드만 후보로 나오고, 집으면 카드 사진이 내 프로필 사진이 됩니다.
  */
+const EMPTY_CARD_STATE: MemberCardState = { card: null, candidates: [], available: [], myName: "" };
+
 function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void }) {
   const [state, setState] = useState<MemberCardState | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  // 이름이 안 맞아 후보가 안 뜨는 경우가 있어, 비어 있는 카드에서 직접 고르는 길.
+  const [picking, setPicking] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
     void call("/auth/me/member-card", { signal: controller.signal })
-      .then(async (response) => setState(response.ok ? ((await response.json()) as MemberCardState) : { card: null, candidates: [] }))
+      .then(async (response) => setState(response.ok ? ((await response.json()) as MemberCardState) : EMPTY_CARD_STATE))
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
@@ -138,6 +143,8 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
       return;
     }
     setState((await response.json()) as MemberCardState);
+    setPicking(false);
+    setQuery("");
     // 카드 사진을 계정 사진으로 삼았을 수 있다. 옆의 계정 칸까지 같이 새로 읽는다.
     const user = await loadSession(true);
     if (user) onProfile(user);
@@ -154,6 +161,23 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
   }
 
   if (state === null) return null;
+  const free = state.available.filter((card) =>
+    `${card.name} ${card.team} ${card.role}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const row = (card: MemberCardItem, label: string) => (
+    <li key={card.id}>
+      {card.imageUrl
+        ? <Image src={media(card.imageUrl, 96)} alt="" width={44} height={44} unoptimized={!optimizable(card.imageUrl)} />
+        : <span className="account-initial">{card.name.slice(0, 1)}</span>}
+      <div>
+        <strong>{card.name}</strong>
+        <span>{[card.membership, card.team, card.role].filter(Boolean).join(" · ")}</span>
+      </div>
+      <button type="button" className="button small" disabled={busy} onClick={() => void claim(card.id)}>
+        {label}
+      </button>
+    </li>
+  );
   return (
     <section className="my-member-card">
       <p className="meta">MEMBER CARD</p>
@@ -176,31 +200,46 @@ function MyMemberCard({ onProfile }: { onProfile: (user: SessionUser) => void })
             연결 해제
           </button>
         </>
-      ) : state.candidates.length ? (
-        <>
-          <p className="form-note">이름이 같은 부원 카드를 찾았습니다. 내 카드가 맞으면 연결해 주세요.</p>
-          <ul className="card-candidates">
-            {state.candidates.map((card) => (
-              <li key={card.id}>
-                {card.imageUrl
-                  ? <Image src={media(card.imageUrl, 96)} alt="" width={44} height={44} unoptimized={!optimizable(card.imageUrl)} />
-                  : <span className="account-initial">{card.name.slice(0, 1)}</span>}
-                <div>
-                  <strong>{card.name}</strong>
-                  <span>{[card.membership, card.team, card.role].filter(Boolean).join(" · ")}</span>
-                </div>
-                <button type="button" className="button small" disabled={busy} onClick={() => void claim(card.id)}>
-                  내 카드입니다
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
       ) : (
-        <p className="empty-inline">
-          이름이 같은 부원 카드를 찾지 못했습니다. 마이페이지의 이름을 부원 페이지에 적힌 이름과 같게 맞추거나,
-          운영진에게 문의해 주세요.
-        </p>
+        <>
+          {state.candidates.length > 0 && (
+            <>
+              <p className="form-note">이름이 같은 부원 카드를 찾았습니다. 내 카드가 맞으면 연결해 주세요.</p>
+              <ul className="card-candidates">{state.candidates.map((card) => row(card, "내 카드입니다"))}</ul>
+            </>
+          )}
+          {state.candidates.length === 0 && (
+            <p className="form-note">
+              내 계정 이름 <b>{state.myName}</b> 과 같은 부원 카드를 찾지 못했습니다. 구글 계정 이름이 영문이거나
+              띄어쓰기가 다르면 이렇게 됩니다. 아래에서 <b>내 카드를 직접 고르면</b> 됩니다.
+            </p>
+          )}
+          {picking || state.candidates.length === 0 ? (
+            state.available.length ? (
+              <div className="card-chooser">
+                <input
+                  type="search"
+                  value={query}
+                  placeholder="이름·팀·역할로 카드 찾기"
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <ul className="card-candidates">{free.slice(0, 8).map((card) => row(card, "이 카드"))}</ul>
+                {free.length > 8 && <p className="field-hint">{free.length - 8}장 더 있습니다. 이름을 입력해 좁혀 주세요.</p>}
+                {free.length === 0 && <p className="empty-inline">찾는 이름의 빈 카드가 없습니다.</p>}
+                <p className="field-hint">
+                  아직 아무도 연결하지 않은 카드만 보입니다. 한 카드에는 한 사람만 연결할 수 있습니다.
+                  <b> 내 카드가 맞는지 확인하고</b> 눌러 주세요.
+                </p>
+              </div>
+            ) : (
+              <p className="empty-inline">비어 있는 부원 카드가 없습니다. 운영진에게 문의해 주세요.</p>
+            )
+          ) : (
+            <button type="button" className="text-button" onClick={() => setPicking(true)}>
+              내 카드가 목록에 없어요 · 직접 고르기
+            </button>
+          )}
+        </>
       )}
       {message && <p className="form-note">{message}</p>}
     </section>

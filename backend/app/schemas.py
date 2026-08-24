@@ -70,10 +70,18 @@ class MemberCardItem(ORMModel):
 
 
 class MemberCardRead(ORMModel):
-    """내게 연결된 카드와, 아직이라면 내 것으로 보이는 후보."""
+    """내게 연결된 카드, 이름이 같은 후보, 그리고 아직 비어 있는 카드 전부.
+
+    이름이 다르게 적혀 있으면 후보가 뜨지 않습니다(구글 계정 이름이 영문이거나
+    띄어쓰기가 다른 경우). 그때도 본인이 목록에서 직접 고를 수 있도록 비어 있는
+    카드를 함께 보냅니다. `my_name` 은 왜 후보가 안 뜨는지 화면에서 알려 주기
+    위한 것입니다.
+    """
 
     card: MemberCardItem | None = None
     candidates: list[MemberCardItem] = []
+    available: list[MemberCardItem] = []
+    my_name: str = ""
 
 
 class MemberCardClaim(InputModel):

@@ -1,4 +1,5 @@
 import logging
+import unicodedata
 
 from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.starlette_client import OAuth
@@ -106,12 +107,27 @@ async def me(user: User | None = Depends(optional_user), db: AsyncSession = Depe
     return await session_for(db, user) if user else None
 
 
+def plain(text: str) -> str:
+    """이름을 견주기 좋게 다듬습니다.
+
+    같은 '장하람' 이라도 자모가 풀려 저장된 글자(NFD)와 모아진 글자(NFC)는 파이썬
+    에서 다른 문자열입니다. 실제로 맥에서 만든 파일 이름이 자모가 풀린 채로 들어온
+    적이 있습니다. 띄어쓰기도 사람마다 다르게 넣으므로 함께 지웁니다.
+    """
+    return unicodedata.normalize("NFC", text or "").replace(" ", "").strip()
+
+
+def unclaimed(cards: list[dict]) -> list[dict]:
+    """아직 아무 계정도 집지 않은 카드."""
+    return [card for card in cards if not card.get("userId")]
+
+
 def name_matches(cards: list[dict], user: User) -> list[MemberCardItem]:
     """아직 아무도 집지 않은, 이름이 같은 카드들."""
     return [
         MemberCardItem(**card_fields(card))
-        for card in cards
-        if not card.get("userId") and card.get("name", "").strip() == user.name.strip()
+        for card in unclaimed(cards)
+        if plain(card.get("name", "")) == plain(user.name)
     ]
 
 
@@ -121,22 +137,31 @@ async def my_member_card(user: User = Depends(reading_user), db: AsyncSession = 
 
     부원 카드와 구글 계정을 잇는 일은 본인이 합니다. 운영진이 마흔 명을 하나씩
     맞춰 주는 것보다, 각자 로그인해서 자기 카드를 집는 편이 정확하고 빠릅니다.
-    후보는 이름이 같은 카드입니다. 없으면 빈 목록이 갑니다.
+    후보는 이름이 같은 카드입니다. 다만 구글 계정 이름이 영문이거나 띄어쓰기가
+    달라 하나도 걸리지 않는 경우가 있어, **아직 비어 있는 카드 전부**도 함께
+    보냅니다. 본인이 목록에서 직접 고를 수 있게 하기 위해서입니다.
     """
     cards = await member_cards(db)
     mine = next((card for card in cards if str(card.get("userId") or "") == str(user.id)), None)
     if mine:
-        return MemberCardRead(card=MemberCardItem(**card_fields(mine)), candidates=[])
-    return MemberCardRead(card=None, candidates=name_matches(cards, user))
+        return MemberCardRead(card=MemberCardItem(**card_fields(mine)), candidates=[], available=[], my_name=user.name)
+    return MemberCardRead(
+        card=None,
+        candidates=name_matches(cards, user),
+        available=[MemberCardItem(**card_fields(card)) for card in unclaimed(cards)],
+        my_name=user.name,
+    )
 
 
 @router.post("/me/member-card", response_model=MemberCardRead)
 async def claim_member_card(payload: MemberCardClaim, user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
     """내 부원 카드를 집습니다.
 
-    이름이 같은 카드만 집을 수 있습니다. 남의 카드를 집으면 그 사람의 사진과
-    소개말 자리에 내 것이 나가므로, 이름이 다르면 거절합니다. 이미 다른 계정이
-    집은 카드도 거절합니다.
+    **아직 비어 있는 카드면 이름이 달라도 집을 수 있습니다.** 구글 계정 이름이
+    영문이거나 띄어쓰기가 달라 이름이 안 맞는 경우가 흔한데, 로그인 자체가 승인된
+    부원에게만 열려 있으므로 이름을 강제하는 쪽의 손해가 더 큽니다. 다만 **이미
+    다른 계정이 집은 카드는 거절합니다.** 한 카드에 두 사람이 붙으면 누구의 사진과
+    소개말이 나가야 하는지 정할 수 없기 때문입니다.
 
     카드에 사진이 있고 내 계정 사진이 아직 구글에서 가져온 것 그대로이면,
     카드 사진을 내 사진으로 삼습니다. 두 사진이 갈려 있던 것을 하나로 모으는
@@ -148,8 +173,6 @@ async def claim_member_card(payload: MemberCardClaim, user: User = Depends(readi
         raise HTTPException(404, "부원 카드를 찾을 수 없습니다.")
     if target.get("userId") and str(target["userId"]) != str(user.id):
         raise HTTPException(409, "이미 다른 계정이 연결한 카드입니다. 운영진에게 문의해 주세요.")
-    if target.get("name", "").strip() != user.name.strip():
-        raise HTTPException(403, "이름이 같은 카드만 연결할 수 있습니다. 이름이 다르면 운영진에게 문의해 주세요.")
     # 한 계정은 카드 하나만 가진다. 예전에 집은 카드가 있으면 놓는다.
     updated = []
     for card in cards:
@@ -165,7 +188,7 @@ async def claim_member_card(payload: MemberCardClaim, user: User = Depends(readi
     await db.commit()
     refresh("pages")
     mine = next(card for card in updated if str(card.get("id")) == payload.card_id)
-    return MemberCardRead(card=MemberCardItem(**card_fields(mine)), candidates=[])
+    return MemberCardRead(card=MemberCardItem(**card_fields(mine)), candidates=[], available=[], my_name=user.name)
 
 
 @router.delete("/me/member-card", response_model=MemberCardRead)
@@ -186,7 +209,12 @@ async def release_member_card(user: User = Depends(reading_user), db: AsyncSessi
     page.content_json = {**(page.content_json or {}), "members": released}
     await db.commit()
     refresh("pages")
-    return MemberCardRead(card=None, candidates=name_matches(released, user))
+    return MemberCardRead(
+        card=None,
+        candidates=name_matches(released, user),
+        available=[MemberCardItem(**card_fields(card)) for card in unclaimed(released)],
+        my_name=user.name,
+    )
 
 
 @router.patch("/me", response_model=SessionUser)

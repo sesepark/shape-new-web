@@ -1055,8 +1055,10 @@ async def test_a_member_claims_their_own_card(client, session):
     assert found["card"] is None
     assert [row["id"] for row in found["candidates"]] == ["card-1"]
 
-    # 남의 카드는 집을 수 없다.
-    assert (await http.post("/api/v1/auth/me/member-card", json={"cardId": "card-2"})).status_code == 403
+    # 비어 있는 카드는 이름이 달라도 고를 수 있다. 구글 계정 이름이 영문이라
+    # 후보가 하나도 안 뜨는 경우가 흔해서, 본인이 직접 고르는 길을 열어 두었다.
+    assert [row["id"] for row in found["available"]] == ["card-1", "card-2"]
+    assert found["myName"] == "오유하"
     assert (await http.post("/api/v1/auth/me/member-card", json={"cardId": "없는카드"})).status_code == 404
 
     claimed = await http.post("/api/v1/auth/me/member-card", json={"cardId": "card-1"})
@@ -1070,11 +1072,13 @@ async def test_a_member_claims_their_own_card(client, session):
     page = (await client.get("/api/v1/pages/members")).json()
     assert page["contentJson"]["members"][0]["userId"] == str(mine.id)
 
-    # 이미 집힌 카드는 남이 집을 수 없다.
+    # 이미 집힌 카드는 남이 집을 수 없다. 비어 있는 카드 목록에서도 빠진다.
     thief = await make_user(session, "thief@example.com")
     thief.name = "오유하"
     await session.commit()
-    assert (await login(client, thief).post("/api/v1/auth/me/member-card", json={"cardId": "card-1"})).status_code == 409
+    thief_http = login(client, thief)
+    assert (await thief_http.post("/api/v1/auth/me/member-card", json={"cardId": "card-1"})).status_code == 409
+    assert [row["id"] for row in (await thief_http.get("/api/v1/auth/me/member-card")).json()["available"]] == ["card-2"]
 
     # 놓으면 카드는 남고 연결만 사라진다.
     http = login(client, mine)
@@ -1102,3 +1106,19 @@ async def test_claiming_moves_the_link_from_an_older_card(client, session):
     cards = (await client.get("/api/v1/pages/members")).json()["contentJson"]["members"]
     assert "userId" not in cards[0]
     assert cards[1]["userId"] == str(user.id)
+
+
+async def test_a_name_written_with_split_jamo_still_matches(client, session):
+    """자모가 풀려 저장된 이름(NFD)도 같은 이름으로 본다.
+
+    맥에서 만든 자료가 자모가 풀린 채로 들어온 적이 있어, 눈으로는 같은 '장하람'
+    인데 후보가 뜨지 않았다. 띄어쓰기 차이도 같이 흡수한다.
+    """
+    import unicodedata
+
+    user = await make_user(session, "haram@example.com")
+    user.name = "장 하람"
+    await session.commit()
+    await member_page_with(session, [{"id": "card-1", "name": unicodedata.normalize("NFD", "장하람")}])
+    found = (await login(client, user).get("/api/v1/auth/me/member-card")).json()
+    assert [row["id"] for row in found["candidates"]] == ["card-1"]

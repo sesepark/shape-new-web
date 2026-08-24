@@ -111,7 +111,12 @@ export interface MemberCardItem {
 
 export interface MemberCardState {
   card: MemberCardItem | null;
+  /** 내 계정 이름과 같은 카드. 이름이 다르게 적혀 있으면 비어 있습니다. */
   candidates: MemberCardItem[];
+  /** 아직 아무도 연결하지 않은 카드 전부. 직접 고를 때 씁니다. */
+  available: MemberCardItem[];
+  /** 내 계정에 저장된 이름. 왜 후보가 안 뜨는지 알려 줄 때 씁니다. */
+  myName: string;
 }
 
 export interface DirectoryUser {
