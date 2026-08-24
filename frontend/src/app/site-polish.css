@@ -1765,3 +1765,158 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
     transparent 78%
   );
 }
+
+/* ==========================================================================
+   관리자 — 저장 결과 알림
+   --------------------------------------------------------------------------
+   예전에는 실패한 안내도 성공과 똑같은 초록 상자로 나와서, 저장이 안 됐는데도
+   된 것처럼 보였습니다. 실패는 붉은색으로 갈라 놓습니다.
+   ========================================================================== */
+
+.save-notice { border-radius: 10px; font-size: 14px; }
+
+.save-notice.danger { color: #8a1c32; background: #fdecef; }
+
+/* ==========================================================================
+   홈 — 새로 더한 내용과 모바일 다듬기
+   --------------------------------------------------------------------------
+   **모바일이 먼저입니다.** 홈은 한 화면이 한 장인 구조라, 좁은 화면에서 한 장이
+   화면 높이를 넘으면 다음 장이 반쯤 보이는 어정쩡한 상태가 됩니다. 아래 값은
+   360×640 기준으로 한 장이 화면에 들어오도록 맞춘 것입니다. 홈에 무엇을 더할
+   때는 이 기준을 다시 확인해 주세요.
+   ========================================================================== */
+
+.home-footnote {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.home-contests { margin: 0 0 22px; padding: 0; list-style: none; display: grid; gap: 10px; }
+
+.home-contests li {
+  padding: 13px 16px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-left: 3px solid #5c86ff;
+  border-radius: 0 var(--media-radius-inline) var(--media-radius-inline) 0;
+  background: rgba(255, 255, 255, .05);
+}
+
+.home-contests strong { font-size: 15px; letter-spacing: -.035em; line-height: 1.4; word-break: keep-all; }
+
+.home-contests small { color: #b3c6f2; font-size: 12px; }
+
+/* --- 좁은 화면 --------------------------------------------------------- */
+
+@media (max-width: 680px) {
+  /* 한 장이 화면 높이를 넘지 않도록 위아래 여백과 사이 간격을 화면에 묶는다.
+     svh 는 주소 표시줄이 나와 있는 가장 좁은 상태의 높이라, 사파리에서 표시줄이
+     나와 있어도 넘치지 않는다. */
+  .home-numbers,
+  .home-next { padding: clamp(44px, 7svh, 84px) 22px; gap: clamp(18px, 3svh, 34px); }
+
+  .home-introduction { padding: clamp(52px, 8svh, 96px) 22px; }
+
+  .home-section-head { gap: 9px; }
+
+  .home-section-head > h2 { font-size: clamp(27px, 8vw, 36px); }
+
+  /* 숫자는 두 칸을 유지한다. 한 줄로 세우면 네 줄이 되어 화면을 넘는다. */
+  .home-fact-grid > div { padding: 15px 14px; gap: 5px; }
+
+  .home-fact-grid dt { font-size: 11px; }
+
+  .home-fact-grid dd strong { font-size: 27px; }
+
+  .home-fact-grid dd i { font-size: 12px; }
+
+  .home-fact-grid p { font-size: 11.5px; line-height: 1.5; }
+
+  .home-week li { padding: 11px 14px; gap: 11px; }
+
+  .home-week b { width: 31px; height: 31px; font-size: 14px; }
+
+  .home-week strong { font-size: 15px; }
+
+  .home-week small { font-size: 12px; }
+
+  .home-footnote { font-size: 12px; }
+
+  /* 분야는 여섯 칸이라 한 줄로 세우면 여섯 줄이 된다. 두 칸을 유지하고 좁은
+     화면에서는 주제 줄을 접어 이름만 보여 준다. 자세한 주제는 소개 페이지에 있다. */
+  .home-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0 18px; }
+
+  .home-fields li { padding: 11px 12px; gap: 2px; }
+
+  .home-fields small { display: none; }
+
+  .home-fields strong { font-size: 13px; line-height: 1.3; }
+
+  .home-slogan { margin-top: 18px; font-size: 15px; }
+
+  .home-contests li { padding: 10px 13px; }
+
+  .home-contests strong { font-size: 13.5px; }
+
+  .home-timeline li { padding: 13px 0 13px 20px; }
+
+  .home-timeline li::before { top: 19px; width: 7px; height: 7px; }
+
+  .home-timeline strong { font-size: 16px; }
+
+  .home-timeline time { font-size: 12px; }
+
+  .home-platforms li { padding: 6px 11px; font-size: 12.5px; }
+
+  .home-platforms p { margin-bottom: 14px; font-size: 13.5px; }
+}
+
+/* ==========================================================================
+   스크롤 진행 막대
+   --------------------------------------------------------------------------
+   홈에서 지금 어디쯤 왔는지 화면 맨 위에서 보여 줍니다. `animation-timeline`
+   이 문서 스크롤 자체를 재생 위치로 쓰므로 자바스크립트도 스크롤 이벤트도
+   필요하지 않습니다. 지원하지 않는 브라우저에서는 아예 그리지 않습니다.
+   ========================================================================== */
+
+@supports (animation-timeline: scroll()) {
+  .shape-home::before {
+    content: "";
+    position: fixed;
+    z-index: 70;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    transform-origin: 0 50%;
+    background: linear-gradient(90deg, var(--blue), #7aa2ff);
+    animation: home-progress-bar linear both;
+    animation-timeline: scroll(root block);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shape-home::before { display: none; }
+  }
+}
+
+@keyframes home-progress-bar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 세 단계 카드도 스크롤을 따라 차례로 올라옵니다. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .home-pillars article,
+    .home-contests li,
+    .home-footnote {
+      animation: home-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 32%;
+    }
+  }
+}

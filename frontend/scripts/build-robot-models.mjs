@@ -31,7 +31,12 @@ function vector(value, name, fallback = [0, 0, 0]) {
 function matrixFor(origin) {
   const [x, y, z] = vector(origin, "xyz");
   const [r, p, yaw] = vector(origin, "rpy");
-  return new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(r, p, yaw, "XYZ")), new Vector3(1, 1, 1));
+  // URDF 의 rpy 는 **고정축** 순서다. 부모 좌표계에서 X(roll) → Y(pitch) → Z(yaw)
+  // 순으로 돌리므로 행렬로는 Rz·Ry·Rx 가 된다. three 의 Euler 는 order 가 곱하는
+  // 순서를 뜻해서 같은 값을 얻으려면 "ZYX" 를 써야 한다. "XYZ" 를 쓰면 Rx·Ry·Rz
+  // 가 되어, rpy 성분이 둘 이상인 관절만 골라 엉뚱한 자리에 붙는다.
+  // (SO-ARM 101 의 집게가 팔에서 떨어져 공중에 떠 보이던 원인이 이것이었다.)
+  return new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(r, p, yaw, "ZYX")), new Vector3(1, 1, 1));
 }
 async function filesByName(root) {
   const found = new Map();
@@ -72,7 +77,7 @@ function parseRobot(xml) {
   }
   return { links, joints };
 }
-async function exportModel({ name, urdf, meshRoot }) {
+async function exportModel({ name, urdf, meshRoot, ratio = 0.12, error = 0.006 }) {
   const xml = await readFile(urdf, "utf8");
   const { links, joints } = parseRobot(xml);
   const meshPaths = await filesByName(meshRoot);
@@ -130,7 +135,7 @@ async function exportModel({ name, urdf, meshRoot }) {
   // covers roughly 3 mm of the real robot. A 0.6% error budget therefore stays
   // under a pixel, and it — not the ratio — is what stops the collapse: the
   // exported bounding boxes match the originals to four decimals.
-  await run(cli, ["simplify", source, simplified, "--ratio", "0.12", "--error", "0.006"]);
+  await run(cli, ["simplify", source, simplified, "--ratio", String(ratio), "--error", String(error)]);
   await run(cli, ["meshopt", simplified, destination, "--level", "medium"]);
   await rm(simplified);
   if (!process.env.KEEP_ROBOT_SOURCE) await rm(source);
@@ -162,13 +167,24 @@ const sources = [
     repository: "https://github.com/ROBOTIS-GIT/open_manipulator.git",
   },
   {
-    // The maintained description is a xacro tree; `urdf/legacy` holds the same
-    // arm already flattened to plain URDF (identical link and joint names), so
-    // it is what this exporter reads.
+    // 이 팔만은 만든 곳의 저장소를 그대로 씁니다. 예전에는 제3자가 ROS 패키지로
+    // 다시 포장한 것을 읽었는데, 부품이 깨져 보였습니다. 공식 저장소의
+    // `Simulation/SO101` 에 온셰이프에서 바로 내보낸 URDF 와 STL 이 함께
+    // 들어 있습니다. 링크와 조인트 이름은 같아서 화면 쪽 자세 코드는 그대로입니다.
+    //
+    // 팔로워(follower)가 맞습니다. SO-101 은 사람이 잡고 움직이는 리더와 그것을
+    // 따라 움직이는 팔로워가 한 쌍인데, 집게로 물건을 잡는 쪽이 팔로워이고
+    // 공식 저장소의 시뮬레이션 모델도 이 팔입니다.
     name: "so-arm101",
-    root: process.env.SO_ARM101_ROOT ?? "/tmp/shape-so101/so101_description",
-    urdf: "urdf/legacy/so101_follower.urdf",
-    repository: "https://github.com/legalaspro/so101-ros-physical-ai.git",
+    root: process.env.SO_ARM101_ROOT ?? "/tmp/so-arm100-official/Simulation/SO101",
+    urdf: "so101_new_calib.urdf",
+    meshes: ".",
+    repository: "https://github.com/TheRobotStudio/SO-ARM100.git",
+    // 실물이 24cm 남짓이라 부품 하나하나가 작습니다. 다른 로봇과 같은 12% 로
+    // 줄이면 모터 마운트의 구멍과 집게 이가 뭉개져 관절이 깨져 보입니다.
+    // 이 팔은 원래 삼각형 수가 적어 절반만 줄여도 파일이 충분히 가볍습니다.
+    ratio: 0.2,
+    error: 0.002,
   },
 ];
 
@@ -180,5 +196,11 @@ for (const source of sources) {
     console.error(`Skipping ${source.name}: clone ${source.repository} and set the source root (${source.root} not found).`);
     continue;
   }
-  await exportModel({ name: source.name, urdf, meshRoot: path.join(source.root, "meshes") });
+  await exportModel({
+    name: source.name,
+    urdf,
+    meshRoot: path.join(source.root, source.meshes ?? "meshes"),
+    ratio: source.ratio,
+    error: source.error,
+  });
 }

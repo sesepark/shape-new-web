@@ -20,6 +20,8 @@ const REVEAL = [
   ".home-fact-grid > div",
   ".home-week li",
   ".home-platforms",
+  ".home-contests li",
+  ".home-footnote",
   ".home-timeline li",
 ].join(", ");
 

@@ -72,6 +72,12 @@ const FIELDS = [
 /** 지난 학기에 실제로 운용한 플랫폼. 2기 모집 안내의 목록입니다. */
 const PLATFORMS = ["Unitree G1", "AI Worker", "AI Sapiens", "OMY", "SO-ARM 101"];
 
+/** 2기가 준비하는 두 대회. 일정과 장소는 2기 운영 계획서의 값입니다. */
+const CONTESTS = [
+  { name: "마트 환경 기반 휴머노이드 로봇 챌린지", when: "본선 2026년 11월 13~14일", where: "대구 EXCO" },
+  { name: "RoboCup@Home", when: "1차 지원 2026년 11월 · 본선 2027년 6월", where: "독일 뉘른베르크" },
+];
+
 const 다가오는일정 = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 
 export default async function HomePage() {
@@ -144,6 +150,9 @@ export default async function HomePage() {
             </li>
           ))}
         </ul>
+        <p className="home-footnote">
+          지도교수 임종우 · 활동 공간 서울대학교 301동 109호 · 2기 마무리는 2027년 1월 30일 Demo Day입니다.
+        </p>
       </section>
 
       <section className="home-next" id="shape-next" aria-labelledby="home-next-title">
@@ -158,6 +167,14 @@ export default async function HomePage() {
             <p>휴머노이드부터 매니퓰레이터까지 실물 위에서 직접 다뤘습니다.</p>
             <Link href="/equipment">보유 장비 보기 <ArrowUpRight size={15} /></Link>
           </div>
+          <ul className="home-contests" aria-label="준비 중인 대회">
+            {CONTESTS.map((contest) => (
+              <li key={contest.name}>
+                <strong>{contest.name}</strong>
+                <small>{contest.when} · {contest.where}</small>
+              </li>
+            ))}
+          </ul>
           {schedule.length > 0 && (
             <ol className="home-timeline">
               {schedule.map((item) => (

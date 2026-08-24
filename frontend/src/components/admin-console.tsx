@@ -330,6 +330,25 @@ function PersonPicker({ people, value, onSelect, placeholder, emptyLabel, clearL
   );
 }
 
+/**
+ * 저장 결과 알림.
+ *
+ * 예전에는 패널마다 문자열 하나를 들고 있었는데 두 가지 문제가 있었습니다.
+ * 첫째, 실패한 안내도 성공과 똑같은 초록 상자로 나왔습니다. 둘째, 저장에
+ * 성공하면 곧바로 목록을 다시 읽어 오는데 그 함수가 알림을 지워 버려서,
+ * "권한을 변경했습니다" 가 떴다가 순식간에 사라졌습니다.
+ *
+ * 알림을 성공 여부와 함께 들고 있고, 목록을 다시 읽는 일과 분리했습니다.
+ */
+function useNotice() {
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const say = useCallback((text: string, ok = true) => setNotice(text ? { text, ok } : null), []);
+  const node = notice
+    ? <p className={`save-notice${notice.ok ? "" : " danger"}`} role="status">{notice.text}</p>
+    : null;
+  return { say, node };
+}
+
 function useAdminRows(path: string) {
   const [rows, setRows] = useState<AdminRow[]>(emptyRows);
   const reload = useCallback(async () => {
@@ -1158,31 +1177,53 @@ function OrganizationForm() {
   );
 }
 
+/** 호기 상태 고르기에 쓰는 이름. 알림 문구와 드롭다운이 같은 말을 쓰도록 모아 둡니다. */
+const unitStatusLabel: Record<string, string> = {
+  ACTIVE: "예약 가능",
+  MAINTENANCE: "점검 중",
+  INACTIVE: "운영 중지",
+};
+
 function UnitEditor({ equipment, onChanged }: { equipment: AdminEquipmentItem; onChanged: () => void }) {
   const { ask, dialogNode } = useAsk();
   const [label, setLabel] = useState("");
-  const [message, setMessage] = useState("");
+  const { say, node: notice } = useNotice();
   async function add() {
     if (!label.trim()) {
-      setMessage("호기 이름을 입력해 주세요.");
+      say("호기 이름을 입력해 주세요.", false);
       return;
     }
-    const response = await adminSend(`/admin/equipment/${equipment.id}/units`, "POST", { label: label.trim(), status: "ACTIVE" });
-    setMessage(response.ok ? "" : "호기를 추가하지 못했습니다.");
-    if (response.ok) {
-      setLabel("");
-      onChanged();
+    const wanted = label.trim();
+    const response = await adminSend(`/admin/equipment/${equipment.id}/units`, "POST", { label: wanted, status: "ACTIVE" });
+    if (!response.ok) {
+      say("호기를 추가하지 못했습니다.", false);
+      return;
     }
+    // 성공했을 때 알림을 비워 두면 눌렸는지 아닌지 알 수 없습니다.
+    say(`‘${wanted}’ 호기를 추가했습니다.`);
+    setLabel("");
+    onChanged();
   }
   async function setStatus(unitId: string, unitLabel: string, status: string) {
-    if ((await adminSend(`/admin/equipment/units/${unitId}`, "PATCH", { label: unitLabel, status })).ok) onChanged();
+    const response = await adminSend(`/admin/equipment/units/${unitId}`, "PATCH", { label: unitLabel, status });
+    if (!response.ok) {
+      // 예전에는 실패해도 아무 말이 없어서 바뀐 줄 알고 지나쳤습니다.
+      say(`‘${unitLabel}’ 상태를 바꾸지 못했습니다.`, false);
+      return;
+    }
+    say(`‘${unitLabel}’ 상태를 ${unitStatusLabel[status] ?? status}(으)로 바꿨습니다.`);
+    onChanged();
   }
   async function remove(unitId: string) {
     const confirmed = await ask({ title: "이 호기를 삭제할까요?", description: "예약 이력이 있으면 삭제가 거절됩니다. 그럴 때는 상태를 '점검 중'으로 바꿔 주세요.", confirmLabel: "삭제", tone: "danger" });
     if (confirmed === null) return;
     const response = await adminFetch(`/admin/equipment/units/${unitId}`, { method: "DELETE" });
-    setMessage(response.ok ? "" : "예약 이력이 있는 호기는 삭제할 수 없습니다. 점검 중으로 바꿔 주세요.");
-    if (response.ok) onChanged();
+    if (!response.ok) {
+      say("예약 이력이 있는 호기는 삭제할 수 없습니다. 점검 중으로 바꿔 주세요.", false);
+      return;
+    }
+    say("호기를 삭제했습니다.");
+    onChanged();
   }
   return (
     <div className="unit-editor">
@@ -1194,9 +1235,9 @@ function UnitEditor({ equipment, onChanged }: { equipment: AdminEquipmentItem; o
             <li key={unit.id}>
               <span>{unit.label}</span>
               <select value={unit.status} onChange={(event) => setStatus(unit.id, unit.label, event.target.value)}>
-                <option value="ACTIVE">예약 가능</option>
-                <option value="MAINTENANCE">점검 중</option>
-                <option value="INACTIVE">운영 중지</option>
+                {Object.entries(unitStatusLabel).map(([value, text]) => (
+                  <option value={value} key={value}>{text}</option>
+                ))}
               </select>
               <button type="button" className="text-button danger" onClick={() => remove(unit.id)}>
                 <Trash2 size={14} /> 삭제
@@ -1213,7 +1254,7 @@ function UnitEditor({ equipment, onChanged }: { equipment: AdminEquipmentItem; o
           <Plus size={15} /> 호기 추가
         </button>
       </div>
-      {message && <p className="save-notice">{message}</p>}
+      {notice}
       {dialogNode}
     </div>
   );
@@ -1820,23 +1861,24 @@ function ReservationsPanel() {
   const { ask, dialogNode } = useAsk();
   const [rows, setRows] = useState<AdminReservationItem[] | null>(null);
   const [filter, setFilter] = useState("PENDING");
-  const [message, setMessage] = useState("");
+  const { say, node: notice } = useNotice();
   const reload = useCallback(async () => {
     const query = filter === "ALL" ? "" : `?status=${filter}`;
     const response = await adminFetch(`/admin/reservations${query}`).catch(() => null);
     if (!response) {
-      setMessage("백엔드 서버에 연결하지 못했습니다.");
+      say("백엔드 서버에 연결하지 못했습니다.", false);
       setRows([]);
       return;
     }
     if (!response.ok) {
-      setMessage("목록을 확인하려면 예약 관리 권한이 필요합니다.");
+      say("목록을 확인하려면 예약 관리 권한이 필요합니다.", false);
       setRows([]);
       return;
     }
-    setMessage("");
+    // 여기서 알림을 지우지 않습니다. 승인·반려 직후에도 목록을 다시 읽는데,
+    // 그때 지워 버리면 "승인했습니다" 가 떴다가 곧바로 사라집니다.
     setRows((await response.json()) as AdminReservationItem[]);
-  }, [filter]);
+  }, [filter, say]);
   useEffect(() => {
     const load = async () => { await reload(); };
     void load();
@@ -1861,8 +1903,15 @@ function ReservationsPanel() {
       if (reason === null) return;
     }
     const response = await adminSend(`/admin/reservations/${row.id}/decision`, "POST", { approve, reason });
-    setMessage(response.ok ? (approve ? "승인했습니다." : "반려했습니다.") : "처리하지 못했습니다. 같은 시간에 확정된 예약이 있는지 확인해 주세요.");
-    if (response.ok) await reload();
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
+      say(detail?.detail ?? "처리하지 못했습니다. 같은 시간에 확정된 예약이 있는지 확인해 주세요.", false);
+      return;
+    }
+    say(approve
+      ? `${row.userName} 님의 ${row.equipmentName} 예약을 승인했습니다.`
+      : `${row.userName} 님의 ${row.equipmentName} 예약을 반려했습니다.`);
+    await reload();
   }
   async function cancel(row: AdminReservationItem) {
     const reason = await ask({
@@ -1874,8 +1923,13 @@ function ReservationsPanel() {
     });
     if (reason === null) return;
     const response = await adminSend(`/admin/reservations/${row.id}/cancel`, "POST", { approve: false, reason });
-    setMessage(response.ok ? "예약을 취소하고 시간을 다시 열었습니다." : "취소하지 못했습니다.");
-    if (response.ok) await reload();
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
+      say(detail?.detail ?? "취소하지 못했습니다.", false);
+      return;
+    }
+    say("예약을 취소하고 시간을 다시 열었습니다.");
+    await reload();
   }
   return (
     <div className="admin-form">
@@ -1889,7 +1943,7 @@ function ReservationsPanel() {
           </button>
         ))}
       </div>
-      {message && <p className="save-notice">{message}</p>}
+      {notice}
       {rows === null ? (
         <p className="form-note">예약 목록을 불러오는 중입니다.</p>
       ) : rows.length ? (
@@ -1958,18 +2012,17 @@ function ReservationsPanel() {
 function MembersPanel({ owner }: { owner: boolean }) {
   const [rows, setRows] = useState<AdminUserItem[] | null>(null);
   const [licenses, setLicenses] = useState<LicenseItem[]>([]);
-  const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
+  const { say, node: notice } = useNotice();
   const reload = useCallback(async () => {
     const response = await adminFetch("/admin/users").catch(() => null);
     if (!response?.ok) {
-      setMessage(response ? "회원 관리는 Owner만 수행할 수 있습니다." : "백엔드 서버에 연결하지 못했습니다.");
+      say(response ? "회원 관리는 Owner만 수행할 수 있습니다." : "백엔드 서버에 연결하지 못했습니다.", false);
       setRows([]);
       return;
     }
-    setMessage("");
     setRows((await response.json()) as AdminUserItem[]);
-  }, []);
+  }, [say]);
   useEffect(() => {
     const load = async () => { await reload(); };
     void load();
@@ -1979,24 +2032,70 @@ function MembersPanel({ owner }: { owner: boolean }) {
       })
       .catch(() => undefined);
   }, [reload]);
+  /**
+   * 화면을 먼저 바꾸고 서버에 보냅니다.
+   *
+   * 예전에는 응답을 기다렸다가 회원 목록 **전체**를 다시 읽었습니다. 그동안
+   * 체크 상자는 누르기 전 상태 그대로였다가 목록이 통째로 갈릴 때 한 번에
+   * 바뀌어서, 누를 때마다 화면이 튕기는 것처럼 보였습니다. 실패하면 되돌리고
+   * 이유를 알립니다.
+   */
+  const patch = useCallback((id: string, change: (row: AdminUserItem) => Partial<AdminUserItem>) => {
+    setRows((current) => current?.map((row) => (row.id === id ? { ...row, ...change(row) } : row)) ?? current);
+  }, []);
+
   async function setStatus(user: AdminUserItem, status: MemberStatus) {
+    const before = user.status;
+    patch(user.id, () => ({ status }));
     const response = await adminSend(`/admin/users/${user.id}/status`, "PATCH", { status });
-    setMessage(response.ok ? `${user.name} 회원 상태를 ${memberStatusLabel[status]}(으)로 바꿨습니다.` : "상태를 바꾸지 못했습니다.");
-    if (response.ok) await reload();
+    if (response.ok) {
+      say(`${user.name} 회원 상태를 ${memberStatusLabel[status]}(으)로 바꿨습니다.`);
+      return;
+    }
+    patch(user.id, () => ({ status: before }));
+    // 자기 계정을 스스로 정지시키려 한 경우처럼 서버가 이유를 돌려줍니다.
+    const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
+    say(detail?.detail ?? "상태를 바꾸지 못했습니다.", false);
   }
+
   async function togglePermission(user: AdminUserItem, permission: string, granted: boolean) {
+    const wanted = !granted;
+    const label = permissionLabels.find(([key]) => key === permission)?.[1] ?? permission;
+    const write = (has: boolean) => patch(user.id, (row) => ({
+      permissions: has
+        ? [...new Set([...row.permissions, permission])]
+        : row.permissions.filter((each) => each !== permission),
+    }));
+    write(wanted);
     const response = granted
       ? await adminFetch(`/admin/users/${user.id}/permissions/${encodeURIComponent(permission)}`, { method: "DELETE" })
       : await adminSend(`/admin/users/${user.id}/permissions`, "POST", { permission });
-    setMessage(response.ok ? "권한을 변경했습니다." : "권한을 변경하지 못했습니다.");
-    if (response.ok) await reload();
+    if (response.ok) {
+      say(`${user.name} 님의 ‘${label}’ 권한을 ${wanted ? "부여" : "회수"}했습니다.`);
+      return;
+    }
+    write(!wanted);
+    say("권한을 변경하지 못했습니다. 로그인과 Owner 권한을 확인해 주세요.", false);
   }
+
   async function toggleLicense(user: AdminUserItem, licenseId: string, granted: boolean) {
+    const wanted = !granted;
+    const name = licenses.find((license) => license.id === licenseId)?.name ?? "라이선스";
+    const write = (has: boolean) => patch(user.id, (row) => ({
+      licenseIds: has
+        ? [...new Set([...row.licenseIds, licenseId])]
+        : row.licenseIds.filter((each) => each !== licenseId),
+    }));
+    write(wanted);
     const response = granted
       ? await adminFetch(`/admin/users/${user.id}/licenses/${licenseId}`, { method: "DELETE" })
       : await adminSend(`/admin/users/${user.id}/licenses`, "POST", { licenseId });
-    setMessage(response.ok ? "라이선스를 변경했습니다." : "라이선스를 변경하지 못했습니다.");
-    if (response.ok) await reload();
+    if (response.ok) {
+      say(`${user.name} 님의 ‘${name}’ 이수를 ${wanted ? "등록" : "취소"}했습니다.`);
+      return;
+    }
+    write(!wanted);
+    say("라이선스를 변경하지 못했습니다.", false);
   }
   const waiting = rows?.filter((row) => row.status === "PENDING") ?? [];
   // 승인 대기는 늘 위에 다 보여 준다. 검색은 그 아래 전체 명단에만 건다.
@@ -2008,7 +2107,7 @@ function MembersPanel({ owner }: { owner: boolean }) {
           ? "가입 신청을 승인하고, 부원별 기능 권한과 장비 라이선스를 관리합니다. 권한은 Owner만, 라이선스는 장비 관리 권한으로도 부여할 수 있습니다."
           : "회원 관리는 Owner만 수행할 수 있습니다."}
       </p>
-      {message && <p className="save-notice">{message}</p>}
+      {notice}
       {waiting.length > 0 && (
         <div className="admin-items">
           <h3>승인 대기 {waiting.length}명</h3>

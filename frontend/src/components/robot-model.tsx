@@ -8,7 +8,7 @@ export type Robot = "worker" | "sapiens" | "omy" | "so101";
 // ROS uses Z-up and every robot's front is its X axis. After converting to
 // Three.js Y-up, this quarter turn presents the robot to the camera.
 const FACING = -Math.PI / 2;
-const MODEL_VERSION = "20260824-1";
+const MODEL_VERSION = "20260824-2";
 const SIDES = ["left", "right"] as const;
 // `pose` 는 URDF 의 0 자세가 화면에 어울리지 않을 때 쓰는 시작 자세입니다.
 // 가운데 맞추기 전에 적용하므로 이 자세 그대로 화면 중앙에 놓이고, 아래
