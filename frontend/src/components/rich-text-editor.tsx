@@ -25,12 +25,31 @@ import { uploadImage, type UploadPurpose } from "@/lib/upload";
 
 /** 글자 색. 마지막 흰색은 어두운 바탕 위에 쓰라고 둡니다. */
 const colors = ["#111827", "#2855f3", "#e24b72", "#11a884", "#d97706", "#ffffff"];
+/**
+ * 글자 크기. **본문 크기에 견준 배율(em)로 둡니다.**
+ *
+ * 예전에는 14px·18px·24px 라는 고정 크기였는데, 본문이 19px 이라 '크게'(18px)
+ * 가 기본보다 오히려 작았습니다. 좁은 화면에서는 본문이 17px 로 줄어 '작게'
+ * (14px)와의 차이도 사라집니다. 두 곳의 값이 서로를 모르는 채 따로 정해져
+ * 있었던 것이 원인입니다.
+ *
+ * em 은 본문 크기를 따라가므로 어느 화면에서도 작게<기본<크게<제목 차례가
+ * 지켜집니다(19px 기준 16/19/23/29px, 17px 기준 14/17/20/26px). 저장되는 값도
+ * 공개 화면의 `.rich-content` 안에서 같은 기준으로 풀립니다.
+ */
 const sizes = [
   { label: "기본", value: "" },
-  { label: "작게", value: "14px" },
-  { label: "크게", value: "18px" },
-  { label: "제목", value: "24px" },
+  { label: "작게", value: "0.85em" },
+  { label: "크게", value: "1.2em" },
+  { label: "제목", value: "1.5em" },
 ];
+/**
+ * 예전에 저장된 고정 크기. 상자에 이름이 뜨도록 짝만 지어 둡니다.
+ *
+ * 이미 올라간 글의 크기를 바꾸지는 않습니다. 글쓴이가 그때 고른 크기가 맞고,
+ * 지난 글을 건드리는 것이 더 놀라운 일입니다.
+ */
+const legacySizes: Record<string, string> = { "14px": "0.85em", "18px": "1.2em", "24px": "1.5em" };
 const lineHeights = [
   { label: "줄 간격", value: "" },
   { label: "좁게", value: "1.4" },
@@ -257,7 +276,9 @@ export function RichTextEditor({
    * 보여 줬습니다. 그래서 다른 줄을 골라도 상자에는 '크게' 가 떠 있어, 지금 이
    * 줄이 이미 큰 것인지 아닌지 알 수 없었습니다.
    */
-  const activeSize = (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
+  const rawSize = (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
+  // 예전 글의 고정 크기(14px 등)도 이름이 뜨도록 지금 값으로 옮겨 봅니다.
+  const activeSize = legacySizes[rawSize] ?? rawSize;
   const pickedSize = sizes.some((size) => size.value === activeSize) ? activeSize : "";
   const activeHeight = (editor.getAttributes("paragraph").lineHeight as string | undefined)
     ?? (editor.getAttributes("heading").lineHeight as string | undefined) ?? "";
@@ -298,7 +319,45 @@ export function RichTextEditor({
     else chain.unsetLineHeight().run();
   }
 
+  /**
+   * 문단 모양을 바꾸기 전에, **고른 줄만 따로 떼어 냅니다.**
+   *
+   * Shift+Enter 로 줄을 내리면 한 문단 안에 줄바꿈(`<br>`)이 들어갈 뿐 문단은
+   * 하나 그대로입니다. 편집기 안내문이 그 방법을 알려 주기까지 하므로, 글
+   * 전체가 문단 하나인 경우가 흔합니다. 그 상태에서 가운데 몇 글자를 골라
+   * '제목 1' 을 누르면 **고르지도 않은 글 전체가 제목이 됩니다.** 문단 모양은
+   * 원래 문단 단위로 걸리는 것이라 ProseMirror 로서는 정직한 동작이지만,
+   * 사용하는 쪽에서는 그냥 고장입니다.
+   *
+   * 그래서 고른 곳을 감싸는 줄바꿈 두 개를 찾아 그 자리에서 문단을 끊습니다.
+   * 앞뒤 줄은 원래 문단에 그대로 남고(줄 간격도 그대로), 고른 줄만 새 문단이
+   * 되어 거기에만 모양이 걸립니다. 고를 때 줄바꿈을 걸치지 않았거나 문단
+   * 전체를 골랐으면 끊을 것이 없으므로 아무 일도 하지 않습니다.
+   */
+  function isolateSoftLines() {
+    const { state } = editor!;
+    const { $from, $to } = state.selection;
+    // 여러 문단에 걸쳐 골랐으면 그 문단들이 곧 대상입니다. 손대지 않습니다.
+    if ($from.parent !== $to.parent || $from.parent.type.name !== "paragraph") return;
+    const start = $from.start();
+    const breaks: number[] = [];
+    $from.parent.forEach((child, offset) => {
+      if (child.type.name === "hardBreak") breaks.push(start + offset);
+    });
+    if (!breaks.length) return;
+    const before = breaks.filter((pos) => pos <= $from.pos).pop();
+    const after = breaks.find((pos) => pos >= $to.pos);
+    if (before === undefined && after === undefined) return;
+    const tr = state.tr;
+    // 뒤쪽부터 손대야 앞쪽 자리가 밀리지 않습니다. 줄바꿈을 지운 자리에서
+    // 문단을 끊으므로 글자는 하나도 늘거나 줄지 않습니다.
+    if (after !== undefined) { tr.delete(after, after + 1); tr.split(after); }
+    if (before !== undefined) { tr.delete(before, before + 1); tr.split(before); }
+    editor!.view.dispatch(tr);
+  }
+
   function applyBlock(kind: string) {
+    isolateSoftLines();
     const chain = editor!.chain().focus();
     // 인용문·코드 블록에서 다른 모양으로 옮길 때는 먼저 그 껍질을 벗깁니다.
     if (editor!.isActive("blockquote") && kind !== "quote") chain.lift("blockquote");

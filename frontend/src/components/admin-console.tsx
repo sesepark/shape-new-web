@@ -159,9 +159,28 @@ function useUnsaved(dirty: boolean, label: string, save?: () => Promise<boolean>
   }, [dirty, label, canSave]);
 }
 
+/**
+ * 두 값을 견주기 좋은 문자열로 만듭니다. **칸의 차례에 흔들리지 않습니다.**
+ *
+ * `JSON.stringify` 는 칸이 적힌 차례까지 그대로 옮깁니다. 그래서 내용이 똑같아도
+ * `{제목, 요약, 본문}` 과 `{제목, 본문, 요약}` 은 다른 문자열이 됩니다. 실제로
+ * 언론보도 탭이 이것 때문에 **등록한 뒤에도 계속 '저장하지 않은 변경이 있습니다'**
+ * 를 달고 있었습니다. 지금 값을 만드는 자리와 기준값을 만드는 자리에서 칸을 적은
+ * 차례가 한 칸 어긋나 있었을 뿐인데, 그 뒤로 무엇을 해도 표시가 사라지지 않았습니다.
+ *
+ * 차례에 기대는 견주기는 언제 또 어긋날지 모르므로, 칸 이름을 정렬해서 씁니다.
+ */
+function stable(value: unknown) {
+  return JSON.stringify(value, (_key, item) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item as object).sort().map((name) => [name, (item as Record<string, unknown>)[name]]))
+      : item,
+  );
+}
+
 /** 지금 화면의 값이 기준값과 다른지. 저장하지 않은 변경을 가려내는 데 씁니다. */
 function changed(current: unknown, baseline: unknown) {
-  return JSON.stringify(current) !== JSON.stringify(baseline);
+  return stable(current) !== stable(baseline);
 }
 
 /** 아직 저장하지 않았다는 표시. 저장 단추 옆에 붙습니다. */
@@ -932,8 +951,9 @@ type ContentDraft = {
 };
 
 function blankDraft(title: string, body: string): ContentDraft {
+  // 칸의 차례는 위 `ContentDraft` 와 아래 `draft` 에 맞춰 둡니다.
   return {
-    title, body, summary: "", externalUrl: "", coverImage: "",
+    title, summary: "", body, externalUrl: "", coverImage: "",
     noticeCategory: "공지", pinned: false, linkPreview: true,
     publishedAt: today(), published: true,
   };
