@@ -14,7 +14,7 @@ import { LicenseCard } from "@/components/license-card";
 import { API_URL } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
 import { loadSession, useSession } from "@/lib/session";
-import { currentSubscription, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
+import { appleDevice, currentSubscription, installedToHomeScreen, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
 import type { MemberCardItem, MemberCardState, NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
 
 type EquipmentPermission = {
@@ -372,6 +372,9 @@ function NoticeAlerts() {
     setPushMessage(subscribed ? await unsubscribeFromNotices() : await subscribeToNotices());
     setSubscribed(Boolean(await currentSubscription()));
   }
+  // 아이폰은 홈 화면에 추가한 상태에서만 알림을 받을 수 있습니다. 그냥 사파리에서
+  // 누르면 아무 일도 일어나지 않으므로, 먼저 무엇을 해야 하는지 알려 줍니다.
+  const needsInstall = appleDevice() && !installedToHomeScreen();
   const unread = items?.filter((item) => !item.isRead).length ?? 0;
   return (
     <section className="mypage-alerts">
@@ -387,16 +390,23 @@ function NoticeAlerts() {
       <>
       {/* 켜졌는지 글씨로만 알려 주면 눈에 들어오지 않습니다. 켜져 있으면 단추
           자체가 파랗게 채워지고, 꺼져 있으면 테두리만 남습니다. */}
-      <button
-        className={`button small push-toggle${subscribed ? " on" : " secondary"}`}
-        type="button"
-        disabled={subscribed === null}
-        aria-pressed={subscribed === true}
-        onClick={togglePush}
-      >
-        <BellRing size={15} />
-        {subscribed === null ? "알림 설정 확인 중" : subscribed ? "브라우저 알림 켜짐" : "브라우저 알림 받기"}
-      </button>
+      {needsInstall ? (
+        <p className="read-only-note">
+          <BellRing size={15} /> 아이폰은 <b>홈 화면에 추가한 뒤</b>에만 알림을 받을 수 있습니다.
+          공유 → ‘홈 화면에 추가’ 를 먼저 해 주세요.
+        </p>
+      ) : (
+        <button
+          className={`button small push-toggle${subscribed ? " on" : " secondary"}`}
+          type="button"
+          disabled={subscribed === null}
+          aria-pressed={subscribed === true}
+          onClick={togglePush}
+        >
+          <BellRing size={15} />
+          {subscribed === null ? "알림 설정 확인 중" : subscribed ? "브라우저 알림 켜짐" : "브라우저 알림 받기"}
+        </button>
+      )}
       {pushMessage && <p className="form-note">{pushMessage}</p>}
       </>
       )}

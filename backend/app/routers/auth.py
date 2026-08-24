@@ -59,6 +59,24 @@ async def google_start(request: Request):
     return await client.authorize_redirect(request, f"{get_settings().api_base_url}/api/v1/auth/google/callback")
 
 
+def adopt_google_profile(user: User, userinfo: dict, owner: bool) -> None:
+    """다시 로그인한 회원에게 구글 쪽 값을 어디까지 반영할지 정합니다.
+
+    **이름과 사진은 본인이 SHAPE 에서 고친 값이 이깁니다.** 예전에는 로그인할 때마다
+    구글 이름을 덮어써서, 마이페이지에서 이름을 고쳐 놓아도 다음 로그인에 구글 계정
+    이름으로 되돌아갔습니다. 구글 이름은 영문이거나 이메일 앞부분인 경우가 많아,
+    부원 카드와 이어 두었다면 부원 페이지까지 그때마다 흐트러집니다.
+
+    아직 한 번도 채워지지 않은 칸에만 구글 값을 씁니다.
+    """
+    if not (user.name or "").strip():
+        user.name = userinfo.get("name") or user.email
+    if not user.image_url:
+        user.image_url = userinfo.get("picture")
+    if owner:
+        user.is_owner, user.status = True, UserStatus.APPROVED
+
+
 @router.get("/google/callback")
 async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
     client = google_client()
@@ -84,13 +102,7 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
         user = User(google_sub=userinfo["sub"], email=email, name=userinfo.get("name") or email, image_url=userinfo.get("picture"), is_owner=owner, status=UserStatus.APPROVED if owner else UserStatus.PENDING)
         db.add(user)
     else:
-        user.name = userinfo.get("name") or user.name
-        # A member who uploaded their own portrait keeps it; only fall back to
-        # the Google avatar while no picture has been chosen on SHAPE.
-        if not user.image_url:
-            user.image_url = userinfo.get("picture")
-        if owner:
-            user.is_owner, user.status = True, UserStatus.APPROVED
+        adopt_google_profile(user, userinfo, owner)
     await db.commit(); await db.refresh(user)
     response = RedirectResponse(get_settings().frontend_url + "/mypage", status_code=302)
     response.set_cookie(COOKIE_NAME, create_session_token(user.id), max_age=60 * 60 * 24 * 14, **cookie_options())

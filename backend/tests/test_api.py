@@ -1518,3 +1518,35 @@ async def test_shape_up_detail_does_not_carry_the_editor_document(client, sessio
     body = (await client.get(f"/api/v1/shape-up/{post.id}")).json()
     assert body["contentHtml"] == "<p>본문</p>"
     assert "contentJson" not in body
+
+
+async def test_a_name_changed_on_shape_survives_the_next_login(client, session):
+    """마이페이지에서 고친 이름이 다음 로그인에 되돌아가지 않는다.
+
+    예전에는 로그인할 때마다 구글 이름을 덮어썼다. 구글 이름은 영문이거나 이메일
+    앞부분인 경우가 많아, 이름을 한글 실명으로 고쳐 놓아도 다음 로그인에 원래대로
+    돌아갔다. 부원 카드와 이어 두었다면 부원 페이지까지 함께 흐트러진다.
+    """
+    from app.routers.auth import adopt_google_profile
+
+    user = await make_user(session, "rollback@example.com")
+    user.name = "Sehwan Park"
+    await session.commit()
+
+    http = login(client, user)
+    changed = await http.patch("/api/v1/auth/me", json={"name": "장하람", "imageUrl": "/figs/me.jpeg", "introduction": None})
+    assert changed.status_code == 200 and changed.json()["name"] == "장하람"
+    await session.refresh(user)
+
+    # 구글에서 다시 로그인한 상황.
+    adopt_google_profile(user, {"name": "Sehwan Park", "picture": "https://lh3.googleusercontent.com/a/x"}, owner=False)
+    assert user.name == "장하람", "고친 이름이 구글 이름으로 되돌아갔다"
+    assert user.image_url == "/figs/me.jpeg", "고친 사진이 구글 사진으로 되돌아갔다"
+
+    # 아직 아무것도 채우지 않은 계정에는 구글 값을 쓴다.
+    fresh = await make_user(session, "blank@example.com")
+    fresh.name = ""
+    fresh.image_url = None
+    adopt_google_profile(fresh, {"name": "새 회원", "picture": "https://lh3.googleusercontent.com/a/y"}, owner=False)
+    assert fresh.name == "새 회원"
+    assert fresh.image_url == "https://lh3.googleusercontent.com/a/y"
