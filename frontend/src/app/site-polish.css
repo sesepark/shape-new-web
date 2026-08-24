@@ -2409,3 +2409,98 @@ html:has(.shape-home) { scroll-padding-top: 0; }
     .home-next .home-section-head { animation: home-lift linear both; animation-range: entry 20% entry 90%; }
   }
 }
+
+/* ==========================================================================
+   예약 현황 — 색은 장비, 모양은 상태
+   --------------------------------------------------------------------------
+   색을 장비에 넘겼는데 범례의 상태 표시(확정·대기·사용 중·완료)는 여전히
+   파랑·회색·주황·초록 네모였습니다. LeRobot SO-ARM 101 의 색과 '확정' 의
+   파랑, ROBOTIS Hand 의 색과 '완료' 의 초록이 겹쳐서 무엇을 뜻하는 색인지
+   헷갈렸습니다.
+
+   상태에서 색을 완전히 뺍니다. 왼쪽 선의 모양과 글씨 굵기, 흐림으로만 나타냅니다.
+   색이 뜻하는 것은 이제 하나뿐입니다 — 어느 장비인가.
+   ========================================================================== */
+
+/* --- 줄 --------------------------------------------------------------- */
+
+/* 대기: 점선. 아직 확정되지 않았다는 뜻이 선에 그대로 담긴다. */
+.reservation-day li[data-tone].pending {
+  border-left-style: dashed;
+  background: rgba(var(--tone), .045);
+}
+
+.reservation-day li[data-tone].pending span { font-weight: 700; }
+
+/* 확정: 실선에 굵은 글씨. */
+.reservation-day li[data-tone].approved {
+  border-left-style: solid;
+  background: rgba(var(--tone), .1);
+}
+
+.reservation-day li[data-tone].approved span { font-weight: 900; }
+
+/* 사용 중: 지금 쓰는 중이라 가장 눈에 띄어야 한다. 선을 두껍게 하고 테두리를 두른다. */
+.reservation-day li[data-tone].in_use {
+  border-left-width: 6px;
+  border-left-style: solid;
+  background: rgba(var(--tone), .14);
+  box-shadow: inset 0 0 0 1px rgba(var(--tone), .5);
+}
+
+.reservation-day li[data-tone].in_use span { font-weight: 900; }
+
+/* 사용 중임을 글자 없이도 알 수 있게 시각 앞에 점을 하나 둔다. */
+.reservation-day li[data-tone].in_use b::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: rgb(var(--tone));
+  vertical-align: middle;
+}
+
+/* 완료: 지난 일이므로 흐리게. */
+.reservation-day li[data-tone].completed {
+  border-left-style: solid;
+  opacity: .5;
+}
+
+.reservation-day li[data-tone].completed span { font-weight: 700; }
+
+/* --- 범례 ------------------------------------------------------------- */
+/* 색을 쓰지 않는다. 줄에서 쓰는 것과 같은 모양을 작게 보여 준다. */
+
+.calendar-legend-inline i {
+  width: 15px;
+  height: 11px;
+  border-radius: 0 3px 3px 0;
+  background: #eef0f4;
+  border-left: 3px solid #7b8496;
+}
+
+.calendar-legend-inline i.pending { border-left-style: dashed; background: #f6f7f9; }
+
+.calendar-legend-inline i.approved { background: #e6e9ee; }
+
+.calendar-legend-inline i.in-use {
+  border-left-width: 6px;
+  background: #dfe3ea;
+  box-shadow: inset 0 0 0 1px rgba(123, 132, 150, .5);
+}
+
+.calendar-legend-inline i.completed { background: #eef0f4; opacity: .5; }
+
+/* 장비 색 범례가 색의 뜻을 맡는다. 두 범례를 붙여 두어 헷갈리지 않게 한다. */
+.calendar-equipment-legend { margin-top: -4px; }
+
+.calendar-equipment-legend::before {
+  content: "장비";
+  color: #98a1b0;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  align-self: center;
+}

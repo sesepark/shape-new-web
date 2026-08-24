@@ -114,7 +114,7 @@ export function ReservationCalendarView() {
   return (
     <div className="reservation-calendar">
       <p className="lead">
-        모든 장비의 예약 내역을 한 달 단위로 확인합니다. 승인 대기 중인 신청도 회색으로 함께 표시되니, 겹치는 시간을 미리 피해 신청하실 수 있습니다.
+        모든 장비의 예약 내역을 한 달 단위로 확인합니다. <b>색은 장비</b>를, <b>선 모양은 상태</b>를 나타냅니다. 승인 대기 중인 신청은 점선으로 함께 표시되니, 겹치는 시간을 미리 피해 신청하실 수 있습니다.
       </p>
       <div className="calendar-toolbar">
         <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="이전 달">
@@ -124,8 +124,9 @@ export function ReservationCalendarView() {
         <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="다음 달">
           <ChevronRight size={18} />
         </button>
-        <span className="calendar-legend-inline">
-          <i className="approved" /> 확정 <i className="pending" /> 대기 <i className="in-use" /> 사용 중 <i className="completed" /> 완료
+        {/* 상태는 색이 아니라 선 모양으로 알려 줍니다. 색은 아래 장비 범례가 씁니다. */}
+        <span className="calendar-legend-inline" aria-label="예약 상태 표시">
+          <i className="pending" /> 대기 <i className="approved" /> 확정 <i className="in-use" /> 사용 중 <i className="completed" /> 완료
         </span>
       </div>
       {tone.size > 0 && (
