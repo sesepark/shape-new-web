@@ -197,9 +197,9 @@ ROADMAP = [
      "동아리 소개제 주간을 포함해 2주간 2기 부원을 모집합니다. 정회원과 준회원을 구분해 지원을 받습니다."),
     ("동아리 소개제 부스 운영", "기타", at(2026, 9, 1, 10), at(2026, 9, 3, 18),
      "SO-ARM 101 실물 시연과 보유 플랫폼 영상으로 SHAPE를 소개합니다. 모집 폼 QR을 현장에서 함께 안내합니다."),
-    ("2기 면접", "SHAPE-UP", at(2026, 9, 10, 9), at(2026, 9, 11, 23),
+    ("2기 면접", "SHAPE-UP", at(2026, 9, 10, 9), at(2026, 9, 12, 23),
      "정회원과 준회원을 구분해 면접을 진행합니다. 기술 수준의 서열이 아니라 준비도, 자기주도성, 몰입도, 팀 적합성을 종합적으로 봅니다."),
-    ("2기 합격자 발표", "SHAPE-UP", at(2026, 9, 12, 9), None,
+    ("2기 합격자 발표", "SHAPE-UP", at(2026, 9, 13, 9), None,
      "서류와 면접 결과를 개별 안내합니다."),
     ("전체 OT", "SHAPE-UP", at(2026, 9, 15, 19), at(2026, 9, 15, 22),
      "정회원과 준회원 합동 오리엔테이션입니다. 회원 구분 없이 전원 참석합니다. 동아리 소개와 한 학기 운영 방식을 안내합니다."),
@@ -351,7 +351,18 @@ EQUIPMENT = [
         ),
     },
     {
-        "name": "카메라", "category": "센서 · 데이터 수집", "sort": 8,
+        "name": "MANUS 데이터 글러브", "category": "텔레오퍼레이션 · 데이터 수집", "sort": 8,
+        "units": ["MANUS 글러브 1호기"], "license": "MANUS 글러브 운용 교육",
+        "unit_minutes": RESERVATION_UNIT_MINUTES,
+        "description": (
+            "손가락 관절을 추적해 사람의 손동작을 그대로 로봇 손으로 옮기는 데이터 글러브입니다. "
+            "텔레오퍼레이션과 조작 데이터 수집에 사용하며, Tesollo·ROBOTIS·LEAP 로봇 손과 짝을 "
+            "지어 씁니다. 센서 보정값이 사용자마다 달라, 세션을 시작할 때 캘리브레이션을 먼저 "
+            "하고 사용 후에는 충전 거치대에 올려 주세요."
+        ),
+    },
+    {
+        "name": "카메라", "category": "센서 · 데이터 수집", "sort": 9,
         "units": [f"카메라 {number}호기" for number in range(1, 8)],
         "license": "카메라 이용 교육", "unit_minutes": RESERVATION_UNIT_MINUTES,
         "description": (
@@ -361,7 +372,7 @@ EQUIPMENT = [
         ),
     },
     {
-        "name": "Unitree G1 휴머노이드", "category": "전신 제어 · 확보 논의 중", "sort": 9,
+        "name": "Unitree G1 휴머노이드", "category": "전신 제어 · 확보 논의 중", "sort": 10,
         "units": [], "license": None, "unit_minutes": RESERVATION_UNIT_MINUTES,
         "status": EquipmentStatus.INACTIVE,
         "description": (
@@ -372,7 +383,7 @@ EQUIPMENT = [
     {
         # 지난 학기에 운용했던 플랫폼. 지금 보유하고 있지 않으므로 호기도 교육도
         # 두지 않고 상태를 INACTIVE 로 둔다. 예약 화면에 아예 뜨지 않는다.
-        "name": "AI Sapiens", "category": "휴머노이드 · 이전 운용", "sort": 10,
+        "name": "AI Sapiens", "category": "휴머노이드 · 이전 운용", "sort": 11,
         "units": [], "license": None, "unit_minutes": RESERVATION_UNIT_MINUTES,
         "status": EquipmentStatus.INACTIVE,
         "description": (

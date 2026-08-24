@@ -75,11 +75,6 @@ export function OrganizationChart({
   return (
     <div className="organization">
       <div className="org-tree" aria-label="SHAPE 조직 구조">
-        <div className="org-root">
-          <span>SNU Physical AI Club</span>
-          <strong>SHAPE</strong>
-        </div>
-        <div className="org-line" />
         <div className="org-lead">
           <span>Faculty Advisor</span>
           <strong>{data.advisor}</strong>

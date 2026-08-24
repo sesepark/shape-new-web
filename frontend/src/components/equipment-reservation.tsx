@@ -5,6 +5,7 @@ import { CalendarDays, Check, ChevronRight, CircleAlert, ClipboardPenLine, Lock,
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { ScrollingName } from "@/components/scrolling-name";
 import { API_URL } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { media, mediaSquare, optimizable } from "@/lib/media";
@@ -264,7 +265,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
                 {mate.imageUrl
                   ? <Image src={media(mate.imageUrl, 72, "eco")} alt="" width={22} height={22} unoptimized={!optimizable(mate.imageUrl)} />
                   : <span className="pick-face" aria-hidden="true">{mate.name.slice(0, 1)}</span>}
-                <b>{mate.name}</b>
+                <ScrollingName name={mate.name} className="chip-name" />
                 <button type="button" aria-label={`${mate.name} 빼기`} onClick={() => setCompanions((current) => current.filter((row) => row.id !== mate.id))}>×</button>
               </li>
             ))}

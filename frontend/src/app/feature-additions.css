@@ -1233,7 +1233,7 @@
 
 .org-member-tags { display:flex; flex-wrap:wrap; gap:5px; margin:0 0 14px; }
 
-.org-member-tags a, .org-member-links a { padding:4px 7px; color:#31568e; background:#e8effa; border-radius:999px; font-size:10px; font-weight:800; }
+.org-member-tags a, .org-member-links a { max-width:100%; padding:4px 7px; overflow:hidden; color:#31568e; background:#e8effa; border-radius:999px; font-size:10px; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
 
 .org-member-links { margin:0 0 8px; display:flex; flex-wrap:wrap; gap:5px; }
 

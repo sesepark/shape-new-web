@@ -90,7 +90,7 @@ export function NoticeList() {
                   )}
                 </span>
                 <span className="board-meta">
-                  {item.authorName}
+                  <span className="board-author">{item.authorName}</span>
                   <time>{date(item.publishedAt)}</time>
                 </span>
               </Link>

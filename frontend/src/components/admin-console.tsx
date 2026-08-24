@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ExternalLink, Eye, GripVertical, PencilLine, Plus, 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImageUploadField } from "@/components/image-upload-field";
+import { ScrollingName } from "@/components/scrolling-name";
 import { MemberDirectory } from "@/components/member-directory";
 import {
   defaultOrganization,
@@ -2205,7 +2206,8 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
               <div className="picked-tags">
                 {memberIds.map((id) => (
                   <button type="button" key={id} onClick={() => setMemberIds((current) => current.filter((each) => each !== id))}>
-                    {directory.find((person) => person.id === id)?.name ?? id} ×
+                    <ScrollingName name={directory.find((person) => person.id === id)?.name ?? id} className="chip-name" />
+                    <i aria-hidden="true">×</i>
                   </button>
                 ))}
               </div>

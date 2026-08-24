@@ -5,6 +5,7 @@ import { HoverPrefetchLink } from "@/components/hover-prefetch-link";
 import { ArrowUpRight, LogOut, Menu, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ScrollingName } from "@/components/scrolling-name";
 import { ShapeSymbol } from "@/components/shape-symbol";
 import { groupForPath, navigation } from "@/lib/navigation";
 import { canManage, endSession, useSession } from "@/lib/session";
@@ -80,7 +81,7 @@ export function SiteHeader() {
           </nav>
           <div className="header-actions">
             <HoverPrefetchLink className="account-link" href={session ? "/mypage" : "/login"}>
-              <span>{session ? session.name : "로그인"}</span>
+              {session ? <ScrollingName name={session.name} className="account-name" /> : <span className="account-name">로그인</span>}
               <ArrowUpRight size={14} />
             </HoverPrefetchLink>
             {session && (

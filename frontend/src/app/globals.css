@@ -43,7 +43,39 @@ button { color:inherit; }
 
 .header-actions { justify-self:end; display:flex; align-items:center; gap:12px; }
 
-.account-link { height:42px; padding:0 19px; display:flex; align-items:center; gap:5px; color:#fff; background:#101d1f; border-radius:999px; font-size:13px; font-weight:800; }
+.account-link { flex:0 0 auto; height:42px; padding:0 19px; display:flex; align-items:center; gap:5px; color:#fff; background:#101d1f; border-radius:999px; font-size:13px; font-weight:800; white-space:nowrap; }
+
+.account-link svg { flex:0 0 auto; }
+
+/* 넘치는 이름을 그 자리 안에서 가로로 흘려 보여 주는 이름표. 왜 이렇게 두는지는
+   components/scrolling-name.tsx 의 주석에 적었습니다. 폭은 쓰는 쪽에서
+   --name-max 로 정합니다. */
+.scrolling-name { max-width:var(--name-max,150px); min-width:0; overflow:hidden; }
+
+/* gap 은 scrolling-name.tsx 의 NAME_GAP_PX 와 같은 값이어야 합니다. 한 바퀴 도는
+   거리를 그 값으로 계산하기 때문입니다. */
+.scrolling-name-track { width:max-content; display:flex; gap:28px; }
+
+.scrolling-name.is-scrolling { -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 8px,#000 calc(100% - 12px),transparent 100%); mask-image:linear-gradient(90deg,transparent 0,#000 8px,#000 calc(100% - 12px),transparent 100%); }
+
+.scrolling-name.is-scrolling .scrolling-name-track { animation:scrolling-name-scroll var(--name-duration,9s) linear infinite; }
+
+@keyframes scrolling-name-scroll { from { transform:translateX(0); } to { transform:translateX(calc(-1 * var(--name-shift,0px))); } }
+
+/* 움직임을 줄여 달라고 설정한 사람에게는 흘리지 않고 말줄임표로 자릅니다. */
+@media (prefers-reduced-motion:reduce) {
+.scrolling-name.is-scrolling { -webkit-mask-image:none; mask-image:none; }
+
+.scrolling-name.is-scrolling .scrolling-name-track { animation:none; }
+
+.scrolling-name.is-scrolling .scrolling-name-track span+span { display:none; }
+
+.scrolling-name.is-scrolling .scrolling-name-track span { max-width:var(--name-max,150px); overflow:hidden; text-overflow:ellipsis; }
+
+}
+
+/* 머리글의 이름 캡슐. 좁은 화면에서는 아래 @media 가 통째로 감춥니다. */
+.account-name { --name-max:150px; }
 
 .menu-button { width:42px; height:42px; display:grid; place-items:center; background:#e8e9ea; border:0; border-radius:50%; cursor:pointer; }
 
@@ -300,11 +332,11 @@ button { color:inherit; }
 
 .org-tree { text-align:center; }
 
-.org-root, .org-lead { width:320px; margin:auto; padding:20px; border:1px solid #bcc5d3; background:#fff; }
+.org-lead { width:320px; margin:auto; padding:20px; border:1px solid #bcc5d3; background:#fff; }
 
-.org-root span, .org-lead span { display:block; margin-bottom:6px; color:#758096; font-size:11px; letter-spacing:.1em; }
+.org-lead span { display:block; margin-bottom:6px; color:#758096; font-size:11px; letter-spacing:.1em; }
 
-.org-root strong, .org-lead strong { font-size:22px; }
+.org-lead strong { font-size:22px; }
 
 .org-lead.blue { color:#fff; background:#31568e; border-color:#31568e; }
 
@@ -511,7 +543,13 @@ button { color:inherit; }
 
 .mypage-hero { padding:36px; display:flex; align-items:center; justify-content:space-between; gap:24px; color:#fff; background:linear-gradient(125deg,#14387c,#2855f3); }
 
-.mypage-hero h3 { margin:7px 0 10px; font-size:32px; letter-spacing:-.055em; }
+.mypage-hero>div { min-width:0; }
+
+/* 이름이 그대로 들어가는 자리입니다. 긴 이름이 파란 띠를 세 줄로 부풀리고 옆의
+   버튼까지 눌러 찌그러뜨리던 것을 막습니다. */
+.mypage-hero h3 { margin:7px 0 10px; font-size:32px; letter-spacing:-.055em; overflow-wrap:anywhere; }
+
+.mypage-hero .button { flex:none; }
 
 .mypage-hero .meta { color:#b9ccff; }
 
@@ -576,6 +614,11 @@ button { color:inherit; }
 .mypage-side section>p:last-of-type { color:#707783; font-size:13px; line-height:1.6; }
 
 .mypage-side button { margin-top:10px; display:flex; align-items:center; gap:7px; padding:0; color:#244ba8; background:none; border:0; font-size:13px; font-weight:900; cursor:pointer; }
+
+@media (max-width:1400px) {
+.account-name { --name-max:96px; }
+
+}
 
 @media (max-width:1100px) {
 .header-inner { width:calc(100% - 40px); }
@@ -701,7 +744,7 @@ button { color:inherit; }
 
 .reservation-steps { grid-template-columns:repeat(2,1fr); }
 
-.org-root, .org-lead { width:90%; }
+.org-lead { width:90%; }
 
 .org-branches { grid-template-columns:1fr; }
 

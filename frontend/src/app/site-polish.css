@@ -201,7 +201,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 }
 
 /* 로그인한 회원에게만 보이는 헤더 로그아웃 버튼. */
-.account-logout { height:42px; padding:0 15px; display:flex; align-items:center; gap:6px; border:1px solid #d8dfed; border-radius:999px; background:#fff; color:#41485a; font-size:13px; font-weight:800; cursor:pointer; transition:border-color .2s,color .2s; }
+.account-logout { flex:0 0 auto; height:42px; padding:0 15px; white-space:nowrap; display:flex; align-items:center; gap:6px; border:1px solid #d8dfed; border-radius:999px; background:#fff; color:#41485a; font-size:13px; font-weight:800; cursor:pointer; transition:border-color .2s,color .2s; }
 .account-logout:hover { border-color:#101d1f; color:#101d1f; }
 .all-menu-utilities button { border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; padding:0; }
 @media (max-width:900px) { .account-logout span { display:none; } .account-logout { width:42px; padding:0; justify-content:center; } }
@@ -225,9 +225,11 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .mypage-side .button { display:inline-flex; align-items:center; justify-content:center; gap:6px; margin-top:0; color:#fff; background:var(--blue); border:1px solid var(--blue); border-radius:999px; padding:9px 16px; }
 .mypage-side .button.secondary { color:var(--blue); background:#fff; }
 .account-summary { display:flex; align-items:center; gap:13px; }
-.account-summary img, .account-initial { width:52px; height:52px; border-radius:50%; object-fit:cover; }
+.account-summary img, .account-initial { flex:none; width:52px; height:52px; border-radius:50%; object-fit:cover; }
 .account-initial { display:grid; place-items:center; background:#e8efff; color:#1d4eb5; font-size:21px; font-weight:900; }
-.account-summary strong { display:block; font-size:15px; }
+.account-summary>div { min-width:0; }
+
+.account-summary strong { display:block; overflow:hidden; font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
 .account-summary span { color:#767c87; font-size:12px; }
 .account-editor { margin-top:16px; display:grid; gap:12px; }
 .account-editor label { display:grid; gap:6px; font-size:13px; font-weight:800; }
@@ -259,7 +261,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .reservation-purpose { margin:0; font-size:14px; line-height:1.6; word-break:keep-all; }
 .member-permission-list { display:grid; gap:14px; }
 .member-permission-list fieldset { display:grid; gap:9px; padding:18px; border:1px solid #d6dce6; border-radius:12px; background:#fff; }
-.member-permission-list legend { padding:0 7px; font-size:14px; font-weight:900; }
+.member-permission-list legend { max-width:100%; padding:0 7px; font-size:14px; font-weight:900; overflow-wrap:anywhere; }
 .member-permission-list legend em { margin-left:6px; padding:3px 7px; border-radius:999px; background:#e8efff; color:#1d4eb5; font-size:10px; font-style:normal; }
 .member-permission-head { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#737985; font-size:13px; }
 .member-permission-head select { height:38px; padding:0 10px; border:1px solid #d6dce6; border-radius:8px; font-size:13px; }
@@ -425,12 +427,18 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .board-title > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .board-title b { flex:0 0 auto; display:inline-flex; align-items:center; gap:3px; color:var(--blue); font-size:12px; }
 .board-meta { display:flex; align-items:center; gap:12px; color:#7d848f; font-size:13px; white-space:nowrap; }
+
+/* 글쓴이 이름이 길면 nowrap 인 이 칸이 통째로 늘어나 제목 칸(minmax(0,1fr))을
+   0 까지 밀어냅니다. 이름만 잘라서 제목 자리를 지킵니다. */
+.board-author { max-width:120px; overflow:hidden; text-overflow:ellipsis; }
+
+.board-meta time { flex:none; }
 .board-category { display:inline-flex; align-items:center; gap:4px; }
 .board-detail { display:grid; gap:24px; }
 .board-detail-head { display:grid; gap:12px; justify-items:start; padding-bottom:22px; border-bottom:2px solid #1a202b; }
 .board-detail-head h2 { margin:0; font-size:clamp(23px,3vw,31px); letter-spacing:-.045em; word-break:keep-all; }
 .board-detail-head > p,
-.board-detail-meta > p { margin:0; display:flex; align-items:center; gap:12px; color:#7d848f; font-size:14px; }
+.board-detail-meta > p { margin:0; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; color:#7d848f; font-size:14px; }
 
 /* 글쓴이·날짜(왼쪽)와 수정·삭제(오른쪽)를 한 줄에 마주 놓습니다. */
 .board-detail-meta {
@@ -456,9 +464,11 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .comment-replies { margin:10px 0 0 26px; padding:0; list-style:none; display:grid; gap:10px; }
 .comment { padding:14px 16px; background:#f7f8fb; border-radius:12px; }
 .comment.removed { background:#f2f3f5; color:#9aa0aa; }
-.comment header { display:flex; align-items:center; gap:10px; }
-.comment header strong { display:inline-flex; align-items:center; gap:5px; font-size:14px; }
-.comment header time { color:#8a9099; font-size:12px; }
+.comment header { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; }
+.comment header strong { min-width:0; display:inline-flex; align-items:center; gap:5px; font-size:14px; overflow-wrap:anywhere; }
+
+.comment header strong svg { flex:none; }
+.comment header time { flex:none; color:#8a9099; font-size:12px; }
 .comment p { margin:8px 0 0; font-size:15.5px; line-height:1.7; white-space:pre-wrap; word-break:keep-all; }
 .comment-actions { margin-top:9px; display:flex; gap:12px; }
 .comment-actions button { display:inline-flex; align-items:center; gap:4px; padding:0; border:0; background:transparent; color:#5f6875; font-size:13px; font-weight:800; cursor:pointer; }
@@ -498,12 +508,13 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .reservation-day li.completed { border-left-color:#3c8f63; background:#eef7f1; }
 .reservation-day li b { color:#39404d; font-size:10px; }
 .reservation-day li span { overflow:hidden; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
-.reservation-day li i { color:#767d8a; font-size:10px; font-style:normal; }
+.reservation-day li i { display:block; overflow:hidden; color:#767d8a; font-size:10px; font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
 
 @media (max-width:680px) {
   .board-list a { grid-template-columns:auto minmax(0,1fr); gap:6px 10px; padding:14px 4px; }
   .board-list a:hover { padding-left:4px; }
   .board-meta { grid-column:2; font-size:11px; }
+  .board-author { max-width:88px; }
   .board-title { font-size:16px; }
   .board-head { align-items:stretch; flex-direction:column; }
   .board-head .button.small { justify-content:center; }
@@ -532,9 +543,9 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .reservation-dialog article { position:relative; padding:32px; display:grid; gap:16px; }
 .reservation-dialog h3 { margin:0; font-size:23px; letter-spacing:-.04em; }
 .reservation-dialog dl { margin:0; display:grid; gap:10px; }
-.reservation-dialog dl > div { display:grid; grid-template-columns:110px minmax(0,1fr); align-items:center; gap:12px; }
+.reservation-dialog dl > div { display:grid; grid-template-columns:110px minmax(0,1fr); align-items:start; gap:12px; }
 .reservation-dialog dt { display:flex; align-items:center; gap:7px; color:#6b7383; font-size:13px; font-weight:800; }
-.reservation-dialog dd { margin:0; font-size:14px; font-weight:700; }
+.reservation-dialog dd { margin:0; font-size:14px; font-weight:700; overflow-wrap:anywhere; }
 .reservation-purpose-box { padding:16px 18px; background:#f5f8ff; border-radius:12px; }
 .reservation-purpose-box h4 { margin:0 0 8px; font-size:13px; color:#4a5468; }
 .reservation-purpose-box p { margin:0; font-size:14px; line-height:1.7; white-space:pre-wrap; word-break:keep-all; }
@@ -1363,6 +1374,12 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   font-weight: 800;
   cursor: pointer;
 }
+
+.picked-tags button { max-width: 100%; display: inline-flex; align-items: center; gap: 5px; }
+
+.picked-tags button i { flex: none; font-style: normal; }
+
+.picked-tags .chip-name { --name-max: 150px; }
 
 .picked-tags button:hover { background: #e0e9ff; border-color: #a9bff0; }
 
@@ -2761,8 +2778,11 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .my-member-card .card-link strong,
 .card-account strong,
 .card-candidates strong {
+  overflow: hidden;
   font-size: 14px;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .my-member-card .card-link span,
@@ -3657,6 +3677,13 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   font-weight: 800;
 }
 
+/* 이름은 구글 계정에 적힌 값이라 길이를 우리가 정할 수 없습니다. 캡슐 안에서
+   접히면 999px 모서리가 세로로 늘어나 모양이 무너지므로, 넘치는 이름만 캡슐
+   안에서 흐르게 합니다(components/scrolling-name.tsx). */
+.companion-chips .chip-name { --name-max:140px; }
+
+.companion-chips li > button { flex:none; }
+
 .companion-chips img,
 .companion-chips .pick-face { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
 
@@ -3756,11 +3783,14 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .companion-empty { padding: 12px 10px; color: #8a9099; font-size: 13px; }
 
 /* 예약 카드에 함께 쓰는 사람 한 줄 */
+.reservation-companions svg { flex: none; }
+
 .reservation-companions {
   margin: 4px 0 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
   color: #5a6479;
   font-size: 13px;
 }
