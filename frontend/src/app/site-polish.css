@@ -2791,3 +2791,194 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .pick-face { --face-size: 26px; }
 
 .toggle-field.with-face .pick-face { --face-size: 22px; }
+
+/* ==========================================================================
+   홈 — 단계 · 현황 · 일정에 스크롤을 더 태운다
+   --------------------------------------------------------------------------
+   지금까지는 조각이 아래에서 한 번 올라오는 것이 전부였습니다. 세 장은 내용이
+   많아 그 정도로는 화면이 정지 화면처럼 보였습니다. 여기서 장마다 성격에 맞는
+   움직임을 더합니다.
+
+     단계  — 카드 위에 파란 선이 그어지고, 번호가 내려앉고, 카드가 차례로 선다.
+     현황  — 숫자가 커지며 자리를 잡고, 요일 줄이 왼쪽에서 밀려 들어온다.
+     일정  — 세로선이 위에서 아래로 그어지고 점이 차례로 찍힌다.
+
+   규칙은 앞서와 같습니다. **모든 범위는 `entry 100%` 에서 끝납니다.** 홈은
+   스냅 덱이라 장이 화면을 채운 자리에서 스크롤이 멈추는데, 그 자리가 곧
+   `entry 100%` 입니다. 여기서 끝나지 않는 움직임을 넣으면 멈춘 화면에 반쯤
+   투명한 글자가 남습니다(실제로 그랬습니다).
+
+   움직임을 줄여 달라고 설정한 사람에게는 아무것도 걸지 않습니다.
+   ========================================================================== */
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+
+    /* --- 단계 ---------------------------------------------------------- */
+
+    /* 카드 위를 지나가는 파란 선. 카드가 자리를 잡는 동안 그어진다. */
+    .home-pillars article { position: relative; }
+
+    .home-pillars article::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto auto 0;
+      height: 3px;
+      width: 100%;
+      background: var(--blue);
+      transform: scaleX(0);
+      transform-origin: left center;
+      animation: home-draw-x linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 25% entry 95%;
+    }
+
+    .home-pillars article:nth-child(2)::before { animation-range: entry 35% entry 100%; }
+    .home-pillars article:nth-child(3)::before { animation-range: entry 45% entry 100%; }
+
+    /* 번호는 위에서 내려앉는다. */
+    .home-pillars article > span {
+      animation: home-drop linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 30% entry 95%;
+    }
+
+    .home-pillars article:nth-child(2) > span { animation-range: entry 40% entry 100%; }
+    .home-pillars article:nth-child(3) > span { animation-range: entry 50% entry 100%; }
+
+    /* --- 현황 ---------------------------------------------------------- */
+
+    /* 숫자는 작게 시작해 제자리 크기로 커진다. */
+    .home-fact-grid dd strong {
+      display: inline-block;
+      animation: home-grow linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 35% entry 100%;
+    }
+
+    .home-fact-grid > div:nth-child(2) dd strong { animation-range: entry 42% entry 100%; }
+    .home-fact-grid > div:nth-child(3) dd strong { animation-range: entry 49% entry 100%; }
+    .home-fact-grid > div:nth-child(4) dd strong { animation-range: entry 56% entry 100%; }
+
+    /* 요일 줄은 왼쪽에서 밀려 들어온다. */
+    .home-week li {
+      animation: home-slide-in linear both;
+      animation-range: entry 40% entry 100%;
+    }
+
+    .home-week li:nth-child(2) { animation-range: entry 48% entry 100%; }
+    .home-week li:nth-child(3) { animation-range: entry 56% entry 100%; }
+
+    /* 제목 아래 선이 옆으로 그어진다. */
+    .home-numbers .home-section-head,
+    .home-next .home-section-head { position: relative; }
+
+    .home-numbers .home-section-head::after,
+    .home-next .home-section-head::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: -14px;
+      width: min(220px, 42%);
+      height: 2px;
+      background: var(--blue);
+      transform: scaleX(0);
+      transform-origin: left center;
+      animation: home-draw-x linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 20% entry 85%;
+    }
+
+    /* --- 일정 ---------------------------------------------------------- */
+
+    /* 세로선이 위에서 아래로 그어진다. 점은 그 뒤를 따라 찍힌다. */
+    .home-timeline { position: relative; }
+
+    .home-timeline::before {
+      content: "";
+      position: absolute;
+      top: 30px;
+      bottom: 30px;
+      left: 4px;
+      width: 1px;
+      background: rgba(144, 175, 255, .55);
+      transform: scaleY(0);
+      transform-origin: top center;
+      animation: home-draw-y linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 30% entry 100%;
+    }
+
+    .home-timeline li::before {
+      transform: scale(0);
+      animation: home-pop linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 45% entry 100%;
+    }
+
+    .home-timeline li:nth-child(2)::before { animation-range: entry 55% entry 100%; }
+    .home-timeline li:nth-child(3)::before { animation-range: entry 65% entry 100%; }
+    .home-timeline li:nth-child(4)::before { animation-range: entry 75% entry 100%; }
+
+    /* 플랫폼 이름표는 하나씩 켜진다. */
+    .home-platforms li {
+      animation: home-pop-in linear both;
+      animation-timeline: --home-slide;
+      animation-range: entry 40% entry 100%;
+    }
+
+    .home-platforms li:nth-child(2) { animation-range: entry 46% entry 100%; }
+    .home-platforms li:nth-child(3) { animation-range: entry 52% entry 100%; }
+    .home-platforms li:nth-child(4) { animation-range: entry 58% entry 100%; }
+    .home-platforms li:nth-child(5) { animation-range: entry 64% entry 100%; }
+
+    /* 대회 목록은 오른쪽에서 들어온다. */
+    .home-contests li {
+      animation: home-slide-in-right linear both;
+      animation-range: entry 45% entry 100%;
+    }
+
+    .home-contests li:nth-child(2) { animation-range: entry 55% entry 100%; }
+    .home-contests li:nth-child(3) { animation-range: entry 65% entry 100%; }
+  }
+}
+
+@keyframes home-draw-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes home-draw-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes home-drop {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes home-grow {
+  from { opacity: 0; transform: scale(.72); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes home-slide-in {
+  from { opacity: 0; transform: translateX(-22px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes home-slide-in-right {
+  from { opacity: 0; transform: translateX(22px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes home-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+@keyframes home-pop-in {
+  from { opacity: 0; transform: scale(.86); }
+  to { opacity: 1; transform: none; }
+}

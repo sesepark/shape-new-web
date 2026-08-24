@@ -318,6 +318,22 @@ erDiagram
 > 다시 풀린 것처럼 보였습니다(서버에는 저장되어 있었습니다).
 > `admin-console.tsx` 의 `PUBLIC_READ` 가 그 설정입니다.
 
+### 한 장이 화면에 들어오는지 잴 때는 **그 장을 화면에 띄운 뒤에** 재세요
+
+홈의 각 장에는 아직 화면에 오지 않았을 때 `translateY(30px)` 로 내려 둔 조각이
+있습니다(`.home-reveal`). CSS 에서 스크롤 넘침 영역은 변형(transform)까지 포함해
+계산하므로, 화면 맨 위에서 `scrollHeight` 를 재면 **아직 오지 않은 장이 16px 쯤
+넘치는 것처럼** 나옵니다. 실제로 이 값을 보고 여백을 깎다가 아무 문제 없던 자리를
+건드릴 뻔했습니다.
+
+    // 틀림 — 맨 위에서 전부 잰다
+    sections.map((s) => s.scrollHeight - s.clientHeight)
+
+    // 맞음 — 장을 화면에 올린 뒤 그 장만 잰다
+    s.scrollIntoView({ behavior: "instant", block: "start" });
+    await wait(1500);            // 장이 `in-view` 를 받고 변형이 풀릴 때까지
+    s.scrollHeight - s.clientHeight
+
 ### 소식과 언론보도는 같은 표를 나눠 씁니다
 
 둘 다 `news_posts` 이고 `category` 로만 갈립니다. 언론보도는 `"언론보도"`,
