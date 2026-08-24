@@ -805,3 +805,24 @@ async def test_one_member_can_hold_two_machines_at_the_same_time(client, session
     # 반대로 같은 호기의 같은 시간은 여전히 막혀야 한다.
     clash = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "purpose": "겹치는 신청", **window})
     assert clash.status_code == 409
+
+
+async def test_news_list_can_leave_out_a_category(client, session):
+    """소식 탭은 언론보도를 빼고 부른다. 언론보도는 자기 탭이 따로 있다."""
+    editor = await make_user(session, "editor@example.com", permissions=["news:manage"])
+    http = login(client, editor)
+    for title, category in (("동아리 활동 소식", "활동"), ("신문에 실린 기사", "언론보도")):
+        created = await http.post("/api/v1/admin/news", json={
+            "title": title, "summary": "요약", "category": category,
+            "contentHtml": "<p>본문</p>", "contentJson": {}, "isPublished": True,
+        })
+        assert created.status_code == 201, created.text
+
+    everything = (await client.get("/api/v1/news")).json()
+    assert {row["title"] for row in everything} == {"동아리 활동 소식", "신문에 실린 기사"}
+
+    소식 = (await client.get("/api/v1/news?exclude=언론보도")).json()
+    assert [row["title"] for row in 소식] == ["동아리 활동 소식"]
+
+    언론보도 = (await client.get("/api/v1/news?category=언론보도")).json()
+    assert [row["title"] for row in 언론보도] == ["신문에 실린 기사"]

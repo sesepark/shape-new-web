@@ -1,6 +1,6 @@
 import { PageShell } from "@/components/page-shell";
 import { PressDirectory } from "@/components/press-directory";
-import { api, listOrEmpty } from "@/lib/api";
+import { api, listOrEmpty, PRESS_CATEGORY } from "@/lib/api";
 
 export const metadata = {
   title: "언론보도",
@@ -8,7 +8,7 @@ export const metadata = {
 };
 
 export default async function PressPage() {
-  const news = await listOrEmpty(api.news("언론보도"));
+  const news = await listOrEmpty(api.news(PRESS_CATEGORY));
   const press = [...news].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
   return (
     <PageShell eyebrow="SHAPE PRESS" title="소식" contentTitle="언론보도">

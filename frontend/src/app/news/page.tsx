@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { EmptyState } from "@/components/empty-state";
 import { PageShell } from "@/components/page-shell";
-import { api, listOrEmpty } from "@/lib/api";
+import { api, listOrEmpty, PRESS_CATEGORY } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
 import { date } from "@/lib/format";
 
@@ -12,7 +12,8 @@ export const metadata = {
 };
 
 export default async function NewsPage() {
-  const news = [...(await listOrEmpty(api.news()))]
+  // 언론보도는 자기 탭(/news/press)이 따로 있으므로 여기서는 뺀다.
+  const news = [...(await listOrEmpty(api.news(undefined, PRESS_CATEGORY)))]
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
   return (
     <PageShell eyebrow="SHAPE NEWS" title="소식" contentTitle="SHAPE의 기록">

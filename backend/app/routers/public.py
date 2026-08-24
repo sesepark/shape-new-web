@@ -50,10 +50,24 @@ async def get_page(slug: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/news", response_model=list[NewsRead])
-async def list_news(limit: int = Query(default=12, ge=1, le=50), category: str | None = Query(default=None, max_length=60), db: AsyncSession = Depends(get_db)):
+async def list_news(
+    limit: int = Query(default=12, ge=1, le=50),
+    category: str | None = Query(default=None, max_length=60),
+    exclude: str | None = Query(default=None, max_length=60, description="이 분류는 빼고 돌려줍니다"),
+    db: AsyncSession = Depends(get_db),
+):
+    """소식 목록.
+
+    `exclude` 는 소식 탭이 언론보도를 빼고 부르기 위한 것이다. 언론보도는 자기
+    탭(`/news/press`)이 따로 있어서 소식 목록에 섞이면 같은 글이 두 곳에 나온다.
+    걸러내기를 화면에서 하면 `limit` 만큼 받아 온 뒤 버리게 되어, 언론보도가
+    많아지는 만큼 소식이 목록에서 밀려 사라진다. 그래서 질의에서 뺀다.
+    """
     query = select(NewsPost).where(NewsPost.is_published.is_(True), NewsPost.published_at.is_not(None))
     if category:
         query = query.where(NewsPost.category == category)
+    if exclude:
+        query = query.where(NewsPost.category != exclude)
     return (await db.scalars(query.order_by(NewsPost.published_at.desc()).limit(limit))).all()
 
 

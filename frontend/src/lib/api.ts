@@ -22,10 +22,20 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** 언론보도 분류 이름. 소식 탭은 이 분류를 빼고, 언론보도 탭은 이 분류만 부른다. */
+export const PRESS_CATEGORY = "언론보도";
+
 export const api = {
   page: (slug: string) => getJson<ContentPage>(`/pages/${slug}`),
-  news: (category?: string) =>
-    getJson<NewsItem[]>(`/news?limit=50${category ? `&category=${encodeURIComponent(category)}` : ""}`),
+  /**
+   * 소식 목록. `exclude` 로 한 분류를 빼고 받을 수 있다. 소식 탭이 언론보도를
+   * 빼고 부르는 데 쓴다. 화면에서 걸러내면 `limit` 만큼 받은 뒤 버리게 되어
+   * 언론보도가 많아지는 만큼 소식이 목록에서 밀려 사라진다.
+   */
+  news: (category?: string, exclude?: string) =>
+    getJson<NewsItem[]>(
+      `/news?limit=50${category ? `&category=${encodeURIComponent(category)}` : ""}${exclude ? `&exclude=${encodeURIComponent(exclude)}` : ""}`,
+    ),
   newsDetail: (id: string) => getJson<NewsDetail>(`/news/${id}`),
   equipment: () => getJson<EquipmentItem[]>("/equipment"),
   roadmap: () => getJson<RoadmapItem[]>("/roadmap"),
