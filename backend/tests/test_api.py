@@ -1201,3 +1201,25 @@ async def test_the_board_list_stays_light(client, session):
     # 본문은 글을 눌렀을 때 온다.
     detail = (await http.get(f"/api/v1/notices/{first[0]['id']}")).json()
     assert detail["contentHtml"] == "<p>본문</p>"
+
+
+async def test_the_home_page_is_editable(client, session):
+    """홈 화면 글귀도 관리자 화면에서 고칠 수 있다.
+
+    예전에는 page.tsx 안에 상수로 박혀 있어 문구 한 줄에도 배포가 필요했다.
+    이제 고정 페이지 `home` 의 content_json 에 담고, 저장하면 공개 홈이 다시
+    그려진다(revalidate 대상에 "/" 를 넣어 두었다).
+    """
+    owner = await make_user(session, "homeowner@example.com", owner=True)
+    http = login(client, owner)
+
+    body = {"title": "홈", "contentHtml": "", "isPublished": True,
+            "contentJson": {"hero": {"titleTop": "SHAPE", "titleAccent": "the real world."}}}
+    saved = await http.put("/api/v1/admin/pages/home", json=body)
+    assert saved.status_code == 200, saved.text
+
+    page = (await client.get("/api/v1/pages/home")).json()
+    assert page["contentJson"]["hero"]["titleAccent"] == "the real world."
+
+    # 목록에 없는 slug 는 여전히 받지 않는다.
+    assert (await http.put("/api/v1/admin/pages/hacked", json=body)).status_code == 404

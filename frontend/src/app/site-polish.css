@@ -2988,3 +2988,72 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   margin: 16px auto 0;
   display: block;
 }
+
+/* ==========================================================================
+   관리자 — 홈 화면 편집
+   --------------------------------------------------------------------------
+   홈은 한 화면씩 넘어가므로 그 장을 그대로 탭으로 나눴습니다. 한 장 안에서는
+   같은 성격의 칸이 여러 줄 반복되므로, 한 줄을 가로로 늘어놓아 위아래로 훑을 수
+   있게 합니다. 좁은 화면에서는 한 칸씩 아래로 쌓습니다.
+   ========================================================================== */
+
+.home-form .field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.home-form .field-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-form .home-row {
+  margin-top: 10px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+  gap: 10px;
+  background: #f7f8fb;
+  border: 1px solid #e6e9f0;
+  border-radius: 10px;
+}
+
+.home-form .home-row .text-button { justify-self: start; }
+
+.home-form .home-card {
+  margin: 0 0 14px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid #e2e6ee;
+  border-radius: 12px;
+}
+
+.home-form .home-card legend {
+  padding: 0 6px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.home-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d8dde7;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.home-form textarea:focus { outline: none; border-color: var(--blue); }
+
+@media (max-width: 620px) {
+  .home-form .home-row { grid-template-columns: 1fr; }
+}

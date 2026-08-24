@@ -68,7 +68,10 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # 여기 없는 이름은 받지 않는다.
 MANAGEABLE_PERMISSIONS = {f"{name}:manage" for name in PERMISSIONS}
 
-EDITABLE_PAGES = {"greeting", "club-introduction", "organization", "members"}
+# 관리자 화면에서 고칠 수 있는 고정 페이지. 여기 없는 slug 는 받지 않는다.
+# "home" 은 홈 화면의 글귀와 목록을 담는다. 3D 로봇 무대처럼 화면에서 고칠 수
+# 없는 것은 여기 들어오지 않는다.
+EDITABLE_PAGES = {"greeting", "club-introduction", "organization", "members", "home"}
 
 
 def editor_payload(payload):

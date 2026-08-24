@@ -11,6 +11,7 @@ import {
   type OrganizationData,
   type OrganizationTeam,
 } from "@/components/organization-chart";
+import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { useAsk } from "@/components/ask-dialog";
 import { media, optimizable } from "@/lib/media";
@@ -18,6 +19,8 @@ import type { ShapeMember } from "@/lib/members";
 import type { AdminEquipmentItem, AdminReservationItem, AdminRoadmapItem, AdminUserItem, DirectoryUser, LicenseItem, MemberStatus } from "@/lib/types";
 
 const groups = [
+  // 홈은 한 화면씩 스크롤로 넘어가므로, 그 장을 그대로 탭으로 나눕니다.
+  { label: "HOME", tabs: ["히어로", "인트로", "단계", "현황", "일정"] },
   { label: "SHAPE", tabs: ["인사말", "동아리 소개", "조직도", "부원"] },
   { label: "장비 예약", tabs: ["보유 장비", "라이선스", "장비 예약"] },
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
@@ -29,6 +32,11 @@ type Section = (typeof groups)[number]["tabs"][number];
 // Every tab maps to the permission its API calls require, so a manager only
 // sees the sections they can actually save; "owner" is reserved for members.
 const tabPermission: Record<Section, string> = {
+  "히어로": "content:manage",
+  "인트로": "content:manage",
+  "단계": "content:manage",
+  "현황": "content:manage",
+  "일정": "content:manage",
   "인사말": "content:manage",
   "동아리 소개": "content:manage",
   "조직도": "content:manage",
@@ -86,6 +94,11 @@ async function adminSend(path: string, method: string, body?: unknown): Promise<
 
 /** Plain-language orientation for each tab: what it changes and where to see it. */
 const sectionGuide: Record<Section, { what: string; where: string; href?: string }> = {
+  "히어로": { what: "홈에 처음 보이는 큰 제목과 한 줄 소개를 고칩니다. 3D 로봇 무대는 화면에서 고칠 수 없어 여기 없습니다.", where: "홈 첫 화면", href: "/" },
+  "인트로": { what: "'WHAT WE SHAPE' 장의 제목·표어·소개 문단과 다루는 분야 목록을 고칩니다.", where: "홈 두 번째 화면", href: "/#shape-intro" },
+  "단계": { what: "교육·연구·검증 세 칸의 글과 연결되는 주소를 고칩니다.", where: "홈 세 번째 화면", href: "/#shape-pillars" },
+  "현황": { what: "숫자 네 칸과 정기 활동 요일, 맨 아래 한 줄을 고칩니다.", where: "홈 네 번째 화면", href: "/#shape-numbers" },
+  "일정": { what: "운용 플랫폼 목록과 준비 중인 대회를 고칩니다. 아래 일정 목록은 로드맵을 그대로 가져옵니다.", where: "홈 마지막 화면", href: "/#shape-next" },
   "인사말": { what: "운영진 인사말 글을 작성합니다.", where: "공개 페이지 SHAPE › 인사말", href: "/greeting" },
   "동아리 소개": { what: "동아리가 무엇을 하는 곳인지 소개하는 글과 숫자 정보를 작성합니다.", where: "공개 페이지 SHAPE › 동아리 소개", href: "/about" },
   "조직도": { what: "팀 구성과 담당 업무, 팀에 속한 부원을 연결합니다.", where: "공개 페이지 SHAPE › 조직도", href: "/organization" },
@@ -233,6 +246,8 @@ export function AdminConsole({
 }
 
 function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
+  if (tab === "히어로" || tab === "인트로" || tab === "단계" || tab === "현황" || tab === "일정")
+    return <HomeForm key={tab} section={tab} />;
   if (tab === "인사말")
     return (
       <ContentForm
@@ -791,6 +806,261 @@ function ContentForm({
       <ContentPreview title={title} body={body} externalUrl={externalUrl} showLinkPreview={linkPreview} summary={summary} />
       <AdminItems rows={rows} onEdit={edit} onDelete={remove} selectedId={selectedId} />
       {dialogNode}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ 홈 화면 */
+
+/**
+ * 홈 화면 편집.
+ *
+ * 홈은 한 화면씩 스크롤로 넘어가므로 그 장을 그대로 탭으로 나눴습니다.
+ * 다섯 탭이 모두 같은 저장본(`content_pages/home`)의 서로 다른 칸을 고칩니다.
+ * 그래서 각 탭은 **전체를 읽어 자기 칸만 바꾼 뒤 전체를 저장합니다.** 자기 칸만
+ * 보내면 다른 장의 내용이 지워집니다.
+ *
+ * 화면에서 고칠 수 없는 것은 일부러 넣지 않았습니다. 3D 로봇 무대, 스크롤
+ * 애니메이션, 칸 배치는 코드와 CSS 가 정합니다. 칸 수가 정해진 목록(단계 3칸,
+ * 숫자 4칸, 요일 3칸)은 늘리고 줄이면 배치가 무너지므로 글자만 고칩니다.
+ */
+function HomeText({ label, value, hint, onChange, rows = 0 }: {
+  label: string;
+  value: string;
+  hint?: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  return (
+    <label>
+      {label}
+      {rows > 0 ? (
+        <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} />
+      ) : (
+        <input value={value} onChange={(event) => onChange(event.target.value)} />
+      )}
+      {hint && <small className="field-hint">{hint}</small>}
+    </label>
+  );
+}
+
+function HomeForm({ section }: { section: "히어로" | "인트로" | "단계" | "현황" | "일정" }) {
+  const [content, setContent] = useState<HomeContent | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { say, node } = useNotice();
+
+  useEffect(() => {
+    void fetch(`${apiUrl}/pages/home`, PUBLIC_READ)
+      .then(async (response) => {
+        // 아직 한 번도 저장하지 않았으면 페이지가 없습니다. 그때는 기본값으로 엽니다.
+        const page = response.ok ? await response.json() : null;
+        setContent(mergeHome(page?.contentJson));
+      })
+      .catch(() => setContent(mergeHome(null)));
+  }, []);
+
+  async function submit() {
+    if (!content) return;
+    setSaving(true);
+    const response = await adminSend("/admin/pages/home", "PUT", {
+      title: "홈",
+      contentHtml: "",
+      contentJson: content,
+      isPublished: true,
+    });
+    setSaving(false);
+    say(
+      response.ok
+        ? "홈 화면을 저장했습니다. 공개 화면에 바로 반영됩니다."
+        : response.status === 403
+          ? "저장할 권한이 없습니다. 콘텐츠 관리 권한을 확인해 주세요."
+          : "저장하지 못했습니다.",
+      response.ok,
+    );
+  }
+
+  if (!content) return <p className="form-note">홈 화면 내용을 불러오는 중입니다.</p>;
+
+  /** 한 칸만 바꿔 전체를 새로 만듭니다. 다른 장은 그대로 둡니다. */
+  const patch = <K extends keyof HomeContent>(key: K, value: HomeContent[K]) =>
+    setContent((current) => (current ? { ...current, [key]: value } : current));
+  const patchIn = <K extends "hero" | "intro" | "numbers" | "next">(key: K, part: Partial<HomeContent[K]>) =>
+    setContent((current) => (current ? { ...current, [key]: { ...current[key], ...part } } : current));
+  /** 목록 안의 한 줄만 바꿉니다. */
+  const editRow = <T,>(rows: T[], index: number, part: Partial<T>): T[] =>
+    rows.map((row, i) => (i === index ? { ...row, ...part } : row));
+
+  return (
+    <div className="admin-form home-form">
+      {section === "히어로" && (
+        <>
+          <p className="form-note">
+            홈을 열었을 때 처음 보이는 화면입니다. 오른쪽 3D 로봇은 모델 파일로 그려지므로 여기서 고칠 수 없습니다.
+          </p>
+          <HomeText label="도는 글자띠" value={content.hero.wordmark} onChange={(value) => patchIn("hero", { wordmark: value })} />
+          <div className="field-row">
+            <HomeText label="큰 제목 첫 줄" value={content.hero.titleTop} onChange={(value) => patchIn("hero", { titleTop: value })} />
+            <HomeText label="큰 제목 둘째 줄 (기울임)" value={content.hero.titleAccent} onChange={(value) => patchIn("hero", { titleAccent: value })} />
+          </div>
+          <HomeText
+            label="한 줄 소개"
+            rows={2}
+            hint="Enter 로 나눈 줄이 화면에서도 그대로 줄바꿈이 됩니다."
+            value={content.hero.tagline}
+            onChange={(value) => patchIn("hero", { tagline: value })}
+          />
+          <div className="field-row">
+            <HomeText label="단추 글자" value={content.hero.ctaLabel} onChange={(value) => patchIn("hero", { ctaLabel: value })} />
+            <HomeText label="단추 주소" value={content.hero.ctaHref} onChange={(value) => patchIn("hero", { ctaHref: value })} />
+          </div>
+          <HomeText label="아래로 안내하는 글자" value={content.hero.scrollLabel} onChange={(value) => patchIn("hero", { scrollLabel: value })} />
+        </>
+      )}
+
+      {section === "인트로" && (
+        <>
+          <HomeText label="작은 머리글" value={content.intro.eyebrow} onChange={(value) => patchIn("intro", { eyebrow: value })} />
+          <HomeText label="제목" rows={2} hint="Enter 로 줄을 나눕니다." value={content.intro.heading} onChange={(value) => patchIn("intro", { heading: value })} />
+          <HomeText label="표어" rows={2} value={content.intro.slogan} onChange={(value) => patchIn("intro", { slogan: value })} />
+          <HomeText label="소개 문단" rows={4} value={content.intro.body} onChange={(value) => patchIn("intro", { body: value })} />
+          <div className="field-block">
+            <div className="field-block-head">
+              <span className="field-label">다루는 분야 {content.intro.fields.length}개</span>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => patchIn("intro", { fields: [...content.intro.fields, { title: "", topics: "" }] })}
+              >
+                분야 추가
+              </button>
+            </div>
+            <p className="form-note">두 칸씩 나란히 놓입니다. 짝수로 맞추면 아래가 비지 않습니다.</p>
+            {content.intro.fields.map((field, index) => (
+              <div className="home-row" key={index}>
+                <HomeText label={`${index + 1}. 이름`} value={field.title} onChange={(value) => patchIn("intro", { fields: editRow(content.intro.fields, index, { title: value }) })} />
+                <HomeText label="주제" value={field.topics} onChange={(value) => patchIn("intro", { fields: editRow(content.intro.fields, index, { topics: value }) })} />
+                <button
+                  type="button"
+                  className="text-button danger"
+                  onClick={() => patchIn("intro", { fields: content.intro.fields.filter((_, i) => i !== index) })}
+                >
+                  삭제
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="field-row">
+            <HomeText label="단추 글자" value={content.intro.ctaLabel} onChange={(value) => patchIn("intro", { ctaLabel: value })} />
+            <HomeText label="단추 주소" value={content.intro.ctaHref} onChange={(value) => patchIn("intro", { ctaHref: value })} />
+          </div>
+        </>
+      )}
+
+      {section === "단계" && (
+        <>
+          <p className="form-note">
+            세 칸이 나란히 놓이는 자리라 칸을 늘리거나 줄이면 배치가 무너집니다. 글과 주소만 고칩니다.
+          </p>
+          {content.stages.map((stage, index) => (
+            <fieldset key={index} className="home-card">
+              <legend>{stage.number} · {stage.title || "이름 없음"}</legend>
+              <div className="field-row">
+                <HomeText label="번호" value={stage.number} onChange={(value) => patch("stages", editRow(content.stages, index, { number: value }))} />
+                <HomeText label="영문 이름" value={stage.label} onChange={(value) => patch("stages", editRow(content.stages, index, { label: value }))} />
+                <HomeText label="제목" value={stage.title} onChange={(value) => patch("stages", editRow(content.stages, index, { title: value }))} />
+              </div>
+              <HomeText label="설명" rows={3} value={stage.body} onChange={(value) => patch("stages", editRow(content.stages, index, { body: value }))} />
+              <HomeText label="연결 주소" value={stage.href} onChange={(value) => patch("stages", editRow(content.stages, index, { href: value }))} />
+            </fieldset>
+          ))}
+        </>
+      )}
+
+      {section === "현황" && (
+        <>
+          <HomeText label="작은 머리글" value={content.numbers.eyebrow} onChange={(value) => patchIn("numbers", { eyebrow: value })} />
+          <HomeText label="제목" rows={2} hint="Enter 로 줄을 나눕니다." value={content.numbers.heading} onChange={(value) => patchIn("numbers", { heading: value })} />
+          <div className="field-block">
+            <span className="field-label">숫자 네 칸</span>
+            <p className="form-note">네 칸이 나란히 놓입니다. 칸 수는 고정이고 글자만 고칩니다.</p>
+            {content.numbers.facts.map((fact, index) => (
+              <div className="home-row" key={index}>
+                <HomeText label="항목" value={fact.label} onChange={(value) => patchIn("numbers", { facts: editRow(content.numbers.facts, index, { label: value }) })} />
+                <HomeText label="숫자" value={fact.value} onChange={(value) => patchIn("numbers", { facts: editRow(content.numbers.facts, index, { value }) })} />
+                <HomeText label="단위" value={fact.unit} onChange={(value) => patchIn("numbers", { facts: editRow(content.numbers.facts, index, { unit: value }) })} />
+                <HomeText label="설명" value={fact.note} onChange={(value) => patchIn("numbers", { facts: editRow(content.numbers.facts, index, { note: value }) })} />
+              </div>
+            ))}
+          </div>
+          <div className="field-block">
+            <span className="field-label">정기 활동 요일</span>
+            {content.numbers.week.map((slot, index) => (
+              <div className="home-row" key={index}>
+                <HomeText label="요일" value={slot.day} onChange={(value) => patchIn("numbers", { week: editRow(content.numbers.week, index, { day: value }) })} />
+                <HomeText label="트랙" value={slot.track} onChange={(value) => patchIn("numbers", { week: editRow(content.numbers.week, index, { track: value }) })} />
+                <HomeText label="대상" value={slot.who} onChange={(value) => patchIn("numbers", { week: editRow(content.numbers.week, index, { who: value }) })} />
+                <HomeText label="시간" value={slot.when} onChange={(value) => patchIn("numbers", { week: editRow(content.numbers.week, index, { when: value }) })} />
+              </div>
+            ))}
+          </div>
+          <HomeText label="맨 아래 한 줄" rows={2} value={content.numbers.footnote} onChange={(value) => patchIn("numbers", { footnote: value })} />
+        </>
+      )}
+
+      {section === "일정" && (
+        <>
+          <HomeText label="작은 머리글" value={content.next.eyebrow} onChange={(value) => patchIn("next", { eyebrow: value })} />
+          <HomeText label="제목" rows={2} value={content.next.heading} onChange={(value) => patchIn("next", { heading: value })} />
+          <HomeText label="플랫폼 칸 제목" value={content.next.platformsHeading} onChange={(value) => patchIn("next", { platformsHeading: value })} />
+          <HomeText
+            label="운용 플랫폼"
+            rows={5}
+            hint="한 줄에 하나씩 적습니다. 적은 순서대로 이름표가 놓입니다."
+            value={content.next.platforms.join("\n")}
+            onChange={(value) => patchIn("next", { platforms: value.split("\n").map((name) => name.trim()).filter(Boolean) })}
+          />
+          <HomeText label="플랫폼 설명" rows={2} value={content.next.platformsNote} onChange={(value) => patchIn("next", { platformsNote: value })} />
+          <div className="field-row">
+            <HomeText label="단추 글자" value={content.next.platformsCtaLabel} onChange={(value) => patchIn("next", { platformsCtaLabel: value })} />
+            <HomeText label="단추 주소" value={content.next.platformsCtaHref} onChange={(value) => patchIn("next", { platformsCtaHref: value })} />
+          </div>
+          <div className="field-block">
+            <div className="field-block-head">
+              <span className="field-label">준비 중인 대회 {content.next.contests.length}개</span>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => patchIn("next", { contests: [...content.next.contests, { name: "", when: "", where: "" }] })}
+              >
+                대회 추가
+              </button>
+            </div>
+            {content.next.contests.map((contest, index) => (
+              <div className="home-row" key={index}>
+                <HomeText label="대회 이름" value={contest.name} onChange={(value) => patchIn("next", { contests: editRow(content.next.contests, index, { name: value }) })} />
+                <HomeText label="일정" value={contest.when} onChange={(value) => patchIn("next", { contests: editRow(content.next.contests, index, { when: value }) })} />
+                <HomeText label="장소" value={contest.where} onChange={(value) => patchIn("next", { contests: editRow(content.next.contests, index, { where: value }) })} />
+                <button
+                  type="button"
+                  className="text-button danger"
+                  onClick={() => patchIn("next", { contests: content.next.contests.filter((_, i) => i !== index) })}
+                >
+                  삭제
+                </button>
+              </div>
+            ))}
+          </div>
+          <HomeText label="로드맵으로 가는 단추 글자" value={content.next.timelineCtaLabel} onChange={(value) => patchIn("next", { timelineCtaLabel: value })} />
+          <p className="form-note">
+            아래에 놓이는 <b>다가오는 일정 목록은 로드맵을 그대로 가져옵니다.</b> 일정 자체는 관리자 › 로드맵에서 고칩니다.
+          </p>
+        </>
+      )}
+
+      <button className="button" type="button" disabled={saving} onClick={() => void submit()}>
+        {saving ? "저장 중…" : "저장"}
+      </button>
+      {node}
     </div>
   );
 }

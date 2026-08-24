@@ -18,10 +18,11 @@ PATHS: dict[str, list[str]] = {
     "news": ["/news", "/news/press", "/sitemap.xml"],
     "notices": ["/notices"],
     "equipment": ["/equipment", "/equipment/reserve", "/sitemap.xml"],
-    "roadmap": ["/roadmap", "/roadmap/shape-up", "/roadmap/competition", "/roadmap/education"],
+    # 홈의 '일정' 칸이 로드맵을 그대로 쓴다. 로드맵을 고치면 홈도 함께 새로 그린다.
+    "roadmap": ["/", "/roadmap", "/roadmap/shape-up", "/roadmap/competition", "/roadmap/education"],
     "links": ["/links"],
     "shape-up": ["/shape-up", "/sitemap.xml"],
-    "pages": ["/greeting", "/about", "/organization", "/members"],
+    "pages": ["/", "/greeting", "/about", "/organization", "/members"],
 }
 
 
