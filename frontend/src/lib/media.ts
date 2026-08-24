@@ -6,8 +6,15 @@
  */
 const UPLOAD_MARKER = "/image/upload/";
 
+/** 옛 사이트에서 옮겨 와 우리 public 폴더가 그대로 들고 있는 사진. */
+const LEGACY_PHOTOS = "https://www.snu-shape.com/figs/";
+
 export function media(url: string | null | undefined, width: number): string {
   if (!url) return "";
+  // 옛 사이트 주소로 저장된 부원 사진은 우리 public 폴더에 그대로 있는 파일이다.
+  // 절대 주소로 두면 Next.js 이미지 최적화가 제 사이트에 다시 HTTP 요청을 보내
+  // 원본을 받아 온다. 같은 파일을 상대 경로로 가리키면 디스크에서 바로 읽는다.
+  if (url.startsWith(LEGACY_PHOTOS)) return url.slice(LEGACY_PHOTOS.length - "/figs/".length);
   const marker = url.indexOf(UPLOAD_MARKER);
   if (!url.startsWith("https://res.cloudinary.com/") || marker === -1) return url;
   const head = url.slice(0, marker + UPLOAD_MARKER.length);
@@ -16,9 +23,6 @@ export function media(url: string | null | undefined, width: number): string {
   if (/^[a-z]_[^/]*\//.test(tail)) return url;
   return `${head}f_auto,q_auto,c_limit,w_${width}/${tail}`;
 }
-
-/** 옛 사이트에서 옮겨 와 우리 public 폴더가 그대로 들고 있는 사진. */
-const LEGACY_PHOTOS = "https://www.snu-shape.com/figs/";
 
 /**
  * Next.js 이미지 최적화에 맡겨도 되는 주소인지 알려 줍니다.

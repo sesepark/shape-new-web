@@ -1,7 +1,7 @@
 import { MemberDirectory } from "@/components/member-directory";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
-import { defaultMembers, type ShapeMember } from "@/lib/members";
+import type { ShapeMember } from "@/lib/members";
 
 export const metadata = {
   title: "부원",
@@ -12,13 +12,10 @@ export const metadata = {
 export default async function MembersPage() {
   const [page, profiles] = await Promise.all([
     api.page("members").catch(() => null),
-    listOrEmpty(api.memberProfiles(), []),
+    listOrEmpty(api.memberProfiles()),
   ]);
   const stored = page?.contentJson?.members;
-  const members =
-    Array.isArray(stored) && stored.length
-      ? (stored as ShapeMember[])
-      : defaultMembers;
+  const members = Array.isArray(stored) ? (stored as ShapeMember[]) : [];
   return (
     <PageShell eyebrow="PEOPLE OF SHAPE" title="SHAPE" contentTitle="부원">
       <div className="member-intro">

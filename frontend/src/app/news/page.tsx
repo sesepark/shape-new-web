@@ -5,7 +5,6 @@ import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
 import { date } from "@/lib/format";
-import { mockNews } from "@/lib/mock-data";
 
 export const metadata = {
   title: "뉴스",
@@ -13,7 +12,7 @@ export const metadata = {
 };
 
 export default async function NewsPage() {
-  const news = [...(await listOrEmpty(api.news(), mockNews))]
+  const news = [...(await listOrEmpty(api.news()))]
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
   return (
     <PageShell eyebrow="SHAPE NEWS" title="소식" contentTitle="SHAPE의 기록">

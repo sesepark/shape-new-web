@@ -13,10 +13,8 @@ import {
 } from "@/components/organization-chart";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { useAsk } from "@/components/ask-dialog";
-import { isPreview } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
-import { mockEquipment, mockRoadmap } from "@/lib/mock-data";
-import { defaultMembers, type ShapeMember } from "@/lib/members";
+import type { ShapeMember } from "@/lib/members";
 import type { AdminEquipmentItem, AdminReservationItem, AdminRoadmapItem, AdminUserItem, DirectoryUser, LicenseItem, MemberStatus } from "@/lib/types";
 
 const groups = [
@@ -56,9 +54,6 @@ type AdminRow = Record<
   string | number | boolean | null | Record<string, unknown> | unknown[]
 >;
 const emptyRows: AdminRow[] = [];
-/** Sample rows keep the local preview usable; production shows the real list. */
-const mockEquipmentRows: AdminRow[] = isPreview ? mockEquipment.map((item) => ({ ...item })) : [];
-const mockRoadmapRows: AdminRow[] = isPreview ? mockRoadmap.map((item) => ({ ...item })) : [];
 
 /** A dropped connection must read as a failed call, never an unhandled reject. */
 type AdminResult = { ok: boolean; status: number; json: () => Promise<unknown> };
@@ -263,8 +258,8 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
   return <MembersPanel owner={owner} />;
 }
 
-function useAdminRows(path: string, fallback: AdminRow[] = emptyRows) {
-  const [rows, setRows] = useState<AdminRow[]>(fallback);
+function useAdminRows(path: string) {
+  const [rows, setRows] = useState<AdminRow[]>(emptyRows);
   const reload = useCallback(async () => {
     if (!path) return;
     try {
@@ -273,11 +268,10 @@ function useAdminRows(path: string, fallback: AdminRow[] = emptyRows) {
         cache: "no-store",
       });
       if (response.ok) setRows(await response.json());
-      else if (isPreview && fallback.length) setRows(fallback);
     } catch {
-      if (isPreview && fallback.length) setRows(fallback);
+      // 목록을 못 받으면 이전 상태를 그대로 둔다. 예시 행으로 채우지 않는다.
     }
-  }, [fallback, path]);
+  }, [path]);
   useEffect(() => {
     if (!path) return;
     const controller = new AbortController();
@@ -289,14 +283,13 @@ function useAdminRows(path: string, fallback: AdminRow[] = emptyRows) {
           signal: controller.signal,
         });
         if (response.ok) setRows(await response.json());
-        else if (isPreview && fallback.length) setRows(fallback);
       } catch {
-        if (isPreview && fallback.length) setRows(fallback);
+        // 위와 같다.
       }
     };
     void load();
     return () => controller.abort();
-  }, [fallback, path]);
+  }, [path]);
   return { rows, setRows, reload };
 }
 
@@ -719,7 +712,7 @@ function ClubIntroductionForm() {
 }
 
 function MembersForm() {
-  const [members, setMembers] = useState<ShapeMember[]>(defaultMembers);
+  const [members, setMembers] = useState<ShapeMember[]>([]);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   const [message, setMessage] = useState("");
   useEffect(() => {
@@ -809,6 +802,7 @@ function MembersForm() {
                   <option>Manipulation</option>
                   <option>Navigation</option>
                   <option>Reasoning</option>
+                  <option>미배정</option>
                 </select>
               </label>
             </div>
@@ -1010,7 +1004,7 @@ function TeamEditor({
 
 function OrganizationForm() {
   const [data, setData] = useState<OrganizationData>(defaultOrganization);
-  const [members, setMembers] = useState<ShapeMember[]>(defaultMembers);
+  const [members, setMembers] = useState<ShapeMember[]>([]);
   const [message, setMessage] = useState("");
   useEffect(() => {
     void fetch(`${apiUrl}/pages/organization`)
@@ -1161,7 +1155,7 @@ function EquipmentForm() {
   const [selectedId, setSelectedId] = useState("");
   const [licenses, setLicenses] = useState<LicenseItem[]>([]);
   const { ask, dialogNode } = useAsk();
-  const { rows, setRows, reload } = useAdminRows("/admin/equipment", mockEquipmentRows);
+  const { rows, setRows, reload } = useAdminRows("/admin/equipment");
   const items = rows as unknown as AdminEquipmentItem[];
   const selected = items.find((item) => String(item.id) === selectedId);
   useEffect(() => {
@@ -1332,7 +1326,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
     rows: allRows,
     setRows,
     reload,
-  } = useAdminRows("/admin/roadmap", mockRoadmapRows);
+  } = useAdminRows("/admin/roadmap");
   useEffect(() => {
     void adminFetch("/admin/directory").then(async (response) => {
       if (response.ok) setDirectory((await response.json()) as DirectoryUser[]);
@@ -1375,7 +1369,7 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
       }
     } catch {
       const local = {
-        id: selectedId || `mock-roadmap-${Date.now()}`,
+        id: selectedId || `unsaved-${Date.now()}`,
         ...payload,
       };
       setRows((current) =>

@@ -1,7 +1,11 @@
 export interface ShapeMember {
   id: string;
   name: string;
-  team: "Management" | "Manipulation" | "Navigation" | "Reasoning";
+  /**
+   * 기술 팀 배정. 아직 팀이 정해지지 않은 신입은 "미배정" 으로 둡니다.
+   * 팀을 임의로 찍어 넣는 것보다 정해지지 않았다고 적는 편이 정확합니다.
+   */
+  team: "Management" | "Manipulation" | "Navigation" | "Reasoning" | "미배정";
   role: string;
   affiliation: string;
   imageUrl?: string;
@@ -9,85 +13,6 @@ export interface ShapeMember {
   /** 연결된 로그인 계정. 사진과 소개말은 본인이 마이페이지에서 관리합니다. */
   userId?: string;
 }
-
-const legacyPhoto = (name: string, extension = "jpeg") =>
-  `https://www.snu-shape.com/figs/${encodeURIComponent(name)}.${extension}`;
-
-export const defaultMembers: ShapeMember[] = [
-  {
-    id: "member-moon",
-    name: "조나윤",
-    team: "Management",
-    role: "회장",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("조나윤"),
-    membership: "정회원",
-  },
-  {
-    id: "member-park",
-    name: "오유하",
-    team: "Management",
-    role: "부회장",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("오유하", "png"),
-    membership: "정회원",
-  },
-  {
-    id: "member-choi",
-    name: "류이든",
-    team: "Manipulation",
-    role: "팀장",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("류이든"),
-    membership: "정회원",
-  },
-  {
-    id: "member-shin",
-    name: "전한별",
-    team: "Manipulation",
-    role: "팀원",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("전한별"),
-    membership: "준회원",
-  },
-  {
-    id: "member-kim",
-    name: "강채아",
-    team: "Navigation",
-    role: "팀장",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("강채아"),
-    membership: "정회원",
-  },
-  {
-    id: "member-kang",
-    name: "이도현",
-    team: "Navigation",
-    role: "팀원",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("이도현"),
-    membership: "준회원",
-  },
-  {
-    id: "member-yang",
-    name: "이예솔",
-    team: "Reasoning",
-    role: "팀원",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("이예솔", "png"),
-    membership: "알럼",
-  },
-  {
-    id: "member-lee",
-    name: "조초아",
-    team: "Reasoning",
-    role: "팀원",
-    affiliation: "서울대학교",
-    imageUrl: legacyPhoto("조초아"),
-    membership: "알럼",
-  },
-];
-
 
 /** 두 글자 성씨. 이만큼은 알아야 "남궁민수"에서 "민수"를 뽑을 수 있습니다. */
 const COMPOUND_SURNAMES = ["남궁", "황보", "제갈", "사공", "선우", "서문", "독고", "동방", "사마", "강전"];

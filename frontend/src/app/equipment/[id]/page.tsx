@@ -13,10 +13,15 @@ import { PageShell } from "@/components/page-shell";
 import { ShapeSymbol } from "@/components/shape-symbol";
 import { api, listOrEmpty } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
-import { mockEquipment } from "@/lib/mock-data";
+
+/** 빌드 때 미리 그려 둔다. 이유는 `news/[id]/page.tsx` 의 같은 함수 주석에 있다. */
+export async function generateStaticParams() {
+  const equipment = await listOrEmpty(api.equipment());
+  return equipment.map((item) => ({ id: String(item.id) }));
+}
 
 async function equipmentById(id: string) {
-  const equipment = await listOrEmpty(api.equipment(), mockEquipment);
+  const equipment = await listOrEmpty(api.equipment());
   return equipment.find((item) => String(item.id) === id);
 }
 

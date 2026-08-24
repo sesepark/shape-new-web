@@ -14,9 +14,6 @@ import type {
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
-/** Sample content stands in for a missing API locally, never on the live site. */
-const isPreview = process.env.NODE_ENV !== "production";
-
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     next: { revalidate: 300, tags: [path] },
@@ -42,21 +39,24 @@ export const api = {
     ),
 };
 
-/** Resolve a public list, degrading to sample rows only during development. */
-export async function listOrEmpty<T>(request: Promise<T[]>, preview: T[]): Promise<T[]> {
+/**
+ * 공개 목록을 읽어 온다. API 가 잠시 응답하지 않으면 빈 목록으로 그려서
+ * 각 페이지의 안내용 빈 상태 화면이 뜨게 한다. 예시 데이터로 채우지 않는다.
+ */
+export async function listOrEmpty<T>(request: Promise<T[]>): Promise<T[]> {
   try {
     return await request;
   } catch {
-    return isPreview ? preview : [];
+    return [];
   }
 }
 
-export async function itemOrNull<T>(request: Promise<T>, preview: () => T | null): Promise<T | null> {
+export async function itemOrNull<T>(request: Promise<T>): Promise<T | null> {
   try {
     return await request;
   } catch {
-    return isPreview ? preview() : null;
+    return null;
   }
 }
 
-export { API_URL, isPreview };
+export { API_URL };

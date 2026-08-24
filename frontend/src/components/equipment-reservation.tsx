@@ -14,11 +14,6 @@ function localDay() { const now = new Date(); return new Date(now.getTime() - no
 const timeLabel = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 const dateLabel = (day: string) => new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", weekday: "short" }).format(new Date(`${day}T12:00:00`));
 
-function mockAvailability(equipment: EquipmentItem, day: string): EquipmentAvailability {
-  const reservedStarts = ["10:00", "10:30"].map((time) => `${day}T${time}:00+09:00`);
-  return { equipmentId: equipment.id, reservationUnitMinutes: equipment.reservationUnitMinutes, openHour: equipment.openHour, closeHour: equipment.closeHour, units: Array.from({ length: Math.max(1, equipment.availableUnits) }, (_, index) => ({ id: `${equipment.id}-unit-${index + 1}`, label: `${equipment.name} ${index + 1}호기`, reservedStarts: index === 0 ? reservedStarts : [] })) };
-}
-
 const steps = [["장비 선택", Wrench], ["일정 선택", CalendarDays], ["신청 정보", ClipboardPenLine], ["예약 완료", Check]] as const;
 
 /** 마이페이지와 같은 정보를 예약 화면에서도 미리 보여 주기 위한 응답 형태. */
@@ -88,7 +83,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     const controller = new AbortController();
     fetch(`${API_URL}/equipment/${equipmentId}/availability?date=${encodeURIComponent(day)}`, { signal: controller.signal })
       .then(async (response) => { if (!response.ok) throw new Error(); const data = await response.json() as EquipmentAvailability; setAvailability(data); setUnitId(data.units[0]?.id ?? ""); })
-      .catch((error: Error) => { if (error.name !== "AbortError") { const fallbackItem = equipment.find((item) => item.id === equipmentId); if (fallbackItem?.id.startsWith("mock-")) { const fallback = mockAvailability(fallbackItem, day); setAvailability(fallback); setUnitId(fallback.units[0]?.id ?? ""); setMessage("예시 예약 현황을 표시하고 있습니다."); } else { setAvailability(null); setMessage("예약 현황을 불러오지 못했습니다."); } } })
+      .catch((error: Error) => { if (error.name !== "AbortError") { setAvailability(null); setMessage("예약 현황을 불러오지 못했습니다."); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [equipment, equipmentId, day]);

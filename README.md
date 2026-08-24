@@ -8,6 +8,9 @@ SHAPE의 공개 웹사이트와 내부 운영 시스템입니다.
 - `backend/`: FastAPI API (Render 배포)
 - `docs/`: 배포와 외부 서비스 설정 안내
 
+먼저 [`docs/architecture.md`](docs/architecture.md) 를 읽으면 어디에 무엇이 있고
+요청이 어떤 경로로 흐르는지 한 번에 파악할 수 있습니다.
+
 ## 로컬 실행
 
 1. `frontend/.env.local` 및 `backend/.env`를 각각 `.env.example`에서 복사해 필요한 값을 채웁니다.

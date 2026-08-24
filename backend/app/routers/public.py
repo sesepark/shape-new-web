@@ -71,9 +71,12 @@ async def list_equipment(db: AsyncSession = Depends(get_db)):
     ids = [item.id for item in equipment]
     if not ids:
         return []
+    # 이 목록에 나오는 장비의 요구 교육만 읽는다. 조건 없이 읽으면 장비를
+    # 지운 뒤에도 남아 있는 옛 행까지 라이선스 표와 조인되어 따라 나온다.
     requirements = (await db.execute(
         select(EquipmentLicenseRequirement.equipment_id, License.name)
         .join(License, License.id == EquipmentLicenseRequirement.license_id)
+        .where(EquipmentLicenseRequirement.equipment_id.in_(ids))
     )).all()
     counts = dict((await db.execute(
         select(EquipmentUnit.equipment_id, func.count())

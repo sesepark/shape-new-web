@@ -14,7 +14,7 @@ export const metadata = {
 };
 
 export default async function ShapeUpPage() {
-  const posts = await listOrEmpty(api.shapeUp(), []);
+  const posts = await listOrEmpty(api.shapeUp());
   return (
     <PageShell eyebrow="SHAPE-UP RESULTS" title="소식" contentTitle="SHAPE-UP 결과물">
       <div className="shape-up-head">

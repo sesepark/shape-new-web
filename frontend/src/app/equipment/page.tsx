@@ -6,7 +6,6 @@ import { EmptyState } from "@/components/empty-state";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
-import { mockEquipment } from "@/lib/mock-data";
 
 export const metadata = {
   title: "보유 장비",
@@ -14,7 +13,7 @@ export const metadata = {
 };
 
 export default async function EquipmentPage() {
-  const equipment = await listOrEmpty(api.equipment(), mockEquipment);
+  const equipment = await listOrEmpty(api.equipment());
   return (
     <PageShell
       eyebrow="SHAPE EQUIPMENT"

@@ -2,12 +2,11 @@ import { ExternalLink } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
-import { mockLinks } from "@/lib/mock-data";
 
 export const metadata = { title: "관련 링크" };
 
 export default async function LinksPage() {
-  const links = await listOrEmpty(api.links(), mockLinks);
+  const links = await listOrEmpty(api.links());
   return (
     <PageShell eyebrow="QUICK ACCESS" title="바로가기" contentTitle="관련 링크">
       {links.length === 0 ? (

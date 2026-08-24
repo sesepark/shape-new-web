@@ -65,8 +65,15 @@ def as_utc(value: datetime) -> datetime:
 async def equipment_permissions(user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     """All equipment is returned so members can see both granted and missing access."""
     items = (await db.scalars(select(Equipment).order_by(Equipment.sort_order, Equipment.name))).all()
+    if not items:
+        return []
     owned = set((await db.scalars(select(UserLicense.license_id).where(UserLicense.user_id == user.id))).all())
-    requirements = (await db.execute(select(EquipmentLicenseRequirement.equipment_id, EquipmentLicenseRequirement.license_id, License.name).join(License, License.id == EquipmentLicenseRequirement.license_id))).all()
+    # 공개 장비 목록과 같은 이유로 이 장비들의 요구 교육만 읽는다.
+    requirements = (await db.execute(
+        select(EquipmentLicenseRequirement.equipment_id, EquipmentLicenseRequirement.license_id, License.name)
+        .join(License, License.id == EquipmentLicenseRequirement.license_id)
+        .where(EquipmentLicenseRequirement.equipment_id.in_([item.id for item in items]))
+    )).all()
     result = []
     for item in items:
         needed = [row for row in requirements if row[0] == item.id]

@@ -11,7 +11,7 @@ import { PageShell } from "@/components/page-shell";
 import { ImageUploadField } from "@/components/image-upload-field";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
-import { API_URL, isPreview } from "@/lib/api";
+import { API_URL } from "@/lib/api";
 import { media, optimizable } from "@/lib/media";
 import { useSession } from "@/lib/session";
 import { currentSubscription, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
@@ -38,10 +38,6 @@ function permissionNote(item: EquipmentPermission) {
   return equipmentStatusNote[item.status] || "사용 불가";
 }
 
-const previewReservations: ReservationItem[] = [
-  { id: "demo-reservation-1", equipmentUnitId: "demo-a", userId: "demo", startsAt: "2026-08-25T10:00:00+09:00", endsAt: "2026-08-25T12:00:00+09:00", purpose: "휴머노이드 외장 부품 시제품 출력", status: "APPROVED", equipmentName: "3D 프린터", unitLabel: "1호기" },
-  { id: "demo-reservation-2", equipmentUnitId: "demo-b", userId: "demo", startsAt: "2026-08-29T14:00:00+09:00", endsAt: "2026-08-29T16:00:00+09:00", purpose: "ROS 2 센서 캘리브레이션", status: "PENDING", equipmentName: "OMY", unitLabel: "2호기" },
-];
 const statusLabel: Record<ReservationItem["status"], string> = { PENDING: "승인 대기", APPROVED: "예약 확정", REJECTED: "반려", CANCELLED: "취소", IN_USE: "사용 중", COMPLETED: "사용 완료" };
 const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
 const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -273,8 +269,8 @@ function MyPagePanel({ session }: { session: SessionUser }) {
   useEffect(() => {
     const controller = new AbortController();
     void call("/reservations/me", { signal: controller.signal })
-      .then(async (response) => setReservations(response.ok ? ((await response.json()) as ReservationItem[]) : isPreview ? previewReservations : []))
-      .catch(() => setReservations(isPreview ? previewReservations : []));
+      .then(async (response) => setReservations(response.ok ? ((await response.json()) as ReservationItem[]) : []))
+      .catch(() => setReservations([]));
     return () => controller.abort();
   }, []);
   useEffect(() => {
@@ -292,7 +288,6 @@ function MyPagePanel({ session }: { session: SessionUser }) {
   const completed = items.filter((item) => item.status === "COMPLETED").length;
   return (
     <div className="mypage">
-      {isPreview && <p className="demo-ribbon">개발 서버에서는 실제 로그인 전에도 예시 마이페이지가 표시됩니다.</p>}
       <section className="mypage-hero">
         <div><p className="meta">MY SHAPE</p><h3>{session.name}님, 안녕하세요.</h3><p>예약, 장비 사용 권한, SHAPE 활동 정보를 한곳에서 확인하세요.</p></div>
         <Link href="/equipment/reserve" className="button"><CalendarClock size={17} />새 장비 예약</Link>

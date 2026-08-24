@@ -1,7 +1,6 @@
 import { ContinuousCalendar } from "@/components/continuous-calendar";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
-import { mockRoadmap } from "@/lib/mock-data";
 import type { RoadmapItem } from "@/lib/types";
 
 export async function RoadmapView({
@@ -9,7 +8,7 @@ export async function RoadmapView({
 }: {
   category?: "SHAPE-UP" | "대회" | "교육";
 }) {
-  const items = await listOrEmpty(api.roadmap(), mockRoadmap as RoadmapItem[]);
+  const items = await listOrEmpty(api.roadmap());
   const visible = category
     ? items.filter(
         (item) => item.category.trim().toUpperCase() === category.toUpperCase(),

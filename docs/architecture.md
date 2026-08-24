@@ -1,0 +1,332 @@
+# SHAPE 웹 구조
+
+이 문서 하나만 읽고도 `shape_web` 에서 작업을 시작할 수 있도록 쓴 지도입니다.
+Claude·Codex 같은 도구가 저장소를 처음 열었을 때 가장 먼저 읽을 문서를 의도했습니다.
+
+관련 문서와 역할이 겹치지 않게 나눠 두었습니다.
+
+| 문서 | 다루는 것 |
+|---|---|
+| **이 문서** | 무엇이 어디에 있고, 요청이 어떤 경로로 흐르는가 |
+| [`setup.md`](setup.md) | 외부 서비스 연결 절차, 배포 설정, 첫 운영 준비 순서 |
+| [`free-tier-deployment.md`](free-tier-deployment.md) | 무료 한도를 지키는 캐시·비용 규칙과 실측 용량표 |
+| [`../README.md`](../README.md) | 로컬에서 띄우는 방법 |
+
+---
+
+## 1. 전체 구성
+
+```mermaid
+flowchart LR
+    V["방문자 브라우저"]
+    subgraph Vercel["Vercel — frontend/ (Next.js 16, Node 20)"]
+        E["Edge 캐시 · ISR"]
+        F["React Server Components"]
+        R["/api/revalidate"]
+    end
+    subgraph Render["Render — backend/ (FastAPI, Python 3.12)"]
+        A["/api/v1/*"]
+    end
+    N[("Neon PostgreSQL")]
+    C[("Cloudinary")]
+    G["Google OAuth"]
+
+    V -->|"HTML · 정적 자산"| E
+    E --> F
+    F -->|"서버 fetch · 5분 캐시"| A
+    V -->|"회원·관리자 API 직접 호출 (쿠키)"| A
+    A --> N
+    A -->|"저장 직후 새로고침 요청"| R
+    R -.->|"revalidatePath"| E
+    V -->|"이미지 업로드 (서명 후 직접)"| C
+    F -->|"이미지 최적화"| C
+    V --> G
+    G -->|"콜백"| A
+```
+
+세 서비스 모두 무료 티어입니다. 이용자는 20~70명 규모이며, **비용을 좌우하는 것은
+전송량이 아니라 요청 수**입니다. 자세한 수치는 `free-tier-deployment.md` 를 보세요.
+
+### 도메인
+
+| 주소 | 가리키는 곳 |
+|---|---|
+| `www.snu-shape.com` | Vercel (프런트엔드) |
+| `snu-shape.com` | `www` 로 308 리다이렉트 |
+| `api.snu-shape.com` | Render (백엔드) |
+
+프런트엔드와 백엔드가 **서로 다른 출신지**라는 점이 구조 전반을 결정합니다.
+쿠키는 `COOKIE_DOMAIN` 으로 상위 도메인에 걸고, CORS 는 `FRONTEND_URL` 하나만
+허용하며, 모든 회원용 요청은 `credentials: "include"` 로 나갑니다.
+
+---
+
+## 2. 요청이 흐르는 세 가지 길
+
+작업하기 전에 지금 만지는 화면이 셋 중 어디에 속하는지 먼저 판단하세요.
+캐시 정책과 인증 방식이 전혀 다릅니다.
+
+### (가) 공개 페이지 — 서버에서 그리고 CDN 이 들고 있음
+
+`/`, `/about`, `/news`, `/members`, `/equipment`, `/roadmap`, `/links`, `/shape-up` 등.
+
+1. Next.js 서버 컴포넌트가 `src/lib/api.ts` 의 `api.*()` 로 백엔드를 호출합니다.
+   이 fetch 는 `next: { revalidate: 300 }` 이라 **5분간 Next.js Data Cache** 에 남습니다.
+2. 그린 HTML 은 Vercel Edge 캐시에 올라가고, 방문자는 대부분 CDN 에서 받습니다.
+   빌드 출력의 `○`(정적) 또는 `●`(경로별 정적)가 이 상태입니다.
+3. 관리자가 무언가 저장하면 백엔드가 `POST /api/revalidate` 로 알려 주고,
+   해당 경로가 즉시 새로 그려집니다. (`app/services/revalidate.py` ↔ `src/app/api/revalidate/route.ts`)
+
+> **공개 데이터를 실제로 지켜 주는 것은 Next.js Data Cache 입니다.** Render 앞에는
+> 공유 캐시가 없으므로 API 응답의 `s-maxage` 는 예비 장치일 뿐입니다. 이 재검증
+> 경로를 끊지 마세요.
+
+상세 페이지(`/news/[id]`, `/equipment/[id]`, `/shape-up/[id]`)는 `generateStaticParams`
+로 빌드 때 미리 그려 둡니다. 목록을 못 받아 오면 빈 배열을 돌려주므로, 배포 중
+백엔드가 자고 있어도 빌드가 깨지지 않고 그 주소는 예전처럼 그때그때 그려집니다.
+
+### (나) 회원 화면 — 브라우저가 백엔드를 직접 호출
+
+`/mypage`, `/notices`, `/equipment/reserve`, `/equipment/status`, `/resources`.
+
+서버에서 그리지 않습니다. 클라이언트 컴포넌트가 `fetch(API_URL + …, { credentials: "include" })`
+로 백엔드를 직접 부르고, 백엔드는 `shape_session` 쿠키로 신원을 확인합니다.
+이 응답은 전부 `private, no-store` 입니다.
+
+### (다) 관리자 화면 — `/admin` 한 페이지
+
+`src/components/admin-console.tsx` 하나가 모든 관리 기능을 담고 있습니다(약 2,000줄).
+탭마다 `/api/v1/admin/*` 을 호출하며, 각 요청은 백엔드에서 권한을 다시 확인합니다.
+**프런트엔드의 탭 노출은 편의일 뿐 보안 경계가 아닙니다.**
+
+---
+
+## 3. 백엔드 — `backend/`
+
+```
+backend/
+├── app/
+│   ├── main.py          FastAPI 앱과 미들웨어 4겹
+│   ├── config.py        환경변수 → Settings (lru_cache 로 한 번만 읽음)
+│   ├── database.py      비동기 엔진과 세션. Neon URL 정규화가 여기 있음
+│   ├── models.py        SQLAlchemy 테이블 정의
+│   ├── schemas.py       Pydantic 입출력 모델 (camelCase 로 나감)
+│   ├── security.py      세션 쿠키, 권한 확인 의존성
+│   ├── middleware.py    요청 크기·유량 제한과 캐시 헤더
+│   ├── routers/         auth · public · member · media · admin
+│   └── services/        content · link_preview · notifications · reservations · revalidate
+├── alembic/versions/    스키마 이력
+├── scripts/             시드와 이관 스크립트 (5절)
+└── tests/test_api.py    전 기능 통합 테스트 46개
+```
+
+### 미들웨어는 바깥부터 이 순서로 겹칩니다
+
+`main.py` 의 `add_middleware` 는 **나중에 붙인 것이 바깥**입니다. 실제 순서는
+
+```
+CORS → Session → CostGuard → GZip → 라우터
+```
+
+* **CORS** — `FRONTEND_URL` 한 곳만 허용. `allow_credentials=True` 라 와일드카드를 쓸 수 없습니다.
+* **Session** — Google OAuth 의 state 를 담는 서명 쿠키.
+* **CostGuard** (`middleware.py`) — 이 프로젝트에서 가장 중요한 미들웨어입니다.
+  * 본문이 `MAX_REQUEST_BYTES`(2MB)를 넘으면 **DB 세션을 열기 전에** 413 으로 거절합니다.
+  * 분당 공개 읽기 120회 / 쓰기 20회로 제한합니다. **로그인한 회원은 계정별로,
+    나머지는 주소별로** 셉니다. 학교 Wi-Fi 처럼 여러 명이 한 IP 를 쓰는 곳에서
+    서로의 한도를 깎지 않게 하기 위해서입니다.
+  * 응답에 `Cache-Control` 을 붙입니다. **허용 목록 방식**이고(`PUBLIC_READS`),
+    **세션 쿠키가 실린 요청은 공개 읽기라도 `private, no-store`** 로 내려갑니다.
+    `/shape-up` 처럼 같은 주소인데 보는 사람에 따라 `canEdit` 이 달라지는 응답이
+    있기 때문입니다.
+* **GZip** — 500바이트 넘는 응답을 압축. 한글 JSON 은 `\uXXXX` 로 나가 55~68% 줄어듭니다.
+  앞단에 프록시가 없어 앱이 직접 합니다.
+
+> 공개 읽기 경로를 새로 만들면 `PUBLIC_READS` 에 넣어야 캐시가 붙습니다.
+> 반대로, 보는 사람에 따라 내용이 달라지는 응답을 그 목록에 넣으면 안 됩니다.
+
+### 권한 모델
+
+두 층으로 되어 있습니다.
+
+| 층 | 값 | 확인 지점 |
+|---|---|---|
+| 계정 상태 | `PENDING` / `APPROVED` / `REJECTED` / `SUSPENDED` | `approved_user` |
+| 소유자 | `users.is_owner` | `owner_only` |
+| 세부 권한 | `permission_grants.permission` 문자열 | `require_permission("…")` |
+
+쓰이는 권한 문자열은 `content:manage`, `news:manage`, `notices:manage`,
+`equipment:manage`, `roadmap:manage`, `links:manage`, `reservations:manage` 입니다.
+**owner 는 모든 확인을 무조건 통과**합니다(`has_permission` 첫 줄).
+
+### 데이터 모델
+
+```mermaid
+erDiagram
+    users ||--o{ permission_grants : "세부 권한"
+    users ||--o{ user_licenses : "이수한 교육"
+    users ||--o{ reservations : "신청"
+    users ||--o{ roadmap_members : "참여"
+    users ||--o{ notifications : "받음"
+    users ||--o{ push_subscriptions : "기기"
+    licenses ||--o{ user_licenses : ""
+    licenses ||--o{ equipment_license_requirements : ""
+    equipment ||--o{ equipment_units : "호기"
+    equipment ||--o{ equipment_license_requirements : "필수 교육"
+    equipment_units ||--o{ reservations : ""
+    reservations ||--o{ reservation_slots : "30분 칸"
+    notices ||--o{ comments : "댓글"
+    notices ||--o{ notifications : ""
+    roadmap_items ||--o{ roadmap_members : ""
+```
+
+읽기 전용에 가까운 표는 위 그림 밖에 있습니다: `content_pages`(슬러그별 편집 페이지),
+`news_posts`, `related_links`, `shape_up_posts`, `resources`.
+
+기억해 둘 만한 설계 두 가지:
+
+* **`UtcDateTime`** (`models.py`) — 모든 시각 컬럼은 저장과 조회 양쪽에서 UTC 로
+  맞춥니다. 로컬 개발용 SQLite 가 시간대를 떼어 버려 화면에서 9시간씩 어긋나던
+  문제를 막습니다. 새 시각 컬럼도 반드시 이 타입을 쓰세요.
+* **`reservation_slots`** — 승인된 예약을 30분 칸으로 펼쳐 `(호기, 시작시각)` 에
+  고유 제약을 겁니다. **겹침 방지는 애플리케이션 로직이 아니라 데이터베이스 제약**
+  이 책임집니다. 신청 단계에서 미리 걸러 주기는 하지만 최종 방어선은 이 제약입니다.
+
+### 라우터가 나뉜 기준
+
+| 라우터 | 인증 | 내용 |
+|---|---|---|
+| `auth.py` | — | Google OAuth 시작·콜백, 세션 조회, 로그아웃, 내 프로필 |
+| `public.py` | 없음 | 공개 페이지가 읽는 것 전부 |
+| `member.py` | 승인 회원 | 게시판, 예약, 알림, 자료실, SHAPE-UP, 내 로드맵 |
+| `media.py` | 승인 회원 | Cloudinary 업로드 서명 발급 |
+| `admin.py` | 권한별 | 관리 기능 전부 |
+
+`/resources` 와 `/shape-up` 은 `optional_user` 를 써서 **로그인 여부에 따라 응답이
+달라집니다**. 이 둘을 건드릴 때는 위의 캐시 규칙을 꼭 함께 확인하세요.
+
+---
+
+## 4. 프런트엔드 — `frontend/`
+
+```
+frontend/
+├── src/app/          App Router. 폴더 = URL
+├── src/components/   화면 조각
+├── src/lib/          api · media · members · navigation · format · types …
+└── public/
+    ├── figs/         옛 사이트에서 옮겨 온 부원 사진
+    ├── models/       홈 화면 로봇 3D (.glb, 합계 약 1.1MB)
+    └── sw.js         푸시 알림과 아이콘 캐시용 서비스 워커
+```
+
+### 스타일
+
+전역 CSS 다섯 장을 `layout.tsx` 에서 한꺼번에 불러옵니다
+(`globals` → `responsive-additions` → `feature-additions` → `header-fixes` → `site-polish`).
+**뒤에 오는 파일이 앞을 덮는 구조**이므로, 스타일이 안 먹으면 뒤쪽 파일에 같은
+선택자가 있는지 먼저 보세요. 압축 후 합계 약 33KB 이고 모든 페이지에 실립니다.
+
+### 이미지 — 비용이 가장 크게 갈리는 곳
+
+`src/lib/media.ts` 의 두 함수가 전부입니다.
+
+* `media(url, width)` — Cloudinary 주소면 `f_auto,q_auto,c_limit,w_*` 를 끼워 넣고,
+  옛 사이트 절대 주소(`https://www.snu-shape.com/figs/…`)면 **상대 경로로 바꿉니다.**
+  절대 주소로 두면 이미지 최적화가 제 사이트에 HTTP 요청을 한 번 더 보냅니다.
+* `optimizable(url)` — Next.js 최적화에 넘겨도 되는 주소인지 판정합니다.
+  `remotePatterns` 에 없는 주소를 넘기면 400 이 납니다.
+
+`next.config.ts` 의 `minimumCacheTTL` 은 1년입니다. Vercel 무료 요금제가 세는 것은
+전송량이 아니라 **변환 횟수(월 5,000회)** 이기 때문입니다.
+
+> **`public/figs` 에 사진을 넣을 때 지켜야 할 두 가지**
+> 1. 긴 변 1,200px 이내, 사진은 JPEG. PNG 사진 한 장이 3MB 를 먹습니다.
+> 2. **파일 이름을 NFC 로 정규화**하세요. macOS 의 `sips` 같은 도구는 한글 파일명을
+>    NFD 로 바꿔 놓는데, 리눅스(Vercel)에서는 다른 파일로 취급되어 404 가 납니다.
+>    확인: `python3 -c "import unicodedata,os;print([f for f in os.listdir('public/figs') if not unicodedata.is_normalized('NFC',f)])"`
+
+### 링크는 `HoverPrefetchLink` 로
+
+머리글과 전체 메뉴에 사이트의 거의 모든 주소가 들어 있어, 기본 `Link` 를 쓰면
+한 쪽을 열 때마다 40건 넘는 프리페치가 나갑니다. 머리글·메뉴에 링크를 추가할 때는
+반드시 `src/components/hover-prefetch-link.tsx` 를 쓰세요.
+
+---
+
+## 5. 운영 데이터
+
+`backend/scripts/` 에 네 종류가 있고 역할이 완전히 다릅니다. **운영 DB 에 돌려도
+되는 것과 절대 안 되는 것을 구분**하세요.
+
+| 스크립트 | 운영 DB | 하는 일 |
+|---|---|---|
+| `dev_seed.py` | **금지** | 표를 통째로 비우고 가짜 회원·예약까지 만듭니다. 로컬 전용 |
+| `dev_content.py` | — | 위 시드가 쓰는 예시 내용 모음. 실행 파일이 아닙니다 |
+| `migrate_legacy.py` | 가능 | 옛 사이트 사진을 Cloudinary 로 옮기고 옛 소식을 넣습니다 |
+| `seed_content.py` | 가능 | 인사말·동아리 소개·부원·조직도 네 페이지의 최초 내용 |
+| `seed_2026_2.py` | 가능 | 2기 확정 정보(부원 명단·언론보도·로드맵·링크·장비) |
+
+`seed_2026_2.py` 는 부원 카드만 통째로 덮어쓰고 나머지는 이미 있으면 건너뜁니다.
+`--dry-run` 을 붙이면 무엇이 바뀔지만 출력합니다.
+
+### 공개 페이지에 넣지 않는 것
+
+* **개인정보** — 이메일, 학번, 연락처. 부원 페이지는 로그인 없이 누구나 봅니다.
+  명단 파일에서 옮길 때 이름·팀·역할·회원 구분까지만 씁니다.
+* **주소만 알면 열리는 공유 링크** — 노션과 구글 드라이브는 `is_published=false`
+  로 등록해 두어 관리자 페이지에서만 보입니다.
+* **확인되지 않은 값** — 예시 데이터로 화면을 채우지 않습니다.
+  프런트엔드에는 표본 데이터가 남아 있지 않고, 목록을 못 받아 오면 안내용 빈 상태
+  화면이 뜹니다(`listOrEmpty` / `itemOrNull` / `EmptyState`).
+
+---
+
+## 6. 작업할 때 확인할 것
+
+### 바꾸기 전에 읽어야 하는 것
+
+| 무엇을 건드리는가 | 함께 확인할 것 |
+|---|---|
+| 공개 API 응답 모양 | `middleware.py` 의 `PUBLIC_READS`, 그 응답을 쓰는 페이지의 캐시 |
+| 관리자 저장 기능 | `services/revalidate.py` 의 `PATHS` 에 해당 경로가 있는가 |
+| 프런트엔드 화면 | 같은 데이터를 다루는 `/admin` 탭도 함께 고쳤는가 |
+| 머리글·메뉴 링크 | `HoverPrefetchLink` 를 썼는가, 요청 수 추정이 달라지는가 |
+| 새 표·컬럼 | Alembic 마이그레이션, 시각 컬럼이면 `UtcDateTime` |
+| 페이지마다 새 API 호출 | `free-tier-deployment.md` 의 용량표를 다시 계산 |
+
+### 검사
+
+```bash
+# 백엔드 — 통합 테스트 46개
+cd backend && .venv/bin/python -m pytest -q
+
+# 프런트엔드
+cd frontend && npx tsc --noEmit && npm run test && npm run lint && npm run build
+```
+
+빌드 출력의 `Route (app)` 표에서 **공개 페이지가 `○`/`●` 인지** 확인하세요.
+`ƒ`(요청마다 서버 실행)로 바뀌었다면 실수로 동적 API(쿠키·헤더 등)를 쓴 것입니다.
+`/notices/[id]`, `/api/revalidate` 만 원래 `ƒ` 입니다.
+
+### 마이그레이션
+
+로컬에서 Neon 을 가리켜 실행합니다. Render 무료 티어에는 셸이 없을 수 있습니다.
+
+```bash
+cd backend
+DATABASE_URL="<Neon pooled URL>" SESSION_SECRET="<Render 와 같은 값>" .venv/bin/alembic upgrade head
+```
+
+### 흔히 걸리는 것들
+
+* **Render 무료 인스턴스는 15분 놀면 잠듭니다.** 깨어나는 데 30~60초 걸립니다.
+  깨워 두는 주기적 핑을 붙이지 마세요. 월 750시간이 통째로 소진됩니다.
+  공개 페이지는 CDN 에서 나가므로 방문자는 이 지연을 거의 겪지 않습니다.
+* **Neon 은 5분 놀면 컴퓨트를 멈춥니다.** 첫 질의가 느린 이유입니다.
+  `pool_pre_ping=True` 와 `pool_recycle=300` 이 끊긴 연결을 걸러 줍니다.
+  `DB_POOL_SIZE=2`, `DB_MAX_OVERFLOW=1` 을 낮춰 두는 이유이기도 합니다.
+* **저장소 최상위에 `.nvmrc` 같은 Node 표식을 두지 마세요.** Render 가 Python
+  서비스를 Node 로 오인합니다. 자세한 내용은 `setup.md` 7절에 있습니다.
+* **커밋 작성자 이메일**이 GitHub 계정과 맞지 않으면 Vercel 이 빌드를 시작조차
+  하지 않습니다. `setup.md` 의 "커밋 이메일" 절을 보세요.

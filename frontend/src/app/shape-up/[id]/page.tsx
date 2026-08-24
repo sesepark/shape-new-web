@@ -5,12 +5,18 @@ import { ArrowLeft, Github, PlayCircle, Users } from "lucide-react";
 import { ExternalLinkBlock } from "@/components/external-link-block";
 import { PageShell } from "@/components/page-shell";
 import { ShapeUpOwnerActions } from "@/components/shape-up-owner-actions";
-import { api, itemOrNull } from "@/lib/api";
+import { api, itemOrNull, listOrEmpty } from "@/lib/api";
 import { date } from "@/lib/format";
 import { media, optimizable } from "@/lib/media";
 
+/** 빌드 때 미리 그려 둔다. 이유는 `news/[id]/page.tsx` 의 같은 함수 주석에 있다. */
+export async function generateStaticParams() {
+  const posts = await listOrEmpty(api.shapeUp());
+  return posts.map((item) => ({ id: String(item.id) }));
+}
+
 async function post(id: string) {
-  return itemOrNull(api.shapeUpDetail(id), () => null);
+  return itemOrNull(api.shapeUpDetail(id));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {

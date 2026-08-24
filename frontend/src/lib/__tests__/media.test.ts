@@ -10,8 +10,15 @@ describe("cloudinary delivery", () => {
     );
   });
 
+  it("옛 사이트 주소로 저장된 부원 사진은 우리 폴더의 상대 경로로 바꾼다", () => {
+    // 절대 주소로 두면 이미지 최적화가 제 사이트에 HTTP 요청을 한 번 더 보낸다.
+    expect(media("https://www.snu-shape.com/figs/name.jpeg", 560)).toBe("/figs/name.jpeg");
+    expect(media("https://www.snu-shape.com/figs/%EA%B9%80%EC%A4%80%EC%84%9C.jpeg", 560)).toBe(
+      "/figs/%EA%B9%80%EC%A4%80%EC%84%9C.jpeg",
+    );
+  });
+
   it("leaves other hosts and already transformed URLs alone", () => {
-    expect(media("https://www.snu-shape.com/figs/name.jpeg", 560)).toBe("https://www.snu-shape.com/figs/name.jpeg");
     const transformed = "https://res.cloudinary.com/shape/image/upload/w_100/v1/a.jpg";
     expect(media(transformed, 720)).toBe(transformed);
     expect(media("", 720)).toBe("");
