@@ -101,8 +101,12 @@ html:has(.shape-home) .site-footer {
   --footer-muted:#6d788b; --footer-line:#d9e0ec;
   --footer-accent:#2855f3; --footer-art:.22; --footer-art-color:#1b3a7a;
 }
-.footer-reveal { display:block; will-change:opacity,transform; opacity:0; transform:translateY(48px); transition:opacity .56s ease-out,transform .7s cubic-bezier(.2,.75,.2,1); }
-.footer-reveal.is-visible { opacity:1; transform:translateY(0); }
+/* 등장 연출은 푸터 자신이 아니라 자식들에게 겁니다. 홈에서는 푸터가 스냅
+   지점이라, 푸터 상자를 48px 옮기면 스냅 위치도 같이 옮겨져 문서 맨 아래에
+   닿는 순간 화면이 그만큼 위로 튕겨 올라갔습니다. */
+.footer-reveal { display:block; }
+.footer-reveal > * { will-change:opacity,transform; opacity:0; transform:translateY(48px); transition:opacity .56s ease-out,transform .7s cubic-bezier(.2,.75,.2,1); }
+.footer-reveal.is-visible > * { opacity:1; transform:translateY(0); }
 
 /* ── 홈 스크롤 스냅과 섹션 애니메이션 ───────────────────────────
    PC는 섹션마다 확실히 걸리게(mandatory), 모바일은 손가락 스크롤을 막지
@@ -114,7 +118,9 @@ html:has(.shape-home) .site-footer {
    맨 아래로 끌려갔습니다. :has() 는 라우트가 바뀌는 순간 함께 꺼집니다. */
 html:has(.shape-home) { scroll-snap-type:y mandatory; }
 .shape-home > section { min-height:100svh; scroll-snap-align:start; scroll-snap-stop:always; }
-html:has(.shape-home) .site-footer { scroll-snap-align:end; }
+/* 스냅 지점은 푸터의 테두리 상자라, 아래 바깥 여백만큼 문서 끝보다 위에서
+   멈춥니다. 그만큼을 스냅 여백으로 되돌려 맨 아래에서 튕기지 않게 합니다. */
+html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom:14px; }
 .home-reveal { opacity:0; transform:translateY(30px); transition:opacity .6s ease,transform .75s cubic-bezier(.2,.85,.25,1); transition-delay:calc(var(--reveal-index,0) * 110ms); }
 .shape-home section.in-view .home-reveal { opacity:1; transform:none; }
 .home-intro h1.home-reveal,
@@ -155,6 +161,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
   .page-content { width:calc(100% - 40px); padding:65px 0 100px; }
   .page-hero .scroll-orbit { display:none; }
   .site-footer { width:calc(100% - 12px); margin:14px auto 6px; padding:22px 20px 52px; }
+  html:has(.shape-home) .site-footer { scroll-margin-bottom:6px; }
   .site-footer .footer-bottom { left:20px; right:20px; }
   .footer-ai-worker { right:5%; bottom:-74px; width:158px; }
 }
@@ -181,7 +188,7 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; }
 }
 
 @media (prefers-reduced-motion:reduce) {
-  .footer-reveal,
+  .footer-reveal > *,
   .home-reveal { opacity:1; transform:none; clip-path:none; transition:none; }
   .page-hero .page-title { opacity:1; transform:translateY(-50%); transition:none; }
   .page-hero .page-subnav { opacity:1; transform:translate(-50%,0); transition:none; }
