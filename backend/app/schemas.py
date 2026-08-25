@@ -587,3 +587,37 @@ class PushSubscriptionWrite(InputModel):
 
 
 AdminEquipmentRead.model_rebuild()
+
+
+class AdminAuditRead(ORMModel):
+    """수정 내역 한 줄. 그때의 이름을 그대로 돌려줍니다(회원이 바뀌어도 기록은 그대로)."""
+
+    id: UUID
+    created_at: datetime
+    actor_id: UUID | None = None
+    actor_name: str = ""
+    actor_email: str = ""
+    action: str = ""
+    area: str = ""
+    target: str = ""
+    detail: str = ""
+    method: str = ""
+    path: str = ""
+
+
+class AuditActor(BaseModel):
+    id: UUID | None = None
+    name: str = ""
+
+
+class AdminAuditPage(BaseModel):
+    """수정 내역 한 쪽과, 거르개에 쓸 목록.
+
+    거르개 목록을 첫 쪽에만 실어 보냅니다. 이어받기(`before`)로 다음 쪽을 받을
+    때마다 다시 계산하면 표가 커질수록 값이 붙는데, 화면은 첫 쪽에서 받은 목록을
+    그대로 쓰기 때문입니다.
+    """
+
+    items: list[AdminAuditRead]
+    actors: list[AuditActor] = Field(default_factory=list)
+    areas: list[str] = Field(default_factory=list)

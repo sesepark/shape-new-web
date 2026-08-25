@@ -4036,3 +4036,47 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 /* 소진 예정일. 이 화면에서 가장 빨리 읽혀야 하는 한 줄이라 색을 씁니다. */
 .usage-deadline { margin:2px 0 0; padding:6px 10px; color:#8c2f21; background:#fdecea; border-radius:7px; font-size:11.5px; line-height:1.55; word-break:keep-all; }
 .usage-deadline b { font-weight:900; }
+
+/* --------------------------------------------------------- 관리자 › 수정 내역
+
+   누가 언제 무엇을 고쳤는지 훑는 화면. 한 줄에 시각·동작·대상·사람 넷이 들어가고,
+   좁은 화면에서는 사람이 아래로 떨어집니다. 날짜는 매 줄 반복하지 않고 묶음
+   머리에 한 번만 씁니다. */
+
+.audit-panel { display:grid; gap:16px; }
+.audit-filters { display:flex; flex-wrap:wrap; gap:12px; }
+.audit-filters label { display:grid; gap:5px; min-width:0; }
+.audit-filters span { color:#79808d; font-size:11px; font-weight:800; letter-spacing:.04em; }
+.audit-filters select { min-width:150px; padding:8px 11px; background:#fff; border:1px solid #cbd3e2; border-radius:8px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+
+.audit-days { display:grid; gap:20px; }
+.audit-days section { display:grid; gap:8px; }
+.audit-days h3 { position:sticky; top:88px; z-index:1; margin:0; padding:6px 0; color:#5b6479; background:#fff; font-size:12px; font-weight:900; letter-spacing:.03em; }
+.audit-days ul { margin:0; padding:0; list-style:none; display:grid; gap:2px; }
+.audit-days li { padding:10px 12px; display:grid; grid-template-columns:52px 82px minmax(0,1fr) auto; align-items:center; gap:12px; background:#fff; border:1px solid #e6e9f0; border-radius:9px; }
+.audit-days time { color:#8b93a1; font-size:12px; font-variant-numeric:tabular-nums; }
+
+.audit-badge { padding:3px 0; border-radius:999px; font-size:11px; font-weight:900; text-align:center; }
+.audit-badge.make { color:#1d6b40; background:#e7f6ed; }
+.audit-badge.edit { color:#1b4bc4; background:#e7edff; }
+.audit-badge.drop { color:#b62446; background:#fde8ee; }
+
+.audit-what { min-width:0; display:grid; gap:2px; }
+.audit-what strong { min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:7px; font-size:13.5px; }
+.audit-what em { overflow:hidden; max-width:100%; color:#3a4250; font-style:normal; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+.audit-detail { color:#79808d; font-size:11.5px; word-break:keep-all; }
+.audit-who { flex:0 0 auto; color:#5b6479; font-size:12px; font-weight:800; white-space:nowrap; }
+
+.audit-more { padding:11px; color:var(--blue); background:#fff; border:1px solid #cbd3e2; border-radius:9px; font-weight:800; cursor:pointer; }
+.audit-more:disabled { color:#9aa3b2; cursor:default; }
+
+@media (max-width:900px) {
+  /* 360px 에서 네 칸은 들어가지 않습니다. 시각·동작을 윗줄에, 대상과 사람을
+     아랫줄에 둡니다. 대상 이름이 길어도 넘치지 않게 잘라 둡니다. */
+  .audit-days li { grid-template-columns:48px 76px minmax(0,1fr); gap:6px 10px; }
+  .audit-days h3 { top:0; }
+  .audit-what { grid-column:1 / -1; }
+  .audit-who { grid-column:1 / -1; color:#79808d; font-size:11.5px; }
+  .audit-filters label { flex:1 1 140px; }
+  .audit-filters select { width:100%; min-width:0; }
+}

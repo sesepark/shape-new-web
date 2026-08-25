@@ -31,7 +31,7 @@ const groups = [
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
   { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"] },
   { label: "바로가기", tabs: ["관련 링크"] },
-  { label: "시스템", tabs: ["회원 및 권한", "서버"] },
+  { label: "시스템", tabs: ["회원 및 권한", "수정 내역", "서버"] },
 ] as const;
 type Section = (typeof groups)[number]["tabs"][number];
 // Every tab maps to the permission its API calls require, so a manager only
@@ -59,6 +59,7 @@ const tabPermission: Record<Section, string> = {
   "기타": "roadmap:manage",
   "관련 링크": "links:manage",
   "회원 및 권한": "owner",
+  "수정 내역": "owner",
   "서버": "owner",
 };
 const apiUrl =
@@ -214,6 +215,7 @@ const sectionGuide: Record<Section, { what: string; where: string; href?: string
   "기타": { what: "세 트랙에 들어가지 않는 일정을 등록합니다.", where: "공개 페이지 로드맵 › 전체 로드맵", href: "/roadmap" },
   "관련 링크": { what: "Drive·Notion 같은 외부 링크를 카드로 등록합니다.", where: "공개 페이지 바로가기 › 관련 링크", href: "/links" },
   "회원 및 권한": { what: "가입 신청을 승인하고 운영진 권한과 장비 라이선스를 부여합니다.", where: "회원 로그인과 마이페이지" },
+  "수정 내역": { what: "운영진이 관리자 화면에서 무엇을 언제 고쳤는지 봅니다. 관리자 창구의 저장·삭제는 빠짐없이 남고, 지운 것도 이름이 함께 남습니다.", where: "고치는 곳이 아니라 보는 곳입니다" },
   "서버": { what: "사이트를 떠받치는 네 서비스를 무료 한도 대비 얼마나 썼는지 봅니다. 한도를 넘기면 요금이 붙는 것이 아니라 정지하므로, 달이 끝나기 전에 미리 보는 화면입니다.", where: "고치는 곳이 아니라 보는 곳입니다" },
 };
 
@@ -485,6 +487,7 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
       <RoadmapForm key={tab} fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
     );
   if (tab === "관련 링크") return <LinkForm />;
+  if (tab === "수정 내역") return <AuditTrail />;
   if (tab === "서버") return <ServerUsage />;
   return <MembersPanel owner={owner} />;
 }
@@ -3631,6 +3634,196 @@ function ServerUsage() {
             </p>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ 수정 내역 */
+
+type AuditRow = {
+  id: string;
+  // 백엔드 스키마가 camelCase 로 내보냅니다(`schemas.ORMModel` 의 alias_generator).
+  createdAt: string;
+  actorId: string | null;
+  actorName: string;
+  actorEmail: string;
+  action: string;
+  area: string;
+  target: string;
+  detail: string;
+  method: string;
+  path: string;
+};
+type AuditPage = { items: AuditRow[]; actors: { id: string | null; name: string }[]; areas: string[] };
+
+/**
+ * 동작 이름을 한글로. 백엔드는 주소와 방식에서 기계적으로 뽑으므로, 사람이 읽을
+ * 말로 옮기는 일은 화면이 맡습니다.
+ */
+const auditAction: Record<string, { label: string; tone: "make" | "edit" | "drop" }> = {
+  create: { label: "만듦", tone: "make" },
+  update: { label: "고침", tone: "edit" },
+  replace: { label: "바꿈", tone: "edit" },
+  delete: { label: "지움", tone: "drop" },
+  order: { label: "순서 바꿈", tone: "edit" },
+  decision: { label: "승인·반려", tone: "edit" },
+  cancel: { label: "취소", tone: "drop" },
+  status: { label: "상태 바꿈", tone: "edit" },
+  owner: { label: "owner 바꿈", tone: "drop" },
+  permissions: { label: "권한 설정", tone: "edit" },
+  licenses: { label: "라이선스 설정", tone: "edit" },
+};
+
+/**
+ * 시각은 24시간으로 씁니다. "오후 07:17" 은 좁은 화면에서 두 줄로 깨지고,
+ * 기록을 훑을 때는 오전·오후를 읽는 것보다 숫자가 나란히 서는 편이 낫습니다.
+ */
+function auditTime(value: string) {
+  return new Date(value).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** 같은 날의 기록을 한 덩어리로 묶는다. 날짜가 매 줄 반복되면 읽기 어렵다. */
+function byDay(rows: AuditRow[]) {
+  const days: { day: string; rows: AuditRow[] }[] = [];
+  for (const row of rows) {
+    const day = longDate(row.createdAt);
+    const last = days[days.length - 1];
+    if (last && last.day === day) last.rows.push(row);
+    else days.push({ day, rows: [row] });
+  }
+  return days;
+}
+
+/**
+ * 운영진의 수정 내역. owner 만 볼 수 있습니다.
+ *
+ * 기록은 쌓이기만 하므로 최신 50건씩 끊어 받고 '더 보기' 로 이어받습니다.
+ * 거르개(사람·영역) 목록은 첫 쪽에만 실려 오므로 그대로 들고 씁니다.
+ */
+function AuditTrail() {
+  const [rows, setRows] = useState<AuditRow[]>([]);
+  const [filters, setFilters] = useState<{ actors: AuditPage["actors"]; areas: string[] }>({ actors: [], areas: [] });
+  const [actor, setActor] = useState("");
+  const [area, setArea] = useState("");
+  const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  const [more, setMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const query = useCallback(
+    (before?: string) => {
+      const search = new URLSearchParams();
+      if (before) search.set("before", before);
+      if (actor) search.set("actor", actor);
+      if (area) search.set("area", area);
+      return `/admin/audit${search.size ? `?${search}` : ""}`;
+    },
+    [actor, area],
+  );
+
+  // 거르개를 바꾸면 처음부터 다시 받습니다.
+  useEffect(() => {
+    let active = true;
+    void adminFetch(query()).then(async (response) => {
+      if (!active) return;
+      if (!response.ok) return setState("failed");
+      const page = (await response.json()) as AuditPage;
+      if (!active) return;
+      setRows(page.items);
+      setMore(page.items.length >= 50);
+      // 목록은 첫 쪽에서만 오므로, 거른 뒤에 비어 오면 앞서 받은 것을 지키세요.
+      if (page.actors.length || page.areas.length) setFilters({ actors: page.actors, areas: page.areas });
+      setState("ready");
+    });
+    return () => {
+      active = false;
+    };
+  }, [query]);
+
+  const loadMore = useCallback(async () => {
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    setBusy(true);
+    const response = await adminFetch(query(last.createdAt));
+    if (response.ok) {
+      const page = (await response.json()) as AuditPage;
+      setRows((current) => [...current, ...page.items]);
+      setMore(page.items.length >= 50);
+    }
+    setBusy(false);
+  }, [query, rows]);
+
+  if (state === "failed") return <p className="usage-note">수정 내역을 읽지 못했습니다.</p>;
+
+  return (
+    <div className="audit-panel">
+      <div className="audit-filters">
+        <label>
+          <span>고친 사람</span>
+          <select value={actor} onChange={(event) => { setState("loading"); setActor(event.target.value); }}>
+            <option value="">모두</option>
+            {filters.actors.map((person) => (
+              <option key={person.id ?? "gone"} value={person.id ?? ""}>
+                {person.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>영역</span>
+          <select value={area} onChange={(event) => { setState("loading"); setArea(event.target.value); }}>
+            <option value="">모두</option>
+            {filters.areas.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {state === "loading" ? (
+        <p className="usage-note">불러오는 중입니다…</p>
+      ) : rows.length === 0 ? (
+        <div className="empty-state">
+          <h2>아직 기록이 없습니다</h2>
+          <p>운영진이 관리자 화면에서 무언가를 저장하면 여기에 쌓입니다.</p>
+        </div>
+      ) : (
+        <div className="audit-days">
+          {byDay(rows).map((group) => (
+            <section key={group.day}>
+              <h3>{group.day}</h3>
+              <ul>
+                {group.rows.map((row) => {
+                  const kind = auditAction[row.action] ?? { label: row.action, tone: "edit" as const };
+                  return (
+                    <li key={row.id}>
+                      <time>{auditTime(row.createdAt)}</time>
+                      <span className={`audit-badge ${kind.tone}`}>{kind.label}</span>
+                      <div className="audit-what">
+                        <strong>
+                          {row.area}
+                          {row.target && <em>{row.target}</em>}
+                        </strong>
+                        {row.detail && <span className="audit-detail">{row.detail}</span>}
+                      </div>
+                      <span className="audit-who" title={row.actorEmail}>
+                        {row.actorName || "알 수 없음"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {more && rows.length > 0 && (
+        <button type="button" className="audit-more" onClick={() => void loadMore()} disabled={busy}>
+          {busy ? "불러오는 중…" : "더 보기"}
+        </button>
       )}
     </div>
   );

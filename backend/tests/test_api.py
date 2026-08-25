@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -2255,3 +2255,110 @@ async def test_server_usage_never_opens_the_database_beyond_the_login_check(clie
     owner = await make_user(session, "owner-usage2@example.com", owner=True)
     login(client, owner)
     assert (await client.get("/api/v1/admin/usage")).status_code == 200
+
+
+# ------------------------------------------------------------------ 수정 내역
+
+
+async def test_every_admin_write_is_recorded_with_who_and_what(client, session):
+    """창구마다 부르지 않고 라우터 전체에 걸었으므로, 쓰기는 빠짐없이 남아야 한다."""
+    from app.models import AuditLog
+
+    owner = await make_user(session, "audit-owner@example.com", owner=True)
+    login(client, owner)
+
+    made = await client.post("/api/v1/admin/links", json={
+        "title": "부원 드라이브", "url": "https://drive.example.com", "description": "", "is_published": True})
+    assert made.status_code == 201
+
+    rows = (await session.scalars(select(AuditLog))).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.actor_id == owner.id
+    assert row.actor_name == owner.name
+    assert row.action == "create"
+    assert row.area == "바로가기"
+    assert row.target == "부원 드라이브"
+
+
+async def test_a_deleted_item_keeps_its_name_in_the_record(client, session):
+    """지우고 나면 이름을 알 수 없다. 지우기 **전에** 읽어 두는지 확인한다.
+
+    이 시험이 이 기능의 핵심이다. 나중에 찾게 되는 기록이 바로 "누가 이걸 지웠나"
+    인데, 이름이 없으면 그 기록이 쓸모없다.
+    """
+    from app.models import AuditLog
+
+    owner = await make_user(session, "audit-owner2@example.com", owner=True)
+    login(client, owner)
+    made = await client.post("/api/v1/admin/links", json={
+        "title": "지워질 링크", "url": "https://gone.example.com", "description": "", "is_published": True})
+    link_id = made.json()["id"]
+
+    assert (await client.delete(f"/api/v1/admin/links/{link_id}")).status_code == 204
+
+    rows = (await session.scalars(select(AuditLog).order_by(AuditLog.created_at))).all()
+    assert [row.action for row in rows] == ["create", "delete"]
+    assert rows[1].target == "지워질 링크", "지운 것의 이름이 기록에 남지 않았습니다"
+
+
+async def test_failed_and_read_only_requests_leave_no_record(client, session):
+    """튕긴 요청과 읽기는 남기지 않는다.
+
+    실패까지 남기면 "고쳤다" 는 기록과 실제 상태가 어긋나고, 권한이 없어 튕긴
+    시도가 수정 내역에 섞여 읽는 사람을 헷갈리게 한다.
+    """
+    from app.models import AuditLog
+
+    owner = await make_user(session, "audit-owner3@example.com", owner=True)
+    login(client, owner)
+    # 없는 링크를 고치려는 시도 (창구 안에서 404 로 튕긴다)
+    missing = await client.patch(f"/api/v1/admin/links/{uuid4()}", json={
+        "title": "없는 링크", "url": "https://none.example.com", "description": "", "is_published": True})
+    assert missing.status_code == 404
+    # 읽기
+    assert (await client.get("/api/v1/admin/links")).status_code == 200
+    assert (await session.scalars(select(AuditLog))).all() == []
+
+    # 권한이 없는 사람의 시도 (403) 도 남지 않는다
+    manager = await make_user(session, "audit-news@example.com", permissions=["news:manage"])
+    login(client, manager)
+    assert (await client.post("/api/v1/admin/links", json={
+        "title": "몰래", "url": "https://x.example.com", "description": "", "is_published": True})).status_code == 403
+    assert (await session.scalars(select(AuditLog))).all() == []
+
+
+async def test_only_the_owner_can_read_the_record(client, session):
+    owner = await make_user(session, "audit-owner4@example.com", owner=True)
+    manager = await make_user(session, "audit-links@example.com", permissions=["links:manage"])
+    assert (await login(client, manager).get("/api/v1/admin/audit")).status_code == 403
+    page = await login(client, owner).get("/api/v1/admin/audit")
+    assert page.status_code == 200
+    assert page.json()["items"] == []
+
+
+async def test_a_top_level_create_is_not_mistaken_for_a_sub_action(client, session):
+    """`/licenses` 로 라이선스를 만드는 것과 `/users/{id}/licenses` 로 설정하는 것은 다르다.
+
+    주소 꼬리만 보고 동작을 정하면 둘 다 '라이선스 설정' 이 되어, 만든 기록이
+    사라진다. 조각이 하나뿐이면 방식으로 정해야 한다.
+    """
+    from app.models import AuditLog
+
+    owner = await make_user(session, "audit-owner5@example.com", owner=True)
+    login(client, owner)
+    made = await client.post("/api/v1/admin/licenses", json={"name": "기초 교육", "description": ""})
+    assert made.status_code == 201
+    license_id = made.json()["id"]
+
+    member = await make_user(session, "audit-member@example.com")
+    assert (await client.put(f"/api/v1/admin/users/{member.id}/licenses",
+                             json={"licenseIds": [license_id]})).status_code == 200
+
+    rows = (await session.scalars(select(AuditLog).order_by(AuditLog.created_at))).all()
+    assert [(row.action, row.area) for row in rows] == [
+        ("create", "라이선스"),
+        ("licenses", "회원"),
+    ]
+    # 회원에게 준 기록은 '누구에게' 가 이름 자리에 와야 읽힌다.
+    assert rows[1].target == member.name

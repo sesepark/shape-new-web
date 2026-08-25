@@ -10,6 +10,7 @@ from app import cache
 from app.config import get_settings
 from app.database import get_db
 from app.models import (
+    AuditLog,
     ContentPage,
     Equipment,
     EquipmentLicenseRequirement,
@@ -30,6 +31,7 @@ from app.models import (
 )
 from app.schemas import (
     PERMISSIONS,
+    AdminAuditPage,
     AdminEquipmentRead,
     AdminLinkRead,
     AdminNewsRead,
@@ -37,6 +39,7 @@ from app.schemas import (
     AdminReservationRead,
     AdminRoadmapRead,
     AdminUserRead,
+    AuditActor,
     DirectoryUser,
     EquipmentLicenseWrite,
     EquipmentUnitRead,
@@ -60,7 +63,7 @@ from app.schemas import (
     UserDecision,
 )
 from app.security import READING_STATUSES, any_manager, owner_only, require_permission
-from app.services import cloudinary, usage
+from app.services import audit, cloudinary, usage
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
 from app.services.member_cards import ensure_card
@@ -72,7 +75,9 @@ from app.services.reservation_alerts import when as reservation_when
 from app.services.reservations import approve, cancel, read_models
 from app.services.revalidate import refresh
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+# 관리자 창구의 쓰기는 빠짐없이 수정 내역에 남습니다. 창구마다 부르지 않고
+# 라우터 전체에 걸어 두는 이유는 `app/services/audit.py` 에 적어 두었습니다.
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(audit.audited)])
 
 # 화면에서 켜고 끌 수 있는 기능 권한. `schemas.PERMISSIONS` 와 같은 목록이며,
 # 여기 없는 이름은 받지 않는다.
@@ -822,3 +827,53 @@ async def service_usage(
         fresh = await usage.snapshot()
         cache.set(key, fresh, window)
         return {**fresh, "cached": False}
+
+
+# --------------------------------------------------------------------- 수정 내역
+
+
+AUDIT_PAGE = 50
+# 거르개 목록을 뽑을 때 훑을 최근 기록 수. 표 전체에 `distinct` 를 걸면 기록이
+# 쌓이는 만큼 값이 붙습니다. 최근 것만 봐도 지금 활동하는 사람과 영역은 다 나옵니다.
+AUDIT_FILTER_SCAN = 500
+
+
+@router.get("/audit", response_model=AdminAuditPage)
+async def admin_audit(
+    before: datetime | None = Query(default=None, description="이 시각보다 앞선 기록부터 이어 받습니다."),
+    limit: int = Query(default=AUDIT_PAGE, ge=1, le=AUDIT_PAGE),
+    actor: UUID | None = Query(default=None, description="이 사람의 기록만"),
+    area: str | None = Query(default=None, max_length=40, description="이 영역의 기록만"),
+    _: User = Depends(owner_only),
+    db: AsyncSession = Depends(get_db),
+):
+    """운영진이 관리자 화면에서 무엇을 고쳤는지. owner 만 볼 수 있습니다.
+
+    최신순으로 끊어 돌려줍니다. 기록은 지우지 않고 쌓이기만 하므로 상한 없이
+    돌려주면 해가 갈수록 응답만 무거워집니다.
+    """
+    query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    if before:
+        query = query.where(AuditLog.created_at < before)
+    if actor:
+        query = query.where(AuditLog.actor_id == actor)
+    if area:
+        query = query.where(AuditLog.area == area)
+    items = (await db.scalars(query)).all()
+
+    # 거르개 목록은 첫 쪽에서만 만듭니다.
+    actors: list[AuditActor] = []
+    areas: list[str] = []
+    if not before:
+        recent = select(AuditLog.actor_id, AuditLog.actor_name, AuditLog.area).order_by(
+            AuditLog.created_at.desc()).limit(AUDIT_FILTER_SCAN).subquery()
+        rows = (await db.execute(select(recent.c.actor_id, recent.c.actor_name, recent.c.area))).all()
+        seen: dict[UUID | None, str] = {}
+        for actor_id, actor_name, row_area in rows:
+            seen.setdefault(actor_id, actor_name or "알 수 없음")
+            if row_area and row_area not in areas:
+                areas.append(row_area)
+        actors = [AuditActor(id=key, name=value) for key, value in seen.items()]
+        actors.sort(key=lambda person: person.name)
+        areas.sort()
+    return AdminAuditPage(items=items, actors=actors, areas=areas)

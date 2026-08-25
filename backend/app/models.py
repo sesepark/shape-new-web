@@ -343,3 +343,40 @@ class PushSubscription(Base, Timestamped):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
     subscription_keys: Mapped[dict] = mapped_column(JSON)
+
+
+class AuditLog(Base):
+    """운영진이 관리자 화면에서 무엇을 고쳤는지 남기는 기록.
+
+    ## 왜 이름을 따로 저장하는가
+
+    `actor_id` 만 두고 읽을 때 회원 표와 이어 붙이면, 회원이 탈퇴하거나 이름을
+    바꾼 순간 지난 기록이 함께 바뀝니다. 수정 내역은 **그때 누가 했는지**를 남기는
+    것이므로, 그 시점의 이름과 이메일을 그대로 박아 둡니다. `actor_id` 는 같은
+    사람의 기록을 모아 보려고 함께 두고, 회원이 지워지면 NULL 이 됩니다.
+
+    ## 지우지 않습니다
+
+    한 줄이 300바이트 남짓입니다. 부원 200명이 하루에 쉰 번을 고쳐도 1년에 6MB
+    정도라 Neon 무료 저장 0.5GB 안에서 몇 해를 버팁니다. 화면은 이어받기로 끊어
+    읽으므로 쌓여도 응답이 무거워지지 않습니다.
+    """
+
+    __tablename__ = "audit_logs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=lambda: datetime.now(UTC), index=True)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    # 그때의 이름과 이메일. 회원이 바뀌어도 기록은 그대로여야 합니다.
+    actor_name: Mapped[str] = mapped_column(String(120), default="")
+    actor_email: Mapped[str] = mapped_column(String(320), default="")
+    # 무엇을 했는가 (만듦·고침·지움·순서·결정·권한 …). 화면이 한글로 옮깁니다.
+    action: Mapped[str] = mapped_column(String(20), default="update")
+    # 어디를 (소식·공지·장비·로드맵 …)
+    area: Mapped[str] = mapped_column(String(40), default="")
+    # 무엇을 — 사람이 읽는 이름. 지운 것도 이름이 남도록 지우기 전에 담습니다.
+    target: Mapped[str] = mapped_column(String(200), default="")
+    # 덧붙일 말 (승인/반려 사유, 바뀐 권한 이름 따위)
+    detail: Mapped[str] = mapped_column(String(400), default="")
+    # 어느 창구였는지. 화면에는 안 보이지만 나중에 원인을 찾을 때 씁니다.
+    method: Mapped[str] = mapped_column(String(10), default="")
+    path: Mapped[str] = mapped_column(String(300), default="")
