@@ -34,7 +34,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -47,6 +47,11 @@ PREFIX = "shape/"
 # 활동 기록이라 예약이 지워져도 남깁니다.
 KEEP_PREFIXES = ("shape/reservation/",)
 KINDS = ("image", "video", "raw")
+# 본문에서 사진 주소를 알아보는 규칙. **파이썬과 Postgres 가 같은 것을 씁니다.**
+# 두 벌로 두었다가 한쪽만 고치면, 쓰이고 있는 사진이 고아로 판정되어 지워집니다.
+# 이 문법은 양쪽에서 같은 뜻입니다(문자 집합 안의 `\s`, `\"`, `\\` 모두).
+URL_PATTERN = r"https://res\.cloudinary\.com/[^\s\"'<>)\\]+"
+MARKER = "res.cloudinary.com"
 
 
 def _urls(*values: object) -> set[str]:
@@ -54,30 +59,89 @@ def _urls(*values: object) -> set[str]:
     found: set[str] = set()
     for value in values:
         if value:
-            found.update(re.findall(r"https://res\.cloudinary\.com/[^\s\"'<>)\\]+", str(value)))
+            found.update(re.findall(URL_PATTERN, str(value)))
     return found
 
 
-async def referenced(db: AsyncSession) -> set[str]:
-    """지금 어디선가 쓰이고 있는 파일의 이름(public_id) 전부.
+# 사진 주소가 들어 있을 수 있는 칸. 칸을 콕 집어 읽습니다. 표에 새 칸이 생겨도
+# 이 조회는 그대로 돌아야 하기 때문입니다(배포 직후처럼 코드와 표가 잠깐 어긋나는
+# 순간이 있습니다).
+COLUMNS = [
+    (User.image_url,),
+    (Equipment.image_url,),
+    (NewsPost.cover_image, NewsPost.content_html),
+    (Notice.content_html,),
+    (ShapeUpPost.cover_image, ShapeUpPost.content_html),
+    (ContentPage.content_html, ContentPage.content_json),
+    (Reservation.before_photo_url, Reservation.after_photo_url),
+    (Resource.file_url,),
+]
+def _source_sql(column) -> str:
+    """이 칸을 '값 한 줄씩' 으로 펴는 SQL 한 도막.
 
-    칸을 콕 집어 읽습니다. 표에 새 칸이 생겨도 이 조회는 그대로 돌아야 하기
-    때문입니다(배포 직후처럼 코드와 표가 잠깐 어긋나는 순간이 있습니다).
+    표와 칸 이름은 모델에서 꺼냅니다. 이름을 바꾸면 여기도 따라옵니다.
+    `content_json` 은 JSONB 라 text 로 맞춰야 나머지와 union 이 됩니다.
     """
-    columns = [
-        (User.image_url,),
-        (Equipment.image_url,),
-        (NewsPost.cover_image, NewsPost.content_html),
-        (Notice.content_html,),
-        (ShapeUpPost.cover_image, ShapeUpPost.content_html),
-        (ContentPage.content_html, ContentPage.content_json),
-        (Reservation.before_photo_url, Reservation.after_photo_url),
-        (Resource.file_url,),
-    ]
+    found = column.property.columns[0]
+    return (
+        f'select cast("{found.name}" as text) as value '
+        f'from "{found.table.name}" where "{found.name}" is not null'
+    )
+
+
+async def _referenced_urls_in_db(db: AsyncSession) -> set[str]:
+    """주소 뽑는 일을 **데이터베이스 안에서** 합니다 (Postgres 전용).
+
+    예전에는 글 본문을 전부 백엔드로 실어 와 파이썬 정규식으로 훑었습니다. 여덟
+    개 표를 조건 없이 읽는 구조라 글이 쌓이는 만큼 그대로 무거워집니다. 재어 보니
+    지금은 회당 27 kB 지만, 글이 1,500편쯤 되면 회당 약 7 MB 입니다.
+
+    스캔은 어차피 누군가 해야 하지만 **어디서 하느냐**로 값이 갈립니다. 여기서
+    뽑으면 밖으로 나오는 것은 찾아낸 주소 몇십 건뿐이라 egress 가 메가바이트에서
+    킬로바이트로 떨어지고, 0.1 CPU 짜리 무료 인스턴스가 전 본문을 정규식으로
+    훑는 일도 사라집니다. Neon 은 질의 횟수가 아니라 깨어 있는 시간으로 값을
+    매기므로, 이 스캔이 데이터베이스 쪽에서 잠깐 더 도는 것은 값이 거의 없습니다.
+    """
+    union = "\n  union all ".join(_source_sql(column) for group in COLUMNS for column in group)
+    statement = text(
+        f"select distinct m.parts[1] as url from (\n  {union}\n) s "
+        "cross join lateral regexp_matches(s.value, :pattern, 'g') as m(parts)"
+    ).bindparams(pattern=URL_PATTERN)
+    return set((await db.execute(statement)).scalars().all())
+
+
+async def _referenced_urls_in_python(db: AsyncSession) -> set[str]:
+    """같은 일을 백엔드에서 합니다. SQLite(로컬 개발과 자동 시험) 용입니다."""
     urls: set[str] = set()
-    for group in columns:
+    for group in COLUMNS:
         for row in (await db.execute(select(*group))).all():
             urls |= _urls(*row)
+    return urls
+
+
+async def _anything_to_find(db: AsyncSession) -> bool:
+    """사진 주소가 든 행이 하나라도 있는지. 아래 안전장치가 씁니다."""
+    for group in COLUMNS:
+        for column in group:
+            found = column.property.columns[0]
+            statement = text(
+                f'select 1 from "{found.table.name}" '
+                f'where cast("{found.name}" as text) like :marker limit 1'
+            ).bindparams(marker=f"%{MARKER}%")
+            if (await db.execute(statement)).first():
+                return True
+    return False
+
+
+async def referenced(db: AsyncSession) -> set[str]:
+    """지금 어디선가 쓰이고 있는 파일의 이름(public_id) 전부."""
+    postgres = get_settings().database_url.startswith("postgres")
+    urls = await (_referenced_urls_in_db(db) if postgres else _referenced_urls_in_python(db))
+    if postgres and not urls and await _anything_to_find(db):
+        # 주소가 분명히 있는데 하나도 못 뽑았다면 뽑는 쪽이 고장 난 것입니다.
+        # 그대로 두면 **쓰이고 있는 사진이 전부 고아로 판정되어 지워집니다.**
+        # 정리를 거르는 쪽이 언제나 안전합니다.
+        raise RuntimeError("본문에 사진 주소가 있는데 하나도 뽑지 못했습니다. 정리를 건너뜁니다.")
     # `public_id_of` 는 (종류, 이름) 을 돌려줍니다. 여기서 필요한 것은 이름뿐이고,
     # 튜플을 그대로 담으면 아래에서 이름과 견주는 순간 **하나도 맞지 않아 쓰이는
     # 파일까지 전부 고아로 판정**됩니다.
@@ -180,13 +244,22 @@ def maybe_sweep() -> None:
 
     따로 도는 시계(크론)를 두지 않습니다. Render 무료 요금제에는 크론이 없고,
     주기적으로 서버를 깨우면 그만큼 Neon 이 깨어 있어야 해서 한 달 한도에서
-    가장 먼저 닳는 것을 씁니다. 사람이 사이트를 쓰는 동안에만, 한 시간에 한 번
-    확인합니다. 그 시각은 공개 캐시가 새로 채워지는 때와 겹치므로 대개 이미
-    깨어 있는 데이터베이스를 쓰게 됩니다.
+    가장 먼저 닳는 것을 씁니다. 사람이 사이트를 쓰는 동안에만 확인합니다.
+
+    **주기는 `media_sweep_seconds`(기본 여섯 시간)입니다.** 한 시간이었는데
+    늘렸습니다. 한 번 도는 값이 싸지 않기 때문입니다 — `referenced` 가 여덟 개
+    표를 조건 없이 훑고, 거기에는 모든 글의 본문이 들어 있습니다. 주소를 뽑는
+    일은 데이터베이스 안에서 하도록 옮겨 두어 오가는 양은 작지만, 훑는 일 자체는
+    글이 쌓이는 만큼 무거워집니다.
+
+    **이 시계는 프로세스 안에 있습니다.** 무료 인스턴스는 15분만 놀아도 잠들고,
+    깨어나면 여기 `_last_run` 이 0 부터 다시 갑니다. 그래서 주기를 늘릴수록
+    자동 정리가 도는 횟수는 주기에 비례해 줄어드는 것이 아니라 **그보다 더**
+    줄어듭니다. 하루로 두면 사실상 한 번도 돌지 않습니다. 확실하게 돌려야 할
+    때는 `scripts/sweep_orphan_media.py` 를 직접 돌립니다.
 
     조용한 새벽에는 서버가 잠들어 있어 아예 돌지 않습니다. 고아 파일은 급한
-    일이 아니므로 그것으로 충분하고, 급하면 `scripts/sweep_orphan_media.py` 를
-    직접 돌리면 됩니다.
+    일이 아니므로 그것으로 충분합니다.
     """
     global _last_run
     settings = get_settings()

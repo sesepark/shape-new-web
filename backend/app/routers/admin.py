@@ -466,7 +466,13 @@ async def set_roadmap_members(db: AsyncSession, item_id: UUID, member_ids: list[
 @router.get("/roadmap", response_model=list[AdminRoadmapRead])
 async def admin_roadmap(_: User = Depends(require_permission("roadmap:manage")), db: AsyncSession = Depends(get_db)):
     items = (await db.scalars(select(RoadmapItem).order_by(RoadmapItem.starts_at))).all()
-    assignments = (await db.execute(select(RoadmapMember.roadmap_item_id, RoadmapMember.user_id))).all()
+    # 지금 돌려주는 일정에 걸린 배정만 읽는다. 조건 없이 읽으면 표 전체가 따라
+    # 나오는데, 로드맵 배정은 학기마다 쌓이기만 하는 자리라 부원이 늘수록 화면이
+    # 쓰지도 않을 행을 그만큼 더 실어 나른다.
+    assignments = (await db.execute(
+        select(RoadmapMember.roadmap_item_id, RoadmapMember.user_id)
+        .where(RoadmapMember.roadmap_item_id.in_([item.id for item in items]))
+    )).all() if items else []
     return [
         AdminRoadmapRead(
             **AdminRoadmapRead.model_validate(item).model_dump(exclude={"member_ids"}),
@@ -610,8 +616,15 @@ async def reservation_cancel(reservation_id: UUID, payload: ReservationDecision 
 @router.get("/users", response_model=list[AdminUserRead])
 async def list_users(_: User = Depends(owner_only), db: AsyncSession = Depends(get_db)):
     users = (await db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at.desc()))).all()
-    grants = (await db.execute(select(PermissionGrant.user_id, PermissionGrant.permission))).all()
-    licenses = (await db.execute(select(UserLicense.user_id, UserLicense.license_id))).all()
+    # 목록에 나오는 회원의 권한·자격만 읽는다. 조건 없이 읽으면 탈퇴한 회원의
+    # 행까지 전부 따라 나와서 아래에서 버려진다.
+    ids = [user.id for user in users]
+    grants = (await db.execute(
+        select(PermissionGrant.user_id, PermissionGrant.permission).where(PermissionGrant.user_id.in_(ids))
+    )).all() if ids else []
+    licenses = (await db.execute(
+        select(UserLicense.user_id, UserLicense.license_id).where(UserLicense.user_id.in_(ids))
+    )).all() if ids else []
     return [
         AdminUserRead(
             **AdminUserRead.model_validate(user).model_dump(exclude={"permissions", "license_ids"}),
