@@ -34,6 +34,7 @@ from app.schemas import (
     RoadmapRead,
 )
 from app.security import READING_STATUSES, has_permission, optional_user
+from app.services import google_calendar
 
 router = APIRouter(tags=["public"])
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -93,6 +94,9 @@ async def list_equipment(db: AsyncSession = Depends(get_db)):
         .join(License, License.id == EquipmentLicenseRequirement.license_id)
         .where(EquipmentLicenseRequirement.equipment_id.in_(ids))
     )).all()
+    # 어떤 장비가 공유 캘린더로 가는지는 백엔드가 정합니다. 같은 장비 이름을
+    # 화면에도 적어 두면 한쪽만 바뀌었을 때 안내가 거짓말을 합니다.
+    synced = google_calendar.configured()
     counts = dict((await db.execute(
         select(EquipmentUnit.equipment_id, func.count())
         .where(EquipmentUnit.equipment_id.in_(ids), EquipmentUnit.status == EquipmentStatus.ACTIVE)
@@ -105,6 +109,7 @@ async def list_equipment(db: AsyncSession = Depends(get_db)):
             open_hour=OPEN_HOUR, close_hour=CLOSE_HOUR,
             required_licenses=[row[1] for row in requirements if row[0] == item.id],
             available_units=counts.get(item.id, 0),
+            shared_calendar=synced and item.name == google_calendar.EQUIPMENT,
         )
         for item in equipment
     ]

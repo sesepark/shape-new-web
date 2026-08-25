@@ -28,15 +28,29 @@ const QUALITY: Record<MediaQuality, string> = {
 };
 
 /**
- * 정사각으로 잘라서 받아 옵니다.
+ * 장비 사진을 정사각 칸에 **통째로** 담아 받아 옵니다.
  *
- * 장비 사진 자리는 1:1 인데 올라오는 사진은 대개 가로로 넓습니다. 지금까지는 넓은
- * 사진을 그대로 받아 **화면에서** 정사각으로 잘랐습니다. 그러면 받아 온 픽셀의
- * 절반 이상을 버리면서, 정작 세로는 모자라 늘려 그리게 됩니다(16:9 사진이면
- * 1.75배). 자를 곳을 Cloudinary 에 맡기면 필요한 크기가 그대로 오고, 버리는
- * 픽셀이 없으니 전송량도 줍니다. `g_auto` 는 사진에서 중요한 부분을 스스로
- * 찾아 그쪽을 남깁니다.
+ * 장비 사진 자리는 1:1 인데 올라오는 제품 사진은 대개 가로로 넓습니다. 예전에는
+ * `c_fill` 로 **잘라서** 맞췄는데, 그러면 넓은 사진에서 물건의 일부가 잘려 나갑니다
+ * (로봇 손 사진에서 손가락이 화면 밖으로 잘려 나갔습니다). 사람 얼굴이라면 잘라도
+ * 되지만 장비는 물건 전체가 보여야 무엇인지 알아볼 수 있습니다.
+ *
+ * 그래서 세 단계로 받습니다.
+ *
+ * 1. `e_trim` — 사진 가장자리의 빈 여백을 떼어 냅니다. 제품 사진은 배경이 비어
+ *    있는 경우가 많은데, 그 여백이 얼마나 되는지가 사진마다 제각각이라 그대로 두면
+ *    같은 칸에서도 어떤 장비는 크고 어떤 장비는 콩알만 하게 보입니다.
+ * 2. `c_pad` 로 안쪽 칸(`INNER` 만큼)에 맞춰 담고,
+ * 3. `c_lpad` 로 바깥 칸까지 **늘리지 않고** 여백만 채웁니다. `c_pad` 를 두 번 쓰면
+ *    두 번째에서 다시 키워 버려 여백이 사라집니다.
+ *
+ * 결과적으로 어떤 사진이든 물건의 긴 변이 칸의 88% 를 차지합니다. 3D 모델에서 뽑아
+ * `public/equipment/` 에 둔 그림들이 이미 그 비율이라, 올려 받은 사진도 같은 크기로
+ * 보입니다.
  */
+// 물건이 칸 가장자리에 닿지 않도록 남기는 안쪽 칸의 비율.
+const INNER = 0.88;
+
 export function mediaSquare(url: string | null | undefined, size: number, quality: MediaQuality = "high"): string {
   if (!url) return "";
   if (url.startsWith(LEGACY_PHOTOS)) return url.slice(LEGACY_PHOTOS.length - "/figs/".length);
@@ -45,7 +59,10 @@ export function mediaSquare(url: string | null | undefined, size: number, qualit
   const head = url.slice(0, marker + UPLOAD_MARKER.length);
   const tail = url.slice(marker + UPLOAD_MARKER.length);
   if (/^[a-z]_[^/]*\//.test(tail)) return url;
-  return `${head}f_auto,${QUALITY[quality]},c_fill,g_auto,w_${size},h_${size}/${tail}`;
+  const inner = Math.round(size * INNER);
+  // 배경은 투명하게 채웁니다. 흰색으로 채우면 카드의 옅은 바탕 위에 흰 네모가
+  // 얹혀 보입니다.
+  return `${head}e_trim/c_pad,b_transparent,w_${inner},h_${inner}/c_lpad,b_transparent,w_${size},h_${size},f_auto,${QUALITY[quality]}/${tail}`;
 }
 
 export function media(url: string | null | undefined, width: number, quality: MediaQuality = "auto"): string {

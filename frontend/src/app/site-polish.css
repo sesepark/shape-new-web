@@ -2377,6 +2377,19 @@ html:has(.shape-home) { scroll-padding-top: var(--home-header); }
   max-height: none;
 }
 
+/* 사진 자리에 옅은 바탕을 깝니다.
+   ---------------------------------------------------------------------------
+   장비 사진은 배경이 비어 있는 제품 사진이라 카드의 흰 바탕이 그대로 비칩니다.
+   그런데 로봇·로봇 손처럼 **물건 자체가 흰색**인 장비가 많아서, 흰 카드 위에서는
+   사진이 아예 안 올라온 것처럼 보였습니다(Unitree G1 은 실측 3% 만 눈에 띄었습니다).
+   장비 상세 화면은 예전부터 이 옅은 바탕을 쓰고 있었고 거기서는 잘 보였습니다.
+   목록과 예약 화면만 흰 바탕이라 같은 사진이 사라져 보인 것이므로, 셋을 같은
+   바탕으로 맞춥니다. */
+.booking-equipment-card img {
+  background: var(--media-placeholder);
+  border-radius: var(--media-radius);
+}
+
 .equipment-detail-media {
   height: auto;
   padding: clamp(18px, 3vw, 40px);
@@ -3904,3 +3917,45 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .ask-dialog .button.ask-alt { color: #b62446; border-color: #e8c7d1; }
 
 .ask-dialog .button.ask-alt:hover { background: #fdf2f5; }
+
+/* ==========================================================================
+   장비 예약 — 공유 캘린더 안내
+   --------------------------------------------------------------------------
+   AI Worker 는 확정되면 동아리가 함께 쓰는 구글 캘린더에도 일정이 올라갑니다.
+   그 캘린더는 SHAPE 만 보는 곳이 아니라 장비를 같이 쓰는 다른 분들도 보므로,
+   신청하는 사람이 그 사실을 신청하기 **전에** 알아야 합니다. 경고가 아니라
+   알림이므로 붉은색이 아니라 사이트의 파란 계열로 둡니다.
+   ========================================================================== */
+.booking-calendar-note {
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #cfdcff;
+  border-radius: var(--media-radius-inline);
+  background: #f4f7ff;
+  color: #24417f;
+  font-size: 13px;
+  line-height: 1.65;
+  /* 긴 장비 이름이 들어와도 좁은 화면에서 상자를 밀어내지 않게 합니다. */
+  overflow-wrap: anywhere;
+}
+
+.booking-calendar-note svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--blue);
+}
+
+.booking-calendar-note strong { font-weight: 800; }
+.booking-calendar-note i { font-style: normal; font-weight: 700; white-space: nowrap; }
+
+@media (max-width: 560px) {
+  .booking-calendar-note {
+    padding: 12px 13px;
+    font-size: 12.5px;
+  }
+  /* 좁은 화면에서는 제목 예시가 한 줄에 들어가지 않으므로 줄바꿈을 허용합니다. */
+  .booking-calendar-note i { white-space: normal; }
+}

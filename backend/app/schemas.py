@@ -182,6 +182,9 @@ class EquipmentRead(ORMModel):
     close_hour: int
     required_licenses: list[str] = []
     available_units: int = 0
+    # 이 장비의 확정된 예약이 동아리 공유 구글 캘린더에도 올라가는지.
+    # 화면에서 미리 알려 주기 위한 것이라, 연동이 실제로 켜져 있을 때만 참입니다.
+    shared_calendar: bool = False
 
 
 class AdminEquipmentRead(ORMModel):

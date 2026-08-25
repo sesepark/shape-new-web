@@ -3022,6 +3022,12 @@ function ReservationsPanel() {
       <p className="form-note">
         승인하면 해당 시간이 다른 회원에게 확정 예약으로 표시되고, 데이터베이스가 중복 슬롯을 차단합니다. 사용 전후 사진은 회원이 올린 그대로 확인할 수 있습니다.
       </p>
+      {/* 승인 단추가 사이트 밖에도 무언가를 남긴다는 것을 운영진이 알아야 합니다.
+          그 캘린더는 SHAPE 만 보는 곳이 아니라 장비를 함께 쓰는 다른 분들도 봅니다. */}
+      <p className="form-note">
+        <strong>AI Worker</strong> 예약은 승인하는 순간 동아리 공유 캘린더 ‘휴머노이드 운용’ 에도 일정이 올라가고, 취소하면 그 일정이 지워집니다.
+        반려한 예약은 캘린더에 올라간 적이 없으므로 지울 것도 없습니다.
+      </p>
       <div className="board-filter" aria-label="예약 상태 필터">
         {["PENDING", "APPROVED", "IN_USE", "COMPLETED", "ALL"].map((value) => (
           <button type="button" key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>

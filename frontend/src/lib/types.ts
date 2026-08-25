@@ -56,6 +56,8 @@ export interface EquipmentItem {
   reservationUnitMinutes: number;
   openHour: number;
   closeHour: number;
+  /** 확정된 예약이 동아리 공유 구글 캘린더에도 올라가는 장비인지. */
+  sharedCalendar?: boolean;
 }
 
 export interface EquipmentUnitItem {

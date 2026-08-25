@@ -328,7 +328,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #fff;
+  background: var(--media-placeholder);
 }
 
 .equipment-catalog-media img {
