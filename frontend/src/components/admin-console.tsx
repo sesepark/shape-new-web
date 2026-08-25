@@ -31,7 +31,7 @@ const groups = [
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
   { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"] },
   { label: "바로가기", tabs: ["관련 링크"] },
-  { label: "시스템", tabs: ["회원 및 권한"] },
+  { label: "시스템", tabs: ["회원 및 권한", "서버"] },
 ] as const;
 type Section = (typeof groups)[number]["tabs"][number];
 // Every tab maps to the permission its API calls require, so a manager only
@@ -59,6 +59,7 @@ const tabPermission: Record<Section, string> = {
   "기타": "roadmap:manage",
   "관련 링크": "links:manage",
   "회원 및 권한": "owner",
+  "서버": "owner",
 };
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -213,6 +214,7 @@ const sectionGuide: Record<Section, { what: string; where: string; href?: string
   "기타": { what: "세 트랙에 들어가지 않는 일정을 등록합니다.", where: "공개 페이지 로드맵 › 전체 로드맵", href: "/roadmap" },
   "관련 링크": { what: "Drive·Notion 같은 외부 링크를 카드로 등록합니다.", where: "공개 페이지 바로가기 › 관련 링크", href: "/links" },
   "회원 및 권한": { what: "가입 신청을 승인하고 운영진 권한과 장비 라이선스를 부여합니다.", where: "회원 로그인과 마이페이지" },
+  "서버": { what: "사이트를 떠받치는 네 서비스를 무료 한도 대비 얼마나 썼는지 봅니다. 한도를 넘기면 요금이 붙는 것이 아니라 정지하므로, 달이 끝나기 전에 미리 보는 화면입니다.", where: "고치는 곳이 아니라 보는 곳입니다" },
 };
 
 function SectionGuide({ tab }: { tab: Section }) {
@@ -483,6 +485,7 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
       <RoadmapForm key={tab} fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
     );
   if (tab === "관련 링크") return <LinkForm />;
+  if (tab === "서버") return <ServerUsage />;
   return <MembersPanel owner={owner} />;
 }
 
@@ -3360,6 +3363,275 @@ function MembersPanel({ owner }: { owner: boolean }) {
         </div>
       )}
       {dialogNode}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ 서버 사용량 */
+
+type UsageMetric = {
+  key: string;
+  label: string;
+  used: number | string | null;
+  limit: number | null;
+  unit: string | null;
+  ratio: number | null;
+  projected: number | null;
+  projectedRatio: number | null;
+  monthly: number | null;
+  monthlyRatio: number | null;
+  exhaustsOn: string | null;
+  exhaustsInDays: number | null;
+  exhaustsBeforeReset: boolean;
+  basis: "calendar" | "rolling" | "point" | null;
+  level: "ok" | "warn" | "crit" | "over" | "info" | "unknown";
+  hint: string | null;
+};
+type UsageCycle = {
+  kind: "calendar" | "rolling" | "point";
+  label: string;
+  resets: string | null;
+  start: string | null;
+  end: string | null;
+  daysElapsed: number | null;
+  daysTotal: number;
+  daysLeft: number | null;
+  note: string;
+};
+type UsageService = {
+  service: string;
+  role: string;
+  plan: string;
+  cycle: UsageCycle;
+  metrics: UsageMetric[];
+  unavailable?: string;
+};
+type UsageSnapshot = {
+  collectedAt: string;
+  services: UsageService[];
+  problems: Record<string, string>;
+  cached?: boolean;
+};
+
+/** 소수점을 값의 크기에 맞춘다. 0.03 GB 를 "0 GB" 로 보여 주면 읽을 수 없다. */
+function amount(value: number | string | null, unit: string | null) {
+  if (value === null) return "—";
+  if (typeof value === "string") return unit ? `${value} ${unit}` : value;
+  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
+  return `${value.toLocaleString("ko-KR", { maximumFractionDigits: digits })}${unit ? ` ${unit}` : ""}`;
+}
+
+function percent(ratio: number | null) {
+  if (ratio === null) return "—";
+  return `${(ratio * 100).toLocaleString("ko-KR", { maximumFractionDigits: ratio < 0.1 ? 1 : 0 })}%`;
+}
+
+/** 소진 예정일은 '몇 월 며칠' 까지만 있으면 됩니다. 시각은 읽는 데 방해됩니다. */
+function shortDate(when: string) {
+  return new Date(when).toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
+}
+
+function collectedAgo(when: string) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(when).getTime()) / 60000));
+  if (minutes < 1) return "방금";
+  if (minutes < 60) return `${minutes}분 전`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `${hours}시간 전` : `${Math.round(hours / 24)}일 전`;
+}
+
+const dayText = (days: number | null) =>
+  days === null ? "" : `${days.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}일`;
+
+/**
+ * 계기 한 줄.
+ *
+ * 막대는 **한도를 가득 채운 상태가 100%** 입니다. 예상치는 막대 위에 겹치지
+ * 않고 아래 글로 따로 적습니다 — 예상치가 한도를 넘으면 막대 안에 그릴 자리가
+ * 없어지고, 억지로 줄여 그리면 지금 값과 예상치의 크기 비교가 망가집니다.
+ */
+function UsageBar({ metric }: { metric: UsageMetric }) {
+  if (metric.limit === null)
+    return (
+      <div className="usage-row">
+        <div className="usage-row-head">
+          <span className="usage-name">{metric.label}</span>
+          <b className="usage-value">{amount(metric.used, metric.unit)}</b>
+        </div>
+        {metric.hint && <p className="usage-hint">{metric.hint}</p>}
+      </div>
+    );
+  const filled = Math.min(Math.max(metric.ratio ?? 0, 0), 1) * 100;
+  return (
+    <div className="usage-row">
+      <div className="usage-row-head">
+        <span className="usage-name">{metric.label}</span>
+        <b className="usage-value">
+          {amount(metric.used, null)}
+          <i> / {amount(metric.limit, metric.unit)}</i>
+        </b>
+      </div>
+      <div className={`usage-track level-${metric.level}`}>
+        <span style={{ width: `${filled}%` }} />
+      </div>
+      <div className="usage-figures">
+        <span className={`usage-now level-${metric.level}`}>지금 {percent(metric.ratio)}</span>
+        {metric.basis === "calendar" && metric.projected !== null && (
+          <>
+            <span className={(metric.projectedRatio ?? 0) >= 1 ? "over" : undefined}>
+              기간 말 {amount(metric.projected, null)} ({percent(metric.projectedRatio)})
+            </span>
+            <span className={(metric.monthlyRatio ?? 0) >= 1 ? "over" : undefined}>
+              30일 환산 {amount(metric.monthly, null)} ({percent(metric.monthlyRatio)})
+            </span>
+          </>
+        )}
+        {metric.basis === "rolling" && <span>이 값이 이미 최근 30일 합계입니다</span>}
+        {metric.basis === "point" && <span>지금 이 순간의 값이라 쌓이지 않습니다</span>}
+      </div>
+      {metric.exhaustsBeforeReset && metric.exhaustsOn && (
+        <p className="usage-deadline">
+          이 속도면 <b>{shortDate(metric.exhaustsOn)}</b>에 바닥납니다 — 초기화되기 전입니다.
+        </p>
+      )}
+      {metric.hint && <p className="usage-hint">{metric.hint}</p>}
+    </div>
+  );
+}
+
+/** 서비스마다 '한 달' 이 다르므로, 주기를 카드 머리에 먼저 밝힌다. */
+function CycleBadge({ cycle }: { cycle: UsageCycle }) {
+  const progress =
+    cycle.kind === "calendar" && cycle.daysElapsed !== null && cycle.daysTotal
+      ? Math.min(cycle.daysElapsed / cycle.daysTotal, 1) * 100
+      : null;
+  return (
+    <div className="usage-cycle">
+      <div className="usage-cycle-head">
+        <span className={`usage-chip ${cycle.kind}`}>{cycle.label}</span>
+        {cycle.kind === "calendar" && cycle.start && cycle.end ? (
+          <span>
+            {cycle.start.slice(5, 10).replace("-", "/")} ~ {cycle.end.slice(5, 10).replace("-", "/")}
+            {" · "}
+            {dayText(cycle.daysElapsed)} 지남, <b>{dayText(cycle.daysLeft)} 남음</b>
+          </span>
+        ) : (
+          <span>초기화되는 날 없음</span>
+        )}
+      </div>
+      {progress !== null && (
+        <div className="usage-track period">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      )}
+      <p>{cycle.note}</p>
+    </div>
+  );
+}
+
+/**
+ * 무료 한도를 얼마나 썼는지 보는 화면. owner 만 볼 수 있습니다.
+ *
+ * **탭을 열 때만 모읍니다.** 주기적으로 모으는 시계를 두면 아무도 안 볼 때도
+ * 서버가 깨어 있어야 하고, 그 깨어 있는 시간이 곧 Neon 한도에서 가장 먼저 닳는
+ * 항목입니다. 백엔드도 여섯 시간 동안 값을 들고 있으므로, 이 탭을 하루에 몇 번
+ * 열든 바깥으로 나가는 요청은 그대로입니다.
+ */
+function ServerUsage() {
+  const [data, setData] = useState<UsageSnapshot | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  const [busy, setBusy] = useState(false);
+
+  /**
+   * 처음 한 번은 화면이 뜰 때 읽습니다. 다 읽기 전에 다른 탭으로 옮겨 가면
+   * 사라진 화면에 값을 넣게 되므로, `active` 로 막습니다.
+   */
+  useEffect(() => {
+    let active = true;
+    void adminFetch("/admin/usage").then(async (response) => {
+      if (!active) return;
+      if (!response.ok) return setState("failed");
+      const body = (await response.json()) as UsageSnapshot;
+      if (!active) return;
+      setData(body);
+      setState("ready");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  /** '다시 모으기'. 백엔드가 들고 있던 값을 버리고 지금 값을 새로 모읍니다. */
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    const response = await adminFetch("/admin/usage?refresh=true");
+    if (response.ok) {
+      setData((await response.json()) as UsageSnapshot);
+      setState("ready");
+    }
+    setBusy(false);
+  }, []);
+
+  if (state === "loading") return <p className="usage-note">사용량을 모으는 중입니다…</p>;
+  if (state === "failed" || !data)
+    return <p className="usage-note">사용량을 읽지 못했습니다. 잠시 후 다시 열어 주세요.</p>;
+
+  const worst = data.services
+    .flatMap((service) => service.metrics)
+    .filter((metric) => metric.limit !== null)
+    .sort((a, b) => (b.monthlyRatio ?? b.ratio ?? 0) - (a.monthlyRatio ?? a.ratio ?? 0))[0];
+
+  return (
+    <div className="usage-panel">
+      <div className="usage-top">
+        <div>
+          <p className="usage-note">
+            {collectedAgo(data.collectedAt)}에 모은 값입니다.
+            {data.cached ? " 여섯 시간마다 한 번만 새로 모읍니다." : " 방금 새로 모았습니다."}
+          </p>
+          {worst && (worst.monthlyRatio ?? worst.ratio ?? 0) >= 0.7 && (
+            <p className="usage-alarm">
+              가장 빨리 차는 항목은 <b>{worst.label}</b> 입니다. 이 속도면 한 달에{" "}
+              {percent(worst.monthlyRatio ?? worst.ratio)} 까지 갑니다.
+              {worst.exhaustsBeforeReset && worst.exhaustsOn && ` 초기화 전인 ${shortDate(worst.exhaustsOn)}에 바닥납니다.`}
+            </p>
+          )}
+        </div>
+        <button type="button" onClick={() => void refresh()} disabled={busy}>
+          <RefreshCw size={14} /> {busy ? "모으는 중…" : "다시 모으기"}
+        </button>
+      </div>
+
+      <div className="usage-services">
+        {data.services.map((service) => (
+          <section className="usage-card" key={service.service}>
+            <header>
+              <div>
+                <strong>{service.service}</strong>
+                <span>{service.role}</span>
+              </div>
+              <em>{service.plan}</em>
+            </header>
+            <CycleBadge cycle={service.cycle} />
+            {service.unavailable && <p className="usage-blocked">{service.unavailable}</p>}
+            <div className="usage-rows">
+              {service.metrics.map((metric) => (
+                <UsageBar key={metric.key} metric={metric} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {Object.keys(data.problems).length > 0 && (
+        <div className="usage-problems">
+          <h3>읽지 못한 서비스</h3>
+          {Object.entries(data.problems).map(([name, why]) => (
+            <p key={name}>
+              <b>{name}</b> — {why}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

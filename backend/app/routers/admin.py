@@ -6,6 +6,8 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import cache
+from app.config import get_settings
 from app.database import get_db
 from app.models import (
     ContentPage,
@@ -58,7 +60,7 @@ from app.schemas import (
     UserDecision,
 )
 from app.security import READING_STATUSES, any_manager, owner_only, require_permission
-from app.services import cloudinary
+from app.services import cloudinary, usage
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
 from app.services.member_cards import ensure_card
@@ -783,3 +785,40 @@ async def grant_license(user_id: UUID, payload: LicenseAssignment, _: User = Dep
 async def revoke_license(user_id: UUID, license_id: UUID, _: User = Depends(require_permission("equipment:manage")), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(UserLicense).where(UserLicense.user_id == user_id, UserLicense.license_id == license_id))
     await db.commit()
+
+
+# --------------------------------------------------------------------- 서버 사용량
+
+
+@router.get("/usage")
+async def service_usage(
+    refresh: bool = Query(default=False, description="캐시를 버리고 지금 값을 다시 모읍니다"),
+    _: User = Depends(owner_only),
+):
+    """무료 티어를 얼마나 썼는지. 관리자 '서버' 탭이 씁니다.
+
+    **데이터베이스를 건드리지 않습니다.** 여기서 부르는 곳은 각 서비스의 관리용
+    API 이고, Neon 콘솔 API 는 데이터베이스가 아니라 그 앞의 제어면이라 잠들어
+    있는 compute 를 깨우지 않습니다. 이 창구가 데이터베이스를 여는 것은 위의
+    로그인 검사뿐인데, 그건 운영진이 관리자 화면을 여는 순간 어차피 일어납니다.
+
+    **여섯 시간 동안 들고 있습니다.** 한 달 단위로 보는 숫자라 실시간일 이유가
+    없고, 탭을 열 때마다 바깥을 부르면 이 화면 자체가 사용량이 됩니다. 공개 캐시와
+    같은 '창' 을 씁니다(`app/cache.py`) — 시계에 고정된 칸의 끝에서 만료되므로,
+    운영진이 여럿이어도 바깥으로 나가는 요청은 여섯 시간에 한 번입니다.
+    """
+    window = get_settings().usage_cache_seconds
+    key = "admin:usage"
+    if not refresh:
+        stored = cache.get(key)
+        if stored is not None:
+            return {**stored, "cached": True}
+    # 같은 순간에 둘이 열어도 바깥은 한 번만 부릅니다.
+    async with cache.lock_for(key):
+        if not refresh:
+            stored = cache.get(key)
+            if stored is not None:
+                return {**stored, "cached": True}
+        fresh = await usage.snapshot()
+        cache.set(key, fresh, window)
+        return {**fresh, "cached": False}

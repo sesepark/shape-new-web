@@ -3959,3 +3959,80 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   /* 좁은 화면에서는 제목 예시가 한 줄에 들어가지 않으므로 줄바꿈을 허용합니다. */
   .booking-calendar-note i { white-space: normal; }
 }
+
+/* --------------------------------------------------------- 관리자 › 서버 사용량
+
+   무료 한도를 얼마나 썼는지 보는 화면. 고치는 화면이 아니라 읽는 화면이므로,
+   입력 요소 없이 계기만 늘어놓습니다. 색은 급한 정도(level)에만 씁니다 —
+   막대마다 다른 색을 쓰면 어느 것이 급한지가 묻힙니다. */
+
+.usage-panel { display:grid; gap:18px; }
+.usage-top { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px; }
+.usage-top > div { display:grid; gap:6px; min-width:0; }
+.usage-top button { display:inline-flex; align-items:center; gap:7px; padding:9px 14px; color:var(--blue); background:#fff; border:1px solid #cbd3e2; border-radius:8px; font-weight:800; cursor:pointer; }
+.usage-top button:disabled { color:#9aa3b2; cursor:default; }
+.usage-note { margin:0; color:#747b87; font-size:12.5px; }
+.usage-alarm { margin:0; padding:9px 13px; color:#7a5405; background:#fff6e2; border:1px solid #f2dcae; border-radius:9px; font-size:13px; font-weight:700; word-break:keep-all; }
+
+/* 카드는 서비스 하나. 좁은 화면에서는 한 줄로 떨어집니다. */
+.usage-services { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+.usage-card { min-width:0; padding:18px 20px 20px; display:grid; gap:14px; align-content:start; background:#fff; border:1px solid #dde1e8; border-radius:12px; }
+.usage-card > header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.usage-card > header > div { display:grid; gap:2px; min-width:0; }
+.usage-card > header strong { font-size:17px; }
+.usage-card > header span { color:#79808d; font-size:12px; }
+.usage-card > header em { flex:0 0 auto; padding:3px 9px; color:var(--blue); background:#e8efff; border-radius:999px; font-size:10px; font-style:normal; font-weight:900; text-transform:uppercase; }
+
+/* 주기. 서비스마다 '한 달' 이 달라서 카드 머리에 먼저 밝힙니다. */
+.usage-cycle { display:grid; gap:7px; padding:11px 13px; background:#f6f8fc; border:1px solid #e3e8f2; border-radius:9px; }
+.usage-cycle-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:#5b6479; font-size:12px; }
+.usage-cycle-head b { color:#20326a; }
+.usage-cycle p { margin:0; color:#79808d; font-size:11.5px; line-height:1.6; word-break:keep-all; }
+.usage-chip { padding:3px 9px; border-radius:999px; font-size:10px; font-weight:900; letter-spacing:.02em; }
+.usage-chip.calendar { color:#1b4bc4; background:#e7edff; }
+.usage-chip.rolling { color:#93341f; background:#ffe9df; }
+.usage-chip.point { color:#4a5162; background:#e9ecf2; }
+
+.usage-rows { display:grid; gap:15px; }
+.usage-row { display:grid; gap:6px; min-width:0; }
+.usage-row-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px; }
+.usage-name { font-size:13.5px; font-weight:800; }
+.usage-value { font-size:13.5px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.usage-value i { color:#79808d; font-style:normal; font-weight:600; }
+
+/* 막대는 한도를 가득 채운 상태가 100%. 예상치는 막대에 겹치지 않고 아래 글로
+   따로 적습니다 — 한도를 넘는 예상치는 막대 안에 그릴 자리가 없습니다. */
+.usage-track { height:8px; background:#e6e9f0; border-radius:999px; overflow:hidden; }
+.usage-track > span { display:block; height:100%; border-radius:999px; background:var(--blue); transition:width .3s ease; }
+.usage-track.level-ok > span { background:#2c7a5b; }
+.usage-track.level-warn > span { background:#b8860b; }
+.usage-track.level-crit > span { background:#c0562d; }
+.usage-track.level-over > span { background:#b62446; }
+.usage-track.period { height:5px; }
+.usage-track.period > span { background:#9aa8c8; }
+
+.usage-figures { display:flex; flex-wrap:wrap; gap:4px 14px; color:#79808d; font-size:11.5px; font-variant-numeric:tabular-nums; }
+.usage-figures .usage-now { font-weight:800; color:#4a5162; }
+.usage-figures .usage-now.level-warn { color:#8a6508; }
+.usage-figures .usage-now.level-crit { color:#a8471f; }
+.usage-figures .usage-now.level-over { color:#b62446; }
+.usage-figures .over { color:#b62446; font-weight:800; }
+.usage-hint { margin:0; color:#8b93a1; font-size:11.5px; line-height:1.6; word-break:keep-all; }
+.usage-blocked { margin:0; padding:10px 12px; color:#7a5405; background:#fdf1d8; border-radius:8px; font-size:12px; line-height:1.6; word-break:keep-all; }
+
+.usage-problems { padding:14px 16px; display:grid; gap:6px; background:#f7f8fa; border:1px solid #e3e6ec; border-radius:10px; }
+.usage-problems h3 { margin:0; font-size:13px; }
+.usage-problems p { margin:0; color:#79808d; font-size:12px; word-break:keep-all; }
+
+@media (max-width:900px) {
+  /* 한 카드가 한 줄을 다 씁니다. 360px 폭에서도 막대와 숫자가 겹치지 않게
+     카드 안쪽 여백을 줄이고, 값은 이름 아래로 떨어지도록 둡니다. */
+  .usage-services { grid-template-columns:minmax(0,1fr); }
+  .usage-card { padding:15px 15px 17px; }
+  .usage-top button { width:100%; justify-content:center; }
+  .usage-figures { gap:3px 12px; }
+}
+
+/* 소진 예정일. 이 화면에서 가장 빨리 읽혀야 하는 한 줄이라 색을 씁니다. */
+.usage-deadline { margin:2px 0 0; padding:6px 10px; color:#8c2f21; background:#fdecea; border-radius:7px; font-size:11.5px; line-height:1.55; word-break:keep-all; }
+.usage-deadline b { font-weight:900; }

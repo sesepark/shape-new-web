@@ -2182,3 +2182,76 @@ async def test_other_equipment_stays_off_the_humanoid_calendar(client, session, 
     assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/decision", json={"approve": True})).status_code == 200
     assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/cancel", json={"approve": False})).status_code == 200
     assert queued == []
+
+
+# ------------------------------------------------------------------ 서버 사용량
+
+
+async def test_only_the_owner_can_see_server_usage(client, session):
+    """운영진이라도 owner 가 아니면 못 봅니다.
+
+    이 창구가 돌려주는 것은 계정 사용량이고, 뒤에서 쓰는 것은 계정 열쇠입니다.
+    분야별 운영진(소식·장비)에게까지 열 이유가 없습니다.
+    """
+    manager = await make_user(session, "gear2@example.com", permissions=["equipment:manage"])
+    assert (await login(client, manager).get("/api/v1/admin/usage")).status_code == 403
+    assert (await logout(client).get("/api/v1/admin/usage")).status_code == 401
+
+
+async def test_server_usage_is_collected_once_and_then_held(client, session, monkeypatch):
+    """탭을 여러 번 열어도 바깥으로 나가는 요청은 한 번입니다.
+
+    이 화면을 보는 일이 사용량을 늘리면 안 되므로, 백엔드가 값을 들고 있습니다.
+    '다시 모으기' 로만 그 한 번을 당깁니다.
+    """
+    from app.services import usage
+
+    calls = []
+
+    async def fake_snapshot():
+        calls.append(1)
+        return {"collectedAt": "2026-08-25T00:00:00+00:00", "services": [], "problems": {}}
+
+    monkeypatch.setattr(usage, "snapshot", fake_snapshot)
+    owner = await make_user(session, "owner-usage@example.com", owner=True)
+    login(client, owner)
+
+    first = await client.get("/api/v1/admin/usage")
+    assert first.status_code == 200
+    assert first.json()["cached"] is False
+
+    second = await client.get("/api/v1/admin/usage")
+    assert second.json()["cached"] is True
+    assert len(calls) == 1, "들고 있는 값이 있는데 다시 모았습니다"
+
+    forced = await client.get("/api/v1/admin/usage?refresh=true")
+    assert forced.json()["cached"] is False
+    assert len(calls) == 2
+
+
+async def test_server_usage_never_opens_the_database_beyond_the_login_check(client, session, monkeypatch):
+    """수집 자체는 데이터베이스를 건드리지 않습니다.
+
+    Neon 무료 한도에서 가장 먼저 닳는 것이 '깨어 있는 시간' 이라, 사용량을 보는
+    일이 데이터베이스를 깨우면 화면을 볼수록 한도가 줄어듭니다. 로그인 검사
+    한 번(운영진이 관리자 화면을 여는 순간 어차피 일어나는 일) 말고는 열지
+    않는지를 여기서 못 박습니다.
+    """
+    import inspect
+
+    from app.services import usage
+
+    # **진짜** 수집기의 서명을 먼저 본다. 아래에서 가짜로 바꾼 뒤에 보면
+    # 가짜를 검사하게 되어 아무것도 못 막는다.
+    assert not inspect.signature(usage.snapshot).parameters, (
+        "수집기가 인자를 받기 시작했습니다. db 세션을 넘기게 되면 이 화면이 "
+        "데이터베이스를 깨우게 되므로, 넘길 수 없는 모양을 유지하세요."
+    )
+
+    async def fake_snapshot():
+        return {"collectedAt": "2026-08-25T00:00:00+00:00", "services": [], "problems": {}}
+
+    monkeypatch.setattr(usage, "snapshot", fake_snapshot)
+    owner = await make_user(session, "owner-usage2@example.com", owner=True)
+    login(client, owner)
+    assert (await client.get("/api/v1/admin/usage")).status_code == 200

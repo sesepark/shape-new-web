@@ -59,6 +59,21 @@ class Settings(BaseSettings):
     # 올라온 지 이만큼 안 된 파일은 건드리지 않습니다. 사진은 저장 버튼보다 먼저
     # 올라가므로, 방금 올렸지만 아직 저장하지 않은 파일과 고아를 구별할 수 없습니다.
     media_orphan_grace_hours: int = 24
+    # 관리자 '서버' 탭이 무료 티어 사용량을 읽는 데 쓰는 열쇠들. 없으면 그 서비스는
+    # 화면에서 조용히 빠집니다 — 로컬 개발과 자동 시험에서 바깥을 부르면 안 됩니다.
+    #
+    # **이 열쇠는 계정 전체 권한입니다.** Neon 은 읽기 전용 키를 따로 주지 않아서,
+    # 여기 들어간 키로 데이터베이스를 지우는 것도 됩니다. 그래서 프로젝트 하나로
+    # 범위를 좁힌 키를 쓰고, 사용량을 보는 창구는 owner 에게만 엽니다. Render 키는
+    # 사용량 화면에서 얻는 것이 대역폭·메모리뿐이라 넣지 않는 편이 낫습니다.
+    neon_api_key: str | None = None
+    neon_project_id: str | None = None
+    render_api_key: str | None = None
+    render_service_id: str | None = None
+    # 사용량을 얼마나 들고 있을지. 한 달 단위로 보는 숫자라 실시간일 이유가 없고,
+    # 자주 부르면 이 화면 자체가 사용량이 됩니다. 화면의 '다시 모으기' 로 그때그때
+    # 당겨 올 수 있습니다.
+    usage_cache_seconds: int = 21600
     rate_limit_read_per_minute: int = 120
     rate_limit_write_per_minute: int = 20
     max_request_bytes: int = 2_000_000
