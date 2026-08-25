@@ -2029,3 +2029,156 @@ async def test_errors_are_never_marked_publicly_cacheable(client):
         assert response.status_code != 200, path
         assert "public" not in (response.headers.get("Cache-Control") or ""), path
     assert cache.size() == 0
+
+
+# ------------------------------------------------- 구글 캘린더 연동
+
+
+def test_calendar_title_matches_the_shared_calendar_convention():
+    """'휴머노이드 운용' 캘린더에 이미 쌓인 일정과 같은 모양이어야 한다.
+
+    그 캘린더는 SHAPE 만 쓰는 것이 아니라 장비를 함께 쓰는 다른 분들도 봅니다.
+    새로 올라가는 일정만 다르게 생기면 한 달력 안에 두 형식이 섞입니다.
+    """
+    from zoneinfo import ZoneInfo
+
+    from app.services import google_calendar
+
+    seoul = ZoneInfo("Asia/Seoul")
+    starts = datetime(2026, 9, 1, 14, 30, tzinfo=seoul)
+    ends = datetime(2026, 9, 1, 20, 0, tzinfo=seoul)
+    assert google_calendar.title("장하람", "AI Worker", starts, ends) == "SHAPE: 장하람 AI WORKER 오후 2:30~8시"
+
+
+@pytest.mark.parametrize(
+    "start,end,expected",
+    [
+        # 정각이면 분을 적지 않는다.
+        ((10, 0), (12, 0), "오전 10시~오후 12시"),
+        # 오전·오후가 같으면 뒤쪽에서 되풀이하지 않는다.
+        ((14, 30), (20, 0), "오후 2:30~8시"),
+        ((9, 0), (11, 30), "오전 9시~11:30"),
+        # 자정을 넘기면 날짜가 달라지므로 뒤쪽에도 오전·오후를 적는다.
+        ((22, 0), (0, 30), "오후 10시~오전 12:30"),
+    ],
+)
+def test_calendar_time_span_reads_like_a_person_wrote_it(start, end, expected):
+    from zoneinfo import ZoneInfo
+
+    from app.services import google_calendar
+
+    seoul = ZoneInfo("Asia/Seoul")
+    starts = datetime(2026, 9, 1, *start, tzinfo=seoul)
+    ends = datetime(2026, 9, 1 if end[0] > start[0] else 2, *end, tzinfo=seoul)
+    assert google_calendar.span(starts, ends) == expected
+
+
+def test_calendar_event_id_is_derived_from_the_reservation():
+    """일정 번호를 따로 저장하지 않고 예약 id 에서 계산해 낸다.
+
+    새 컬럼이 필요 없고, '캘린더에는 만들었는데 번호를 저장하기 전에 죽는'
+    어중간한 상태도 생기지 않는다. 구글은 0-9·a-v 만 받으므로 16진수를 쓴다.
+    """
+    from app.services import google_calendar
+
+    identifier = google_calendar.event_id(UUID("432c0226-326f-6284-6894-8322d1207ea4"))
+    assert identifier == "shape432c0226326f628468948322d1207ea4"
+    assert set(identifier) <= set("0123456789abcdefghijklmnopqrstuv")
+
+
+async def _reserve(client, session, equipment_name, member, officer):
+    """예약 하나를 신청까지 해 두고 (예약 id, 시작, 끝) 을 돌려준다."""
+    equipment = Equipment(name=equipment_name, category="양팔 로봇")
+    session.add(equipment)
+    await session.flush()
+    unit = EquipmentUnit(equipment_id=equipment.id, label="1호기")
+    session.add(unit)
+    await session.commit()
+
+    starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=30, second=0, microsecond=0)
+    ends = starts + timedelta(hours=2)
+    created = await login(client, member).post("/api/v1/reservations", json={
+        "equipment_unit_id": str(unit.id),
+        "starts_at": starts.isoformat(),
+        "ends_at": ends.isoformat(),
+        "purpose": "텔레오퍼레이션 시험",
+    })
+    assert created.status_code == 201
+    return created.json()["id"], starts, ends
+
+
+async def test_calendar_stays_quiet_without_credentials(client, session, monkeypatch):
+    """열쇠가 없으면 승인·취소가 구글을 두드리지 않는다.
+
+    로컬 개발과 이 시험이 남의 달력에 일정을 올리면 안 된다.
+    """
+    from app.services import google_calendar
+
+    sent: list[str] = []
+    monkeypatch.setattr(google_calendar, "_spawn", lambda what, action: sent.append(what))
+
+    officer = await make_user(session, "cal-quiet-officer@snu.ac.kr", status=UserStatus.APPROVED, owner=True)
+    member = await make_user(session, "cal-quiet-member@snu.ac.kr", status=UserStatus.APPROVED)
+    reservation_id, _, _ = await _reserve(client, session, "AI Worker", member, officer)
+
+    http = login(client, officer)
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/decision", json={"approve": True})).status_code == 200
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/cancel", json={"approve": False})).status_code == 200
+    assert sent == []
+
+
+async def test_approving_ai_worker_puts_it_on_the_shared_calendar(client, session, monkeypatch):
+    """승인하면 캘린더에 올라가고, 취소하면 같은 일정이 지워진다.
+
+    사람이 사이트와 캘린더 두 곳에 같은 일정을 적던 일을 없애는 것이 이 연동의
+    목적이므로, 승인과 취소가 한 쌍으로 맞아떨어져야 합니다.
+    """
+    from app.services import google_calendar
+
+    monkeypatch.setattr(google_calendar, "configured", lambda: True)
+    queued: list = []
+    monkeypatch.setattr(google_calendar, "_spawn", lambda what, action: queued.append((what, action)))
+    put: list[dict] = []
+    removed: list[str] = []
+    monkeypatch.setattr(google_calendar, "_put", lambda body: put.append(body))
+    monkeypatch.setattr(google_calendar, "_delete", lambda identifier: removed.append(identifier))
+
+    officer = await make_user(session, "cal-officer@snu.ac.kr", status=UserStatus.APPROVED, owner=True)
+    member = await make_user(session, "cal-member@snu.ac.kr", status=UserStatus.APPROVED)
+    reservation_id, starts, ends = await _reserve(client, session, "AI Worker", member, officer)
+
+    http = login(client, officer)
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/decision", json={"approve": True})).status_code == 200
+    assert [what for what, _ in queued] == ["등록"]
+    queued.pop()[1]()
+    body = put[0]
+    assert body["id"] == google_calendar.event_id(UUID(reservation_id))
+    assert body["summary"] == google_calendar.title("cal-member", "AI Worker", starts, ends)
+    assert "텔레오퍼레이션 시험" in body["description"]
+    assert body["start"]["timeZone"] == "Asia/Seoul"
+
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/cancel", json={"approve": False})).status_code == 200
+    assert [what for what, _ in queued] == ["삭제"]
+    queued.pop()[1]()
+    assert removed == [body["id"]]
+
+
+async def test_other_equipment_stays_off_the_humanoid_calendar(client, session, monkeypatch):
+    """'휴머노이드 운용' 캘린더는 그 이름대로만 씁니다.
+
+    다른 장비까지 올리면 그 캘린더를 함께 보는 분들의 달력을 우리가 채웁니다.
+    """
+    from app.services import google_calendar
+
+    monkeypatch.setattr(google_calendar, "configured", lambda: True)
+    queued: list = []
+    monkeypatch.setattr(google_calendar, "_spawn", lambda what, action: queued.append((what, action)))
+
+    officer = await make_user(session, "cal-other-officer@snu.ac.kr", status=UserStatus.APPROVED, owner=True)
+    member = await make_user(session, "cal-other-member@snu.ac.kr", status=UserStatus.APPROVED)
+    reservation_id, _, _ = await _reserve(client, session, "OMY", member, officer)
+
+    http = login(client, officer)
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/decision", json={"approve": True})).status_code == 200
+    assert (await http.post(f"/api/v1/admin/reservations/{reservation_id}/cancel", json={"approve": False})).status_code == 200
+    assert queued == []

@@ -18,6 +18,7 @@ from app.models import (
 )
 from app.schemas import ReservationCreate, ReservationRead
 from app.security import READING_STATUSES
+from app.services import google_calendar
 
 CANCELLABLE = {ReservationStatus.PENDING, ReservationStatus.APPROVED}
 
@@ -170,6 +171,7 @@ async def approve(db: AsyncSession, reservation: Reservation) -> Reservation:
         await db.rollback()
         raise HTTPException(409, "승인하려는 시간에 확정된 예약이 있습니다.") from exc
     await db.refresh(reservation)
+    await _publish_to_calendar(db, reservation)
     return reservation
 
 
@@ -177,10 +179,40 @@ async def cancel(db: AsyncSession, reservation: Reservation, reason: str | None 
     """Release the confirmed slots so the time becomes bookable again."""
     if reservation.status not in CANCELLABLE:
         raise HTTPException(409, "대기 또는 확정 상태의 예약만 취소할 수 있습니다.")
+    was_approved = reservation.status == ReservationStatus.APPROVED
     await db.execute(delete(ReservationSlot).where(ReservationSlot.reservation_id == reservation.id))
     reservation.status = ReservationStatus.CANCELLED
     if reason:
         reservation.rejection_reason = reason
     await db.commit()
     await db.refresh(reservation)
+    # 확정된 적이 있어야 캘린더에 올라가 있습니다. 대기 상태에서 물러난
+    # 예약은 애초에 캘린더에 없으므로 구글을 두드릴 이유가 없습니다.
+    if was_approved:
+        _, equipment_name = (await unit_context(db, [reservation])).get(reservation.equipment_unit_id, ("", ""))
+        google_calendar.withdraw(reservation.id, equipment_name)
     return reservation
+
+
+async def _publish_to_calendar(db: AsyncSession, reservation: Reservation) -> None:
+    """확정된 예약을 동아리 공유 캘린더에 올립니다.
+
+    승인·취소가 모두 이 파일을 거치므로 여기 한 곳에 두면 관리자 화면에서 취소한
+    것과 본인이 마이페이지에서 취소한 것이 같은 길을 탑니다. 구글에 보내는 일은
+    기다리지 않으므로 승인 응답이 느려지지 않습니다.
+    """
+    if not google_calendar.configured():
+        return
+    _, equipment_name = (await unit_context(db, [reservation])).get(reservation.equipment_unit_id, ("", ""))
+    if equipment_name != google_calendar.EQUIPMENT:
+        return
+    owner = await db.get(User, reservation.user_id)
+    google_calendar.publish(
+        reservation.id,
+        user_name=getattr(owner, "name", ""),
+        equipment_name=equipment_name,
+        starts_at=reservation.starts_at,
+        ends_at=reservation.ends_at,
+        purpose=reservation.purpose or "",
+        companions=(await companion_names(db, [reservation])).get(reservation.id, []),
+    )

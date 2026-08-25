@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     vapid_private_key: str | None = None
     vapid_claims_email: str = "mailto:admin@snu-shape.com"
     revalidate_secret: str | None = None
+    # 승인된 AI Worker 예약을 올릴 동아리 공유 캘린더('휴머노이드 운용')와, 그
+    # 캘린더에 '변경' 권한으로 초대해 둔 서비스 계정의 열쇠(JSON 파일 내용 그대로).
+    # 둘 중 하나라도 없으면 캘린더 연동은 조용히 쉬어 갑니다 — 로컬 개발과 자동
+    # 시험에서 남의 달력에 일정이 올라가면 안 됩니다.
+    google_calendar_id: str | None = None
+    google_service_account_json: str | None = None
     db_pool_size: int = 2
     db_max_overflow: int = 1
     db_pool_timeout_seconds: int = 30
