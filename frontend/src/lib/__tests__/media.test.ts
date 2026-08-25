@@ -49,7 +49,7 @@ describe("장비 사진은 잘라내지 않고 통째로 담는다", () => {
     // 예전에는 c_fill 로 잘라 맞춰서 넓은 제품 사진의 물건이 잘려 나갔습니다
     // (로봇 손 사진에서 손가락이 화면 밖으로 나갔습니다).
     expect(mediaSquare(original, 800)).toBe(
-      "https://res.cloudinary.com/shape/image/upload/e_trim/c_pad,b_transparent,w_704,h_704/" +
+      "https://res.cloudinary.com/shape/image/upload/e_trim:0/c_pad,b_transparent,w_704,h_704/" +
         "c_lpad,b_transparent,w_800,h_800,f_auto,q_auto:good/v1712/shape/equipment/hand.png",
     );
   });
@@ -58,6 +58,12 @@ describe("장비 사진은 잘라내지 않고 통째로 담는다", () => {
     const url = mediaSquare(original, 1200);
     expect(url).toContain("c_pad,b_transparent,w_1056,h_1056/");
     expect(url).toContain("c_lpad,b_transparent,w_1200,h_1200,");
+  });
+
+  it("잘라내기 기준을 0 으로 둔다 — 기본값은 흰 배경의 흰 물건을 통째로 지워 400 이 난다", () => {
+    // 실제로 시험해 확인했습니다. 기본값이면 Cloudinary 가
+    // "Entire image was trimmed" 400 을 돌려주고 화면에서 사진이 깨집니다.
+    expect(mediaSquare(original, 800)).toContain("/e_trim:0/");
   });
 
   it("우리 폴더의 그림과 이미 변환된 주소는 그대로 둔다", () => {

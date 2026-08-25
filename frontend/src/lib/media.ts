@@ -37,9 +37,16 @@ const QUALITY: Record<MediaQuality, string> = {
  *
  * 그래서 세 단계로 받습니다.
  *
- * 1. `e_trim` — 사진 가장자리의 빈 여백을 떼어 냅니다. 제품 사진은 배경이 비어
+ * 1. `e_trim:0` — 사진 가장자리의 빈 여백을 떼어 냅니다. 제품 사진은 배경이 비어
  *    있는 경우가 많은데, 그 여백이 얼마나 되는지가 사진마다 제각각이라 그대로 두면
  *    같은 칸에서도 어떤 장비는 크고 어떤 장비는 콩알만 하게 보입니다.
+ *
+ *    **`:0` 을 반드시 붙입니다.** 기본값(10)은 모서리 색과 '비슷한' 픽셀까지 떼어
+ *    내는데, 흰 배경에 놓인 흰 로봇처럼 배경과 물건의 색이 가까우면 **사진 전체를
+ *    떼어 내고** Cloudinary 가 400 을 돌려줍니다. 그러면 화면에서는 사진이 깨져
+ *    보입니다 — 우리가 고치려던 바로 그 증상입니다. 실제로 시험해 확인했습니다.
+ *    `:0` 은 모서리와 **똑같은** 색만 떼므로 지금 올라와 있는 사진 여덟 장의 결과가
+ *    그대로이면서 그 실패는 일어나지 않습니다.
  * 2. `c_pad` 로 안쪽 칸(`INNER` 만큼)에 맞춰 담고,
  * 3. `c_lpad` 로 바깥 칸까지 **늘리지 않고** 여백만 채웁니다. `c_pad` 를 두 번 쓰면
  *    두 번째에서 다시 키워 버려 여백이 사라집니다.
@@ -62,7 +69,7 @@ export function mediaSquare(url: string | null | undefined, size: number, qualit
   const inner = Math.round(size * INNER);
   // 배경은 투명하게 채웁니다. 흰색으로 채우면 카드의 옅은 바탕 위에 흰 네모가
   // 얹혀 보입니다.
-  return `${head}e_trim/c_pad,b_transparent,w_${inner},h_${inner}/c_lpad,b_transparent,w_${size},h_${size},f_auto,${QUALITY[quality]}/${tail}`;
+  return `${head}e_trim:0/c_pad,b_transparent,w_${inner},h_${inner}/c_lpad,b_transparent,w_${size},h_${size},f_auto,${QUALITY[quality]}/${tail}`;
 }
 
 export function media(url: string | null | undefined, width: number, quality: MediaQuality = "auto"): string {
