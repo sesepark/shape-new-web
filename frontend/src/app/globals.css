@@ -799,13 +799,9 @@ button { color:inherit; }
 
 .nav-item:hover .nav-dropdown a, .nav-item:focus-within .nav-dropdown a { opacity:1; transform:translateY(0); }
 
-.nav-item:hover .nav-dropdown a:nth-child(1), .nav-item:focus-within .nav-dropdown a:nth-child(1) { transition-delay:.10s; }
-
-.nav-item:hover .nav-dropdown a:nth-child(2), .nav-item:focus-within .nav-dropdown a:nth-child(2) { transition-delay:.15s; }
-
-.nav-item:hover .nav-dropdown a:nth-child(3), .nav-item:focus-within .nav-dropdown a:nth-child(3) { transition-delay:.20s; }
-
-.nav-item:hover .nav-dropdown a:nth-child(4), .nav-item:focus-within .nav-dropdown a:nth-child(4) { transition-delay:.25s; }
+/* header-fixes.css 와 같은 이유로 식 하나로 둡니다. 이쪽은 네 개까지밖에 없어서
+   다섯 번째부터 지연이 사라지고 있었습니다. */
+.nav-item:hover .nav-dropdown a, .nav-item:focus-within .nav-dropdown a { transition-delay:calc(.10s + var(--nav-order,0) * .05s); }
 
 .nav-dropdown a:hover { color:var(--blue); background:#f4f7fc; }
 

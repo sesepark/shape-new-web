@@ -29,15 +29,11 @@
 
 .desktop-nav .nav-item:hover .nav-dropdown a, .desktop-nav .nav-item:focus-within .nav-dropdown a { opacity:1; transform:translateY(0); }
 
-.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(1), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(1) { transition-delay:.08s !important; }
+/* 하위 항목이 하나씩 차례로 내려옵니다.
 
-.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(2), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(2) { transition-delay:.13s !important; }
-
-.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(3), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(3) { transition-delay:.18s !important; }
-
-.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(4), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(4) { transition-delay:.23s !important; }
-
-.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(5), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(5) { transition-delay:.28s !important; }
-
-.desktop-nav .nav-item:hover .nav-dropdown a:nth-child(6), .desktop-nav .nav-item:focus-within .nav-dropdown a:nth-child(6) { transition-delay:.33s !important; }
+   예전에는 :nth-child(1)~(6) 을 하나하나 적어 두었는데, 그러면 **일곱 번째부터는
+   지연이 없어 혼자 튀어나옵니다.** 실제로 SHAPE 탭에 '협력기관'을 넣자 그 항목만
+   나머지를 기다리지 않고 먼저 나타났습니다. 차례는 components/site-header.tsx 가
+   --nav-order 로 넘겨 주므로, 항목이 몇 개가 되든 여기를 다시 고칠 일이 없습니다. */
+.desktop-nav .nav-item:hover .nav-dropdown a, .desktop-nav .nav-item:focus-within .nav-dropdown a { transition-delay:calc(.08s + var(--nav-order,0) * .05s) !important; }
 

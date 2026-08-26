@@ -4,7 +4,7 @@ import Link from "next/link";
 import { HoverPrefetchLink } from "@/components/hover-prefetch-link";
 import { ArrowUpRight, LogOut, Menu, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { ScrollingName } from "@/components/scrolling-name";
 import { ShapeSymbol } from "@/components/shape-symbol";
 import { groupForPath, navigation } from "@/lib/navigation";
@@ -70,8 +70,19 @@ export function SiteHeader() {
                   </span>
                 </HoverPrefetchLink>
                 <div className={`nav-dropdown${dropdown === item.label ? " open" : ""}`}>
-                  {item.children.map((child) => (
-                    <HoverPrefetchLink href={child.href} key={child.href} onClick={(event) => { event.currentTarget.blur(); setDropdown(null); }}>
+                  {/* 하위 항목은 차례로 하나씩 내려옵니다. 그 차례를 CSS 로 넘기는
+                      이유는, 예전에 CSS 가 :nth-child(1)~(6) 을 하나하나 적어 두고
+                      있었기 때문입니다. SHAPE 탭에 일곱 번째 항목(협력기관)이
+                      생기자 그 하나만 지연 없이 튀어나왔습니다. 차례를 값으로
+                      넘기면 항목이 몇 개가 되든 CSS 를 다시 손대지 않아도 됩니다
+                      (components/scroll-reveal.tsx 의 --scroll-order 와 같은 방식). */}
+                  {item.children.map((child, order) => (
+                    <HoverPrefetchLink
+                      href={child.href}
+                      key={child.href}
+                      style={{ "--nav-order": order } as CSSProperties}
+                      onClick={(event) => { event.currentTarget.blur(); setDropdown(null); }}
+                    >
                       {child.label}
                     </HoverPrefetchLink>
                   ))}
