@@ -35,7 +35,7 @@
 .page-content { width:min(calc(100% - 80px),1240px); min-height:48vh; margin:auto; padding:90px 0 140px; }
 
 /* ── 하단 캡슐 내비게이션 ───────────────────────────────────────
-   항목이 여섯 개인 그룹(SHAPE)도 한 줄을 넘지 않도록 가로 스크롤로
+   항목이 일곱 개인 그룹(SHAPE)도 한 줄을 넘지 않도록 가로 스크롤로
    처리합니다. 예전 2열 그리드는 히어로 높이를 넘어 잘렸습니다. */
 .page-subnav {
   position:absolute; z-index:3; left:50%; bottom:28px;
@@ -4079,4 +4079,89 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   .audit-who { grid-column:1 / -1; color:#79808d; font-size:11.5px; }
   .audit-filters label { flex:1 1 140px; }
   .audit-filters select { width:100%; min-width:0; }
+}
+
+/* ── 협력기관 카드 (SHAPE › 협력기관) ────────────────────────────
+   카드는 두 겹입니다. 바깥(.partner-card)은 스크롤에 맞춰 떠오르는 자리이고
+   (components/scroll-reveal.tsx 가 여기에 --scroll-order 를 매깁니다), 안쪽
+   (.partner-card-inner)은 마우스를 따라 기우는 자리입니다. 둘 다 transform 을
+   쓰기 때문에 한 요소에 얹을 수 없습니다 — components/partner-cards.tsx 의
+   주석에 자세히 적어 두었습니다. */
+/* 사이트의 다른 카드 격자(.grid.three)와 같은 3열입니다. auto-fit 으로 두면
+   기관이 둘뿐일 때 카드가 화면 폭까지 늘어나 글씨만 덩그러니 놓입니다. */
+.partner-grid { display:grid; gap:20px; grid-template-columns:repeat(3,1fr); }
+
+@media (max-width:1100px) { .partner-grid { grid-template-columns:repeat(2,1fr); } }
+
+/* 바깥은 자리만 잡습니다. 커서 위치를 담는 변수는 여기서 시작해 안쪽으로 물려
+   내려갑니다(JS 가 이 요소에 적습니다). */
+.partner-card { --rx:0deg; --ry:0deg; --px:50%; --py:50%; --glow:0; display:flex; }
+
+.partner-card-inner {
+  position:relative; z-index:0; flex:1; min-width:0;
+  padding:30px; display:flex; flex-direction:column; gap:18px;
+  background:#fff; border:1px solid #dadde4; border-radius:18px;
+  transform:perspective(900px) rotateX(var(--rx)) rotateY(var(--ry));
+  transition:transform .18s ease-out, border-color .25s ease, box-shadow .25s ease;
+}
+
+.partner-card:hover .partner-card-inner { border-color:var(--blue); box-shadow:0 16px 35px rgba(30,60,120,.08); }
+
+/* 커서를 따라오는 옅은 빛. mix-blend-mode 없이 파랑 한 겹만 얹습니다. 라이선스
+   카드처럼 여러 색을 겹치면 글씨 위로 색이 번져 읽기 나빠집니다. */
+.partner-card-inner::after {
+  content:""; position:absolute; inset:0; pointer-events:none; border-radius:inherit;
+  opacity:var(--glow); transition:opacity .3s ease;
+  background:radial-gradient(circle 220px at var(--px) var(--py),rgba(40,85,243,.09),transparent 70%);
+}
+
+.partner-card-inner > * { position:relative; z-index:1; }
+
+/* 기관을 알아보는 칸. 마크가 있으면 그림이, 없으면 이름이 이 안에 놓입니다.
+   높이를 고정해 두어야 마크가 있는 카드와 없는 카드가 한 줄에 섞여도 격자가
+   들쭉날쭉해지지 않습니다. */
+.partner-mark { min-height:120px; display:grid; place-items:center; }
+
+.partner-mark img { max-width:100%; max-height:120px; width:auto; height:auto; object-fit:contain; }
+
+/* 마크가 없는 기관. 이름 자체가 카드의 그림 노릇을 합니다. */
+.partner-wordmark { margin:0; display:grid; gap:6px; justify-items:center; text-align:center; word-break:keep-all; }
+
+.partner-wordmark small { color:var(--muted); font-size:13px; font-weight:800; letter-spacing:-.01em; }
+
+.partner-wordmark h3 { margin:0; color:var(--navy); font-size:30px; line-height:1.18; letter-spacing:-.045em; }
+
+.partner-copy { margin-top:auto; display:grid; gap:6px; }
+
+.partner-copy small { color:var(--blue); font-size:12px; font-weight:900; }
+
+.partner-copy h3 { margin:0; font-size:22px; letter-spacing:-.04em; }
+
+.partner-copy p { margin:0; color:var(--muted); font-size:14.5px; line-height:1.7; word-break:keep-all; }
+
+/* 마크가 있든 없든 카드 안은 모두 가운데 정렬입니다. 로고는 칸 가운데에 놓이는데
+   그 아래 글만 왼쪽으로 붙으면, 마크 있는 카드와 없는 카드가 한 줄에 섞였을 때
+   글줄이 서로 어긋나 보입니다. */
+.partner-copy { text-align:center; }
+
+@media (max-width:680px) {
+  .partner-grid { grid-template-columns:1fr; gap:14px; }
+  .partner-card-inner { padding:22px; gap:14px; }
+  .partner-mark { min-height:84px; }
+  .partner-mark img { max-height:84px; }
+  .partner-wordmark h3 { font-size:25px; }
+  .partner-copy h3 { font-size:19px; }
+  .partner-copy p { font-size:14px; }
+}
+
+/* 손가락에는 따라올 커서가 없습니다. 탭한 자리에서 기운 채로 굳어 버리므로
+   아예 끕니다(JS 도 마우스 외의 입력은 무시합니다). */
+@media (hover:none) {
+  .partner-card-inner { transform:none; }
+  .partner-card-inner::after { display:none; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .partner-card-inner { transform:none; transition:none; }
+  .partner-card-inner::after { display:none; }
 }

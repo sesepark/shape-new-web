@@ -11,7 +11,7 @@ export function ScrollReveal({ children }: { children: ReactNode }) {
       new Set([
         ...element.querySelectorAll<HTMLElement>(":scope > *"),
         ...element.querySelectorAll<HTMLElement>(
-          ".equipment-catalog-card, .calendar-month, .member-card, .organization-row, .contact-card, .contact-form",
+          ".equipment-catalog-card, .calendar-month, .member-card, .partner-card, .organization-row, .contact-card, .contact-form",
         ),
       ]),
     );
