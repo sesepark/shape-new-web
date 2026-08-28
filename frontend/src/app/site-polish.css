@@ -117,6 +117,11 @@ html:has(.shape-home) .site-footer {
    루트 레이아웃에 계속 살아 있는 푸터가 유일한 스냅 지점이 되어 새 페이지가
    맨 아래로 끌려갔습니다. :has() 는 라우트가 바뀌는 순간 함께 꺼집니다. */
 html:has(.shape-home) { scroll-snap-type:y mandatory; }
+/* 창이 아주 낮으면(노트북에 도구 모음을 여러 줄 띄운 경우, 21:9 모니터를 위아래로
+   나눠 쓰는 경우) 한 장이 화면보다 높아질 수밖에 없습니다. 그때 mandatory 로 두면
+   넘친 아랫부분이 늘 다시 위로 튕겨 올라가 읽을 수가 없습니다. 그런 높이에서는
+   근접 스냅으로 낮춰, 스냅은 살리되 넘친 곳을 볼 수 있게 합니다. */
+@media (max-height:760px) { html:has(.shape-home) { scroll-snap-type:y proximity; } }
 /* 높이는 svh 가 아니라 dvh 로 잰다. svh 는 주소 표시줄이 나와 있을 때의 높이라,
    사파리에서 스크롤을 시작해 표시줄이 접히면 화면이 그만큼 커지는데 섹션은
    그대로여서 첫 화면 아래로 다음 섹션의 남색이 비쳤다. dvh 는 지금 보이는
@@ -1444,10 +1449,10 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   /* 데스크톱은 스냅이 y mandatory 라서 한 장이 화면보다 높아지면 읽고 넘어가기가
      힘들어진다. 여백과 사이 간격을 화면 높이에 묶어 노트북에서도 한 장에
      들어오게 한다. 모바일은 y proximity 라 넘쳐도 자연스럽게 이어진다. */
-  padding: clamp(58px, 9vh, 110px) max(44px, calc((100vw - 1540px) / 2));
+  padding: clamp(44px, 7.4vh, 110px) max(44px, calc((100vw - 1540px) / 2));
   display: grid;
   align-content: center;
-  gap: clamp(26px, 4.5vh, 54px);
+  gap: clamp(22px, 3.6vh, 54px);
 }
 
 .home-numbers { background: #f6f8fd; }
@@ -1603,9 +1608,25 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 
 .home-pillars article:hover .home-pillar-link { color: #fff; }
 
+/* 아주 넓은 화면(21:9 울트라 와이드 등)에서는 세 덩어리를 나란히 놓습니다.
+   두 칸이면 세 번째인 타임라인이 아래 줄 왼쪽으로 밀려, 장이 화면보다 높아지는
+   동시에 오른쪽 절반이 텅 비었습니다. */
+@media (min-width: 1400px) {
+  .home-next-body { grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.1fr); gap: 48px; }
+}
+
 @media (max-width: 1100px) {
   .home-next-body { grid-template-columns: 1fr; gap: 36px; }
   .home-fact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 창이 낮으면 세로 여백부터 줄여 한 장이 화면 안에 들어오게 합니다. 높이가
+   넉넉한 화면의 값은 건드리지 않습니다. */
+@media (max-height: 760px) {
+  .home-introduction { padding-block: clamp(50px, 8vh, 90px); }
+  .home-pillars { padding-block: clamp(24px, 4.5vh, 60px); }
+  .home-numbers,
+  .home-next { padding-block: clamp(34px, 5.5vh, 80px); gap: clamp(16px, 2.6vh, 34px); }
 }
 
 @media (max-width: 900px) {

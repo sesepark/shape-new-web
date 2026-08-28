@@ -1,9 +1,11 @@
 /* Kept in a final stylesheet: legacy additions cannot override this motion. */
 .desktop-nav .nav-item > a { overflow:hidden; }
 
-.desktop-nav .nav-label { position:relative !important; display:inline-grid !important; width:max-content !important; min-width:max-content !important; height:20px !important; overflow:hidden !important; place-items:center !important; color:#111 !important; perspective:700px !important; transform-style:preserve-3d !important; }
+/* 높이를 20px 로 못 박아 두면, 한 줄 높이가 그보다 큰 글꼴로 그려지는 환경에서
+   글자의 위아래가 overflow:hidden 에 잘립니다. 글자 크기를 따라가게 둡니다. */
+.desktop-nav .nav-label { position:relative !important; display:inline-grid !important; width:max-content !important; min-width:max-content !important; height:1.5em !important; overflow:hidden !important; place-items:center !important; color:#111 !important; perspective:700px !important; transform-style:preserve-3d !important; }
 
-.desktop-nav .nav-label-current, .desktop-nav .nav-label-next { position:absolute !important; inset:0 !important; display:grid !important; width:100% !important; height:100% !important; place-items:center !important; color:#111 !important; font:inherit !important; line-height:20px !important; white-space:nowrap !important; backface-visibility:hidden !important; visibility:visible !important; opacity:1 !important; will-change:transform; transition:none !important; }
+.desktop-nav .nav-label-current, .desktop-nav .nav-label-next { position:absolute !important; inset:0 !important; display:grid !important; width:100% !important; height:100% !important; place-items:center !important; color:#111 !important; font:inherit !important; line-height:1.5em !important; white-space:nowrap !important; backface-visibility:hidden !important; visibility:visible !important; opacity:1 !important; will-change:transform; transition:none !important; }
 
 .desktop-nav .nav-label-current { position:relative !important; inset:auto !important; transform:translateY(0) rotateX(0deg); transform-origin:50% 100% !important; }
 

@@ -28,6 +28,7 @@ Claude·Codex 같은 도구가 저장소를 처음 열었을 때 가장 먼저 �
 | 홈처럼 한 화면이 한 장인 구조에서 한 장이 화면 높이를 넘지 않는가 | 넘치면 다음 장이 반쯤 보이는 어정쩡한 상태가 됩니다 |
 | 표·격자·가로로 긴 요소가 단을 줄이거나 가로 스크롤 상자로 바뀌는가 | 본문이 가로로 밀리면 페이지 전체가 흔들립니다 |
 | 손가락으로 누를 대상이 충분히 큰가 | 마우스 기준으로 만든 작은 버튼은 휴대폰에서 못 누릅니다 |
+| 글자가 조금 넓어져도 버티는가 | 뒤의 **글꼴** 항을 보세요. 여유가 십몇 픽셀뿐인 칸은 다른 컴퓨터에서 무너집니다 |
 
 **높이를 다룰 때 `svh` 와 `dvh` 를 구분해 쓰세요.** `svh` 는 주소 표시줄이 나와
 있는 가장 좁은 상태의 높이라 **안쪽 글자와 여백**을 묶는 데 씁니다. `dvh` 는
@@ -43,12 +44,23 @@ Claude·Codex 같은 도구가 저장소를 처음 열었을 때 가장 먼저 �
 52~273px 넘치고 있었고, 머리글이 첫 내용을 최대 74px 가리고 있었습니다.
 둘 다 눈대중으로는 보이지 않던 것입니다.
 
-Playwright 를 저장소 밖(스크래치 폴더)에 설치해 씁니다. **`package.json` 에는
-넣지 마세요.** devDependency 는 Vercel 빌드에서도 설치되어 배포가 무거워집니다.
+Playwright 는 `frontend` 의 devDependency 에 들어 있습니다(`editor-probe.mjs` 와
+`responsive-audit.mjs` 가 씁니다). 브라우저 본체만 한 번 받으면 됩니다.
 
 ```bash
-mkdir -p /tmp/e2e && cd /tmp/e2e && npm init -y && npm i -D playwright
-npx playwright install chromium
+cd frontend && npx playwright install chromium firefox webkit
+```
+
+**폭·높이별 점검은 손으로 하지 말고 `scripts/responsive-audit.mjs` 를 돌리세요.**
+개발 서버를 띄운 뒤 주소만 주면, 32:9 울트라 와이드부터 320px 휴대폰까지 열네
+가지 크기를 훑으면서 캡슐이 두 줄로 접힌 곳, 가로로 밀려 나간 글, 잘린 글,
+홈에서 한 장이 화면을 넘은 곳을 찾아 줍니다. `BROWSER=firefox|webkit`,
+`BLOCK_FONT=1`(글꼴을 못 받아 온 순간), `FAKE_SESSION=1`(로그인 화면)로 조건을
+바꿉니다.
+
+```bash
+npx next dev -p 3100 &
+node scripts/responsive-audit.mjs http://localhost:3100
 ```
 
 재는 요령 두 가지가 있습니다.
@@ -58,11 +70,9 @@ npx playwright install chromium
 * **`scrollIntoView()` 로 옮기세요.** `window.scrollTo(offsetTop)` 은
   `scroll-padding-top` 을 무시해서, 멀쩡한 화면도 머리글에 가린 것처럼 보입니다.
 
-`--headless --screenshot` 을 쓸 때는 **`--window-size` 로 500px 아래를 못 냅니다.**
-맥의 크롬은 창 폭 하한이 500px 이라, `--window-size=390,…` 을 줘도 500px 로 그린
-뒤 390px 만큼 잘라 저장합니다. 오른쪽이 잘린 그림을 보고 "모바일에서 넘친다"고
-잘못 읽기 딱 좋습니다. 390px 을 정말 보려면 `<iframe width="390">` 안에 넣고 창은
-넓게 여세요. 미디어 쿼리는 iframe 의 폭을 따릅니다.
+크롬을 `--headless --screenshot --window-size=` 로 직접 부르면 **500px 아래를
+못 냅니다**(맥의 창 폭 하한). 390px 을 보려면 Playwright 로 뷰포트를 지정하세요.
+`newContext({ viewport: { width: 390, height: 844 } })` 는 하한이 없습니다.
 
 WebGL 캔버스는 `preserveDrawingBuffer` 없이 `drawImage` 로 읽으면 빈 화면이
 나옵니다. 로봇이 그려졌는지 볼 때는 **화면 캡처**(`locator.screenshot()`)를
@@ -511,6 +521,35 @@ frontend/
 **뒤에 오는 파일이 앞을 덮는 구조**이므로, 스타일이 안 먹으면 뒤쪽 파일에 같은
 선택자가 있는지 먼저 보세요. 압축 후 합계 약 33KB 이고 모든 페이지에 실립니다.
 
+### 글꼴은 사이트가 직접 실어 보냅니다
+
+`layout.tsx` 가 `next/font/local` 로 `src/app/fonts/PretendardVariable.woff2`
+(가변 글꼴 한 벌, 2MB)를 싣고, `globals.css` 의 `body` 가 `var(--font-pretendard)`
+로 그것을 씁니다.
+
+예전에는 `font-family` 에 Pretendard·Apple SD Gothic Neo·Noto Sans KR 을 늘어놓고
+**보는 사람 컴퓨터에 그 글꼴이 깔려 있기를 기대**했습니다. 맥에서는 Apple SD
+Gothic Neo 로 그려져 의도대로 보였지만, 리눅스·윈도에는 저 목록의 글꼴이 하나도
+없어 Arial(리눅스에서는 Liberation Sans)로 떨어집니다. 같은 글이 환경마다 다른
+폭으로 그려지니, **여유가 십몇 픽셀뿐이던 칸은 그대로 무너졌습니다.** 홈의 로봇
+전환 캡슐(`.robot-switch`)이 리눅스·파이어폭스에서 `SO-ARM 101` 만 아랫줄로
+떨어뜨린 채 두 줄이 되어 있던 것이 그 예입니다.
+
+그래서 두 가지를 함께 합니다.
+
+1. 글꼴을 실어 보내 **어느 환경에서든 글자 폭이 같게** 만듭니다. 요청은 한 번뿐이고
+   Next 가 `/_next/static` 에 1년짜리 캐시로 올리므로 무료 티어의 요청 수에 부담이
+   없습니다. `display:"swap"` + `adjustFontFallback:"Arial"` 이라 받는 동안에도
+   글이 보이고 폭 차이가 작습니다.
+2. **그래도 배치는 글자 폭에 기대지 않게 짭니다.** 캡슐 모양의 가로줄은
+   `flex-wrap:wrap` + 빠듯한 `max-width` 로 만들지 마세요. 조금만 넓어져도 두
+   줄로 접혀 알약이 무너집니다. `.page-subnav` 와 `.robot-switch` 처럼
+   `flex-wrap:nowrap` + `overflow-x:auto` 로 두면, 모자랄 때 접히는 대신 밀립니다.
+
+비율이 정해진 사진 칸(`aspect-ratio`)에 `min-height` 를 함께 주지 마세요. 칸이
+그보다 좁아지면 비율을 맞추려고 **폭이 도로 늘어나** 화면 밖으로 밀려납니다
+(장비 상세 화면이 320px 폭에서 그랬습니다).
+
 ### 이미지 — 비용이 가장 크게 갈리는 곳
 
 `src/lib/media.ts` 의 두 함수가 전부입니다.
@@ -709,7 +748,7 @@ SHOT_SOLID=1 SHOT_TRANSPARENT=1 SHOT_WIDTH=760 SHOT_HEIGHT=475 SHOT_PAD=14 \
 | 관리자에서 사람을 고르는 UI | 얼굴(`Avatar`)을 함께 보여 주는가 |
 | JSON 컬럼(`content_json` 등) 수정 | 제자리에서 고치지 않고 **새 값을 만들어 넣었는가** |
 | 홈에 장 추가 | `HomeScrollSnap` 의 `SECTIONS`, 그리고 한 장이 100dvh 를 넘지 않는가 |
-| 무엇이든 화면을 건드릴 때 | **0절의 모바일 확인표** |
+| 무엇이든 화면을 건드릴 때 | **0절의 모바일 확인표**, 그리고 `scripts/responsive-audit.mjs` |
 | 로봇 3D 모델 | `scripts/render-robot-check.mjs` 로 그림을 찍어 눈으로 확인했는가 |
 | 머리글·메뉴 링크 | `HoverPrefetchLink` 를 썼는가, 요청 수 추정이 달라지는가 |
 | 새 표·컬럼 | Alembic 마이그레이션, 시각 컬럼이면 `UtcDateTime` |

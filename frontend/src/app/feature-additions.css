@@ -16,7 +16,8 @@
 .nav-item.active .nav-label-current, .nav-item.active .nav-label-next { color:#142354; }
 
 /* Final isolated header motion rule; older rules above are legacy refinements. */
-.desktop-nav .nav-label { position:relative; display:grid; width:100%; height:20px; min-width:0; overflow:hidden; place-items:center; perspective:680px; transform-style:preserve-3d; }
+/* 높이는 글자 크기에 따라갑니다(실제로 쓰이는 값은 header-fixes.css 에 있습니다). */
+.desktop-nav .nav-label { position:relative; display:grid; width:100%; height:1.5em; min-width:0; overflow:hidden; place-items:center; perspective:680px; transform-style:preserve-3d; }
 
 .desktop-nav .nav-label-current, .desktop-nav .nav-label-next { position:absolute; inset:0; display:grid; width:100%; height:100%; place-items:center; backface-visibility:hidden; will-change:transform,opacity; transition:transform .42s cubic-bezier(.22,.8,.22,1),opacity .24s ease; }
 
@@ -31,7 +32,10 @@
 /* Home and press directory: no client-side data fetching is used here. */
 .shape-home { scroll-snap-type:y proximity; }
 
-.home-hero { position:relative; min-height:100dvh; padding:145px max(44px,calc((100vw - 1540px)/2)) 72px; display:grid; grid-template-columns:minmax(320px,.8fr) minmax(480px,1.2fr); align-items:center; gap:50px; overflow:hidden; background:radial-gradient(circle at 77% 48%,#e9f0ff 0,rgba(233,240,255,.58) 20%,transparent 48%),#fff; scroll-snap-align:start; }
+/* 위아래 여백과 무대 높이를 화면 높이에 묶습니다. 예전에는 145px/72px 로 못
+   박혀 있어서, 세로가 짧은 창(노트북 + 도구 모음, 21:9 모니터)에서는 첫 화면이
+   한 장에 들어오지 않았습니다. 높이가 넉넉한 화면에서는 예전 값 그대로입니다. */
+.home-hero { position:relative; min-height:100dvh; padding:clamp(96px,14vh,145px) max(44px,calc((100vw - 1540px)/2)) clamp(40px,7vh,72px); display:grid; grid-template-columns:minmax(320px,.8fr) minmax(480px,1.2fr); align-items:center; gap:50px; overflow:hidden; background:radial-gradient(circle at 77% 48%,#e9f0ff 0,rgba(233,240,255,.58) 20%,transparent 48%),#fff; scroll-snap-align:start; }
 
 .home-hero::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.55; background-image:linear-gradient(rgba(36,69,145,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(36,69,145,.06) 1px,transparent 1px); background-size:38px 38px; mask-image:linear-gradient(90deg,#000,transparent 70%); }
 
@@ -47,7 +51,7 @@
 
 .home-intro>a, .home-intro-body>a { width:max-content; margin-top:35px; display:flex; align-items:center; gap:8px; padding-bottom:8px; border-bottom:1px solid #111; font-size:14px; font-weight:900; }
 
-.home-robot-stage { min-height:570px; isolation:isolate; display:flex; flex-direction:column; justify-content:center; }
+.home-robot-stage { min-height:min(570px,60vh); isolation:isolate; display:flex; flex-direction:column; justify-content:center; }
 
 .robot-copy { position:absolute; z-index:3; top:18%; right:3%; max-width:220px; transition:opacity .35s ease,transform .45s cubic-bezier(.2,.8,.2,1); }
 
@@ -63,7 +67,7 @@
 
 .robot-switch button.active { color:#fff; background:var(--blue); box-shadow:0 5px 12px rgba(40,85,243,.3); }
 
-.robot-visual { position:relative; width:100%; min-height:530px; display:grid; place-items:center; transition:transform .35s ease; transform:perspective(1000px) rotateX(calc(var(--pointer-y) * -3deg)) rotateY(calc(var(--pointer-x) * 5deg)); }
+.robot-visual { position:relative; width:100%; min-height:min(530px,56vh); display:grid; place-items:center; transition:transform .35s ease; transform:perspective(1000px) rotateX(calc(var(--pointer-y) * -3deg)) rotateY(calc(var(--pointer-x) * 5deg)); }
 
 .robot-model-canvas { position:absolute; z-index:2; inset:0; width:100%; height:100%; }
 
@@ -103,7 +107,7 @@
 
 .home-scroll { position:absolute; z-index:2; bottom:36px; left:max(44px,calc((100vw - 1540px)/2)); display:flex; align-items:center; gap:8px; color:#65708a; font-size:10px; font-weight:900; letter-spacing:.14em; }
 
-.home-introduction { min-height:78dvh; padding:160px max(44px,calc((100vw - 1540px)/2)); display:grid; grid-template-columns:1fr minmax(320px,.72fr); gap:100px; align-items:center; background:#102d6c; color:#fff; scroll-snap-align:start; }
+.home-introduction { min-height:78dvh; padding:clamp(90px,16vh,160px) max(44px,calc((100vw - 1540px)/2)); display:grid; grid-template-columns:1fr minmax(320px,.72fr); gap:100px; align-items:center; background:#102d6c; color:#fff; scroll-snap-align:start; }
 
 .home-introduction h2 { margin:0; font-size:clamp(48px,6vw,90px); line-height:1.04; letter-spacing:-.085em; }
 
@@ -113,9 +117,9 @@
 
 .home-intro-body>a { border-color:#fff; }
 
-.home-pillars { min-height:78dvh; padding:80px max(44px,calc((100vw - 1540px)/2)); display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:#dce3ef; scroll-snap-align:start; }
+.home-pillars { min-height:78dvh; padding:clamp(40px,8vh,80px) max(44px,calc((100vw - 1540px)/2)); display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:#dce3ef; scroll-snap-align:start; }
 
-.home-pillars article { min-height:430px; padding:35px; display:flex; flex-direction:column; background:#fff; transition:background .35s,color .35s; }
+.home-pillars article { min-height:min(430px,46vh); padding:35px; display:flex; flex-direction:column; background:#fff; transition:background .35s,color .35s; }
 
 .home-pillars article:hover { color:#fff; background:var(--blue); }
 
@@ -407,11 +411,14 @@
   -webkit-box-orient: vertical;
 }
 
+/* 글꼴이 넓은 환경에서도 상태 알약과 두 링크가 서로를 밀어내지 않도록 줄바꿈을
+   허용합니다. 예전에는 680px 아래에서만 접혔습니다. */
 .equipment-catalog-actions {
   min-height: 61px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  gap: 10px 14px;
 }
 
 .equipment-catalog-actions > a {
@@ -428,7 +435,11 @@
   color: #2855f3;
 }
 
+/* `.status` 는 본문 아래에 홀로 놓일 때를 생각해 margin-top 이 붙어 있습니다.
+   가운데 정렬된 가로줄 안에서는 그 여백이 알약만 아래로 밀어, '예약 가능' 이
+   옆의 '상세 보기·예약' 보다 9px 내려앉아 보였습니다. */
 .equipment-catalog-actions .status {
+  margin-top: 0;
   font-size: 10px;
 }
 
@@ -449,6 +460,7 @@
 }
 
 .equipment-detail-media {
+  min-width: 0;
   display: grid;
   place-items: center;
   padding: 44px;
@@ -491,6 +503,7 @@
 
 .equipment-detail-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
@@ -1029,11 +1042,16 @@
   }
 
 .equipment-detail {
-    grid-template-columns: 1fr;
+    /* 1fr 은 최소 폭이 min-content 라, 비율이 정해진 사진 칸이 화면보다 넓어지면
+       칸이 통째로 밀려 나갑니다. 0 까지 줄어들 수 있게 둡니다. */
+    grid-template-columns: minmax(0, 1fr);
   }
 
 .equipment-detail-media {
-    min-height: 450px;
+    /* 높이는 site-polish.css 의 --media-ratio-equipment 가 폭에서 계산합니다.
+       여기서 최소 높이를 못 박으면, 칸이 그보다 좁아졌을 때 비율을 맞추려고
+       사진 칸의 폭이 도로 늘어나 화면 밖으로 밀려납니다. */
+    min-height: 0;
     border-right: 0;
     border-bottom: 1px solid #d9dde5;
   }
@@ -1075,7 +1093,7 @@
   }
 
 .equipment-detail-media {
-    min-height: 310px;
+    min-height: 0;
     padding: 18px;
   }
 
@@ -1195,7 +1213,10 @@
 
 .calendar-semester-bottom { display:flex; justify-content:center; gap:8px; padding:22px; background:#f7f8fa; }
 
-.reservation-steps li.active span, .reservation-steps li.active svg { color:#fff!important; }
+/* 칸 사이의 화살표(.step-arrow)는 흰 동그라미 위에 놓이므로 제외합니다. 예전에는
+   이 규칙이 화살표까지 흰색으로 칠해, 지금 단계 오른쪽 화살표만 흰 바탕에 흰
+   글씨가 되어 보이지 않았습니다. */
+.reservation-steps li.active span, .reservation-steps li.active svg:not(.step-arrow) { color:#fff!important; }
 
 .booking-guidance { text-align:center; }
 
@@ -1471,11 +1492,25 @@
 
  }
 
-/* 로봇 스테이지 탭이 세 개로 늘어나 좁은 화면에서 줄바꿈되도록 한다. */
-.robot-switch { flex-wrap:wrap; justify-content:flex-end; max-width:min(94%,340px); }
+/* 로봇 스테이지 탭.
+   예전에는 `flex-wrap:wrap; max-width:min(94%,340px)` 이었습니다. 네 개를 늘어놓은
+   실제 폭이 340px 에 십몇 픽셀 못 미쳤을 뿐이라, 글자가 조금만 넓어져도 곧바로
+   두 줄로 접혀 알약이 무너졌습니다. 리눅스·윈도처럼 다른 글꼴로 그려지는 환경이
+   딱 그 경우였습니다(SO-ARM 101 만 아랫줄로 떨어졌습니다).
+   그래서 줄바꿈을 아예 막고, 정 모자라면 가로로 밀어 보게 합니다. 사이트의 다른
+   캡슐 내비게이션(.page-subnav)이 쓰는 것과 같은 방식입니다. */
+.robot-switch {
+  flex-wrap:nowrap; justify-content:flex-end; max-width:94%;
+  overflow-x:auto; overscroll-behavior-x:contain;
+  scroll-snap-type:x proximity; scrollbar-width:none; -ms-overflow-style:none;
+}
+
+.robot-switch::-webkit-scrollbar { display:none; }
+
+.robot-switch button { flex:0 0 auto; padding:10px clamp(11px,1vw,15px); white-space:nowrap; scroll-snap-align:center; }
 
 @media (max-width:620px) {
-.robot-switch button { padding:8px 10px; font-size:10px; }
+.robot-switch button { padding:8px clamp(7px,2.2vw,10px); font-size:10px; }
 
  }
 
