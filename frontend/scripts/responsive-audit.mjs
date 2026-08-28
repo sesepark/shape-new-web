@@ -12,6 +12,7 @@
  *   pill-wrap          알약 모양 캡슐 안의 항목이 두 줄로 접힌 곳
  *   off-screen         가로로 화면 밖에 나간 글(가로 스크롤 상자 안은 뺀다)
  *   clipped            넘치는데 감춰서 글자가 잘리는 곳(줄 수 제한·말줄임은 뺀다)
+ *   spills-out         제 칸 밖으로 삐져나온 곳
  *   taller-than-screen 홈에서 한 장이 화면 높이를 넘은 곳
  *
  * 환경 변수
@@ -68,6 +69,31 @@ const probe = () => {
     const hides = (cs.overflowX === "hidden" || cs.overflowY === "hidden") && cs.overflowX !== "auto" && cs.overflowY !== "auto";
     if (!scrollable && hides && !clamped && txt && (el.scrollWidth > el.clientWidth + 2 || el.scrollHeight > el.clientHeight + 4) && el.clientWidth)
       out.push({ kind: "clipped", sel: path(el), info: `${el.scrollWidth}x${el.scrollHeight}>${el.clientWidth}x${el.clientHeight}`, txt });
+    // 제 칸 밖으로 삐져나온 곳. 자르지 않아 화면 밖까지는 안 가더라도 옆 칸을
+    // 침범합니다. 덩이(블록)면 그 안에 그려진 글자가 상자를 넘었는지 재고,
+    // 줄 안에 흐르는 조각이면 부모 칸을 넘었는지 잽니다. scrollWidth 는 글꼴의
+    // 잉크 여유까지 세어 멀쩡한 곳도 넘쳤다고 하므로 쓰지 않습니다.
+    const block = !cs.display.startsWith("inline") && cs.display !== "contents";
+    // 글자를 직접 담은 잎만 봅니다. 자식 요소를 품은 상자에 같은 잣대를 대면
+    // 가로 스크롤 칸 안의 글까지 넘쳤다고 잡혀 쓸모가 없어집니다.
+    if (txt && cs.position === "static" && el.children.length === 0) {
+      if (block && el.clientWidth) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const t = range.getBoundingClientRect();
+        const right = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+        const left = r.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+        if (t.width && !hides && (t.right > right + 1.5 || t.left < left - 1.5))
+          out.push({ kind: "spills-out", sel: path(el), info: `글자 ${Math.round(t.left)}..${Math.round(t.right)} / 칸 ${Math.round(left)}..${Math.round(right)}`, txt });
+      } else if (!block && el.parentElement) {
+        const parent = el.parentElement, pcs = getComputedStyle(parent), pr = parent.getBoundingClientRect();
+        const right = pr.right - parseFloat(pcs.paddingRight) - parseFloat(pcs.borderRightWidth);
+        const left = pr.left + parseFloat(pcs.paddingLeft) + parseFloat(pcs.borderLeftWidth);
+        const flows = pcs.overflowX === "visible" && pcs.overflowY === "visible";
+        if (flows && parent.clientWidth && (r.right > right + 1.5 || r.left < left - 1.5))
+          out.push({ kind: "spills-out", sel: path(el), info: `${Math.round(r.left)}..${Math.round(r.right)} / 칸 ${Math.round(left)}..${Math.round(right)}`, txt });
+      }
+    }
   }
   // 4) 홈은 한 장이 화면 높이를 넘으면 안 된다
   for (const s of document.querySelectorAll(".shape-home > section")) {

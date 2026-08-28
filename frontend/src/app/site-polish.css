@@ -265,10 +265,15 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 .admin-reservations header p { margin:5px 0 0; color:#737985; font-size:12px; }
 .reservation-purpose { margin:0; font-size:14px; line-height:1.6; word-break:keep-all; }
 .member-permission-list { display:grid; gap:14px; }
-.member-permission-list fieldset { display:grid; gap:9px; padding:18px; border:1px solid #d6dce6; border-radius:12px; background:#fff; }
+/* fieldset 의 브라우저 기본값은 `min-width:min-content` 라, 안에 든 긴 이메일
+   주소처럼 끊을 데가 없는 글자가 상자 폭을 통째로 밀어냅니다. 실제로 좁은
+   화면에서 관리자 화면 전체가 9px 씩 가로로 밀려 있었습니다. */
+.member-permission-list fieldset { min-width:0; display:grid; gap:9px; padding:18px; border:1px solid #d6dce6; border-radius:12px; background:#fff; }
 .member-permission-list legend { max-width:100%; padding:0 7px; font-size:14px; font-weight:900; overflow-wrap:anywhere; }
 .member-permission-list legend em { margin-left:6px; padding:3px 7px; border-radius:999px; background:#e8efff; color:#1d4eb5; font-size:10px; font-style:normal; }
-.member-permission-head { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#737985; font-size:13px; }
+.member-permission-head { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:12px; color:#737985; font-size:13px; }
+/* 이메일 주소는 띄어쓰기가 없어 한 낱말로 취급됩니다. 좁은 칸에서는 끊어 줍니다. */
+.member-permission-head > span { min-width:0; overflow-wrap:anywhere; }
 .member-permission-head select { height:38px; padding:0 10px; border:1px solid #d6dce6; border-radius:8px; font-size:13px; }
 .permission-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:7px; }
 .admin-reservations .reservation-photos figure { width:min(100%,170px); }
@@ -830,8 +835,11 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 }
 
 /* 사진이 없는 부원 카드는 성을 뗀 이름을 크게 씁니다. 두 글자가 들어가므로
-   한 글자만 넣던 시절의 48px 로는 카드 밖으로 넘칩니다. */
-.member-photo > span { padding:0 10px; font-size:clamp(24px,3.4vw,38px); letter-spacing:-.04em; text-align:center; word-break:keep-all; }
+   한 글자만 넣던 시절의 48px 로는 카드 밖으로 넘칩니다.
+   `word-break:keep-all` 만 두면 이름이 더 길 때(황보름다운나리 → '름다운나리')
+   한 줄로 뻗어 상자 밖으로 잘립니다. 평소에는 낱말을 안 끊되, 그러다 넘칠
+   상황에서는 줄을 바꾸게 합니다. */
+.member-photo > span { max-width:100%; padding:0 10px; font-size:clamp(24px,3.4vw,38px); line-height:1.05; letter-spacing:-.04em; text-align:center; word-break:keep-all; overflow-wrap:anywhere; }
 @media (max-width:680px) { .member-photo > span { font-size:24px; } }
 
 /* ── SHAPE-UP 결과물 ────────────────────────────────────────── */

@@ -63,6 +63,18 @@ npx next dev -p 3100 &
 node scripts/responsive-audit.mjs http://localhost:3100
 ```
 
+**관리자 페이지는 `scripts/admin-audit.mjs` 가 따로 있습니다.** `/admin` 은 로그인해야
+보이는 데다 탭이 스물넷이고 주소에 남지 않아 눈으로 훑기가 어렵습니다. 이 도구가
+개발 모드의 미리보기로 들어가 탭을 하나씩 눌러 가며 같은 것을 잽니다. 관리자 창구는
+쿠키가 없으면 답하지 않으므로 `scripts/admin-sample.mjs` 의 흉내 낸 자료를 대신 넣는데,
+그 자료는 **글과 사람이 쌓인 뒤**를 기준으로 만들어 두었습니다(회원 34명, 예약 28건,
+수정 기록 50건, 부원 84명, 아주 긴 이름과 이메일). 지금 자료가 적어서 괜찮아 보이는
+화면을 통과시키지 않기 위해서입니다.
+
+```bash
+node scripts/admin-audit.mjs http://localhost:3100
+```
+
 재는 요령 두 가지가 있습니다.
 
 * **스냅 자리 기준으로 재세요.** 머리글이 92px 이고 `scroll-padding-top` 이
@@ -550,6 +562,14 @@ Gothic Neo 로 그려져 의도대로 보였지만, 리눅스·윈도에는 저 
 그보다 좁아지면 비율을 맞추려고 **폭이 도로 늘어나** 화면 밖으로 밀려납니다
 (장비 상세 화면이 320px 폭에서 그랬습니다).
 
+사람이 넣는 글(이름·이메일·제목)이 들어가는 칸은 **끊을 데가 없는 긴 글자**를
+견뎌야 합니다. 이메일 주소는 띄어쓰기가 없어 한 낱말로 취급되므로, 좁은 칸에서는
+`overflow-wrap:anywhere` 로 끊어 주세요. `<fieldset>` 은 브라우저 기본값이
+`min-width:min-content` 라 특히 위험합니다. 안에 긴 이메일이 하나 있으면 상자 폭을
+통째로 밀어내므로 `min-width:0` 을 함께 주세요(관리자 › 회원 및 권한이 그랬습니다).
+`word-break:keep-all` 만 걸어 둔 칸도 마찬가지입니다. 낱말을 안 끊는 대신 넘쳐서
+잘리므로, 넘칠 상황에서는 줄을 바꾸도록 `overflow-wrap:anywhere` 를 함께 둡니다.
+
 ### 이미지 — 비용이 가장 크게 갈리는 곳
 
 `src/lib/media.ts` 의 두 함수가 전부입니다.
@@ -749,6 +769,7 @@ SHOT_SOLID=1 SHOT_TRANSPARENT=1 SHOT_WIDTH=760 SHOT_HEIGHT=475 SHOT_PAD=14 \
 | JSON 컬럼(`content_json` 등) 수정 | 제자리에서 고치지 않고 **새 값을 만들어 넣었는가** |
 | 홈에 장 추가 | `HomeScrollSnap` 의 `SECTIONS`, 그리고 한 장이 100dvh 를 넘지 않는가 |
 | 무엇이든 화면을 건드릴 때 | **0절의 모바일 확인표**, 그리고 `scripts/responsive-audit.mjs` |
+| 관리자 화면을 건드릴 때 | `scripts/admin-audit.mjs`. 탭 스물넷을 크기별로 훑습니다 |
 | 로봇 3D 모델 | `scripts/render-robot-check.mjs` 로 그림을 찍어 눈으로 확인했는가 |
 | 머리글·메뉴 링크 | `HoverPrefetchLink` 를 썼는가, 요청 수 추정이 달라지는가 |
 | 새 표·컬럼 | Alembic 마이그레이션, 시각 컬럼이면 `UtcDateTime` |
