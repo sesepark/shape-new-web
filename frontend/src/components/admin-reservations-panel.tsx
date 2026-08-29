@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { AlertTriangle, Clock3, Users } from "lucide-react";
 import { useAsk } from "@/components/ask-dialog";
-import { AdminRecurring } from "@/components/admin-recurring";
 import { ScrollingName } from "@/components/scrolling-name";
 import { useNotice } from "@/components/use-notice";
 import { adminFetch, adminSend } from "@/lib/admin-api";
@@ -237,8 +236,12 @@ export function ReservationsPanel() {
   return (
     <div className="admin-form">
       <p className="form-note">
-        같은 시간에 다투는 신청이 없으면 <b>시작 한 시간 전에 저절로 확정</b>됩니다. 운영진이 먼저 확정해도 되고,
+        같은 시간에 다투는 신청이 없으면 <b>정해 둔 시각에 저절로 확정</b>됩니다. 운영진이 먼저 확정해도 되고,
         그냥 두어도 됩니다. <b>사람이 반드시 봐야 하는 것은 시간이 겹친 신청뿐</b>이라 맨 위에 따로 모아 둡니다.
+        확정 시점과 상한은 <b>관리자 장비예약</b> 탭의 예약 정책에서 바꿉니다.
+      </p>
+      <p className="form-note">
+        정기 예약과 사용 제한(정비·교육 실습으로 시간대를 막는 것)은 <b>관리자 장비예약</b> 탭으로 옮겼습니다.
       </p>
       {/* 승인 단추가 사이트 밖에도 무언가를 남긴다는 것을 운영진이 알아야 합니다.
           그 캘린더는 SHAPE 만 보는 곳이 아니라 장비를 함께 쓰는 다른 분들도 봅니다. */}
@@ -298,7 +301,6 @@ export function ReservationsPanel() {
           <p>필터를 바꾸면 지난 예약과 사용 기록도 확인할 수 있습니다.</p>
         </div>
       )}
-      <AdminRecurring onChanged={reload} />
       {dialogNode}
     </div>
   );

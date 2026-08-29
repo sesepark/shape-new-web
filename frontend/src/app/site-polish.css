@@ -4598,6 +4598,13 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
 .recurring-times { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 
+/* `input[type="date"]` 는 달력 아이콘까지 담을 만큼의 **고유 너비**를 갖고 있어서,
+   칸(`minmax(0, 1fr)`)이 아무리 좁아져도 스스로 줄지 않는다. 360px 에서 실제로
+   2px 씩 삐져나와 문서 전체가 가로로 밀렸다. 칸을 좁히는 것만으로는 부족하고
+   입력 자체에 "줄어들어도 된다" 고 말해 주어야 한다. */
+.recurring-times input,
+.recurring-times select { width: 100%; min-width: 0; }
+
 .recurring-preview {
   padding: 12px 14px;
   background: #f7f9fc;
@@ -4719,4 +4726,344 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   .usage-bars li { grid-template-columns: 1fr auto; }
   .usage-track { grid-column: 1 / -1; }
   .weekday-grid button { min-height: 40px; font-size: 12px; }
+}
+
+/* ------------------------------------------------------------------------- */
+/* 사용 제한 · 확정 예정 안내 · 예약 안내 팝업 (부원 화면)                     */
+/* ------------------------------------------------------------------------- */
+
+/* 운영진이 막아 둔 칸. 확정된 칸(회색)·지난 칸(빗금)과 이유가 다르므로 생김새도
+   다르다. 붉은 기운의 빗금으로 '못 쓴다' 를 알리되, 칸 안에 '사용 제한' 이라고
+   글자로도 적어 색만으로 읽지 않게 한다. */
+.slot-legend .swatch.blocked {
+  background: repeating-linear-gradient(135deg, #fdf1f3 0 4px, #f7dde2 4px 8px);
+  border-color: #e8c3cc;
+}
+
+.booking-schedule-section .booking-slots button.blocked:disabled {
+  color: #9b4257;
+  background: repeating-linear-gradient(135deg, #fdf1f3 0 5px, #f9e3e7 5px 10px);
+  border-color: #ecccd4;
+  text-decoration: none;
+}
+
+.booking-schedule-section .booking-slots button.blocked:disabled .slot-flag { color: #b0526a; }
+
+/* 그 날 걸려 있는 제한의 사유. 왜 못 누르는지 모르면 결국 운영진에게 묻는다. */
+.booking-blocked-note {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  display: flex;
+  gap: 9px;
+  color: #8a3a4e;
+  background: #fdf3f5;
+  border: 1px solid #f0d2d9;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.booking-blocked-note svg { flex: 0 0 auto; margin-top: 2px; }
+.booking-blocked-note b { font-weight: 900; }
+
+/* 지금 고른 시간이 언제 확정되는지. 규칙이 아니라 **이 신청의 시각**을 적는 자리라
+   눈에 띄어야 한다. 곧바로 확정되는 경우는 더 밝게 둔다. */
+.booking-outlook {
+  margin: 14px 0 0;
+  padding: 11px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #2c4a75;
+  background: #f2f6ff;
+  border: 1px solid #d3e0f8;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.booking-outlook svg { flex: 0 0 auto; margin-top: 2px; }
+.booking-outlook.now { color: #0f6b4f; background: #edfaf4; border-color: #bfe6d5; }
+
+/* '예약 안내 자세히 보기'. 안내 상자 안에서 한 줄을 차지한다. */
+.booking-guide-open {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--blue);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+/* 안내 팝업 본문. 팝업 하나에 여섯 장이 들어가므로 안에서 굴러가야 한다. */
+.booking-guide-body { display: grid; gap: 16px; text-align: left; }
+.booking-guide-body section { display: grid; gap: 6px; }
+
+.booking-guide-body h4 {
+  margin: 0;
+  color: #101418;
+  font-size: 13.5px;
+  font-weight: 900;
+  letter-spacing: -.01em;
+}
+
+.booking-guide-body p { margin: 0; color: #4c5360; font-size: 13px; line-height: 1.7; }
+.booking-guide-body p.warn { color: #8a3a4e; }
+.booking-guide-body ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.booking-guide-body li { color: #4c5360; font-size: 13px; line-height: 1.65; }
+.booking-guide-body b { color: #101418; font-weight: 800; }
+
+/* 대기 중인 예약에 붙는 확정 예정 한 줄. 겹쳤을 때는 색을 바꿔 구분한다. */
+.reservation-hint.warn { color: #8a3a4e; background: #fdf3f5; border-color: #f0d2d9; }
+
+/* ------------------------------------------------------------------------- */
+/* 관리자 — 사용 제한 · 예약 정책 · 라이선스 일괄 부여                          */
+/* ------------------------------------------------------------------------- */
+
+/* 세 구획이 한 탭에 나란히 온다. 서로 다른 일이라는 것이 보이도록 선으로 끊는다. */
+.admin-equipment-reservation > section + section {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid #e3e6eb;
+}
+
+.admin-equipment-reservation .admin-recurring {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.admin-blackouts h3,
+.admin-policy h3 {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: -.01em;
+}
+
+.admin-recurring h3 {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: -.01em;
+}
+
+.admin-blackouts { display: grid; gap: 12px; }
+.admin-blackouts .field-hint { margin-top: -6px; }
+
+/* 이미 다 지나간 제한. 지워도 되는 것이 한눈에 보이게 흐린다. */
+.admin-items .admin-item.spent { opacity: .62; }
+.admin-item-copy span svg { vertical-align: -2px; margin-right: 2px; }
+
+/* 예약 정책. 값마다 무엇이 달라지는지를 함께 적어야 사람이 건드릴 수 있다. */
+.admin-policy { display: grid; gap: 14px; }
+
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.policy-grid label { display: grid; gap: 5px; }
+.policy-grid label > span { color: #2b303a; font-size: 12.5px; font-weight: 800; }
+.policy-grid label > span i { color: #7b818c; font-style: normal; font-weight: 700; }
+.policy-grid input { width: 100%; }
+.policy-grid small { color: #737984; font-size: 11.5px; line-height: 1.6; }
+
+.policy-example {
+  margin: 0;
+  padding: 11px 14px;
+  color: #2c4a75;
+  background: #f2f6ff;
+  border: 1px solid #d3e0f8;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.policy-warn {
+  margin: 0;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8a3a4e;
+  background: #fdf3f5;
+  border: 1px solid #f0d2d9;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.policy-warn svg { flex: 0 0 auto; }
+
+/* 라이선스 일괄 부여. 100명이 한 목록에 들어오므로 찾기와 접기가 먼저다. */
+.admin-license-grant { display: grid; gap: 12px; }
+
+.grant-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.grant-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: #fff;
+  border: 1px solid #dcdfe5;
+  border-radius: 10px;
+}
+
+.grant-search svg { flex: 0 0 auto; color: #868d98; }
+
+.grant-search input {
+  width: 100%;
+  padding: 9px 0;
+  border: 0;
+  background: transparent;
+}
+
+.grant-search input:focus { outline: none; }
+
+.grant-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #4c5360;
+  font-size: 12.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.grant-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  color: #737984;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.grant-bulk .text-button { color: var(--blue); font-size: 12px; font-weight: 800; }
+
+.grant-people {
+  margin: 0;
+  padding: 6px;
+  /* 100명이 한 번에 오면 화면이 통째로 밀린다. 자기 상자 안에서만 굴러가게 한다. */
+  max-height: min(52svh, 460px);
+  overflow-y: auto;
+  display: grid;
+  gap: 2px;
+  list-style: none;
+  background: #fbfcfd;
+  border: 1px solid #e3e6eb;
+  border-radius: 12px;
+}
+
+.grant-people > li { margin: 0; }
+
+.grant-people label {
+  /* 손가락으로 누를 대상이라 줄 전체를 누를 수 있게 한다. */
+  min-height: 44px;
+  padding: 6px 10px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.grant-people label:hover { background: #eff3f9; }
+.grant-people input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--blue); }
+.grant-people img, .grant-people .pick-face { border-radius: 50%; }
+.grant-people .grant-name { font-size: 13px; font-weight: 800; }
+
+.grant-people label > i {
+  justify-self: end;
+  max-width: 42%;
+  overflow: hidden;
+  color: #868d98;
+  font-size: 11.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------- */
+/* 마이페이지 — 내 사용 기록                                                   */
+/* ------------------------------------------------------------------------- */
+
+.mypage-usage { margin-top: 26px; }
+.my-usage { display: grid; gap: 16px; }
+
+/* 관리자 통계의 타일과 같은 모양을 쓰되, 여기서는 세 칸이다. */
+.my-usage .usage-tiles article {
+  padding: 14px;
+  display: grid;
+  gap: 3px;
+  background: #fbfcfd;
+  border: 1px solid #e6e9ee;
+  border-radius: 14px;
+}
+
+.my-usage .usage-tiles article svg { width: 17px; height: 17px; color: #868d98; }
+.my-usage .usage-tiles strong { font-size: 24px; letter-spacing: -.03em; }
+.my-usage .usage-tiles span { color: #737984; font-size: 11.5px; font-weight: 800; }
+.my-usage .usage-tiles article.warn { background: #fdf3f5; border-color: #f0d2d9; }
+.my-usage .usage-tiles article.warn strong, .my-usage .usage-tiles article.warn svg { color: #b62446; }
+
+.my-usage .usage-block { display: grid; gap: 8px; }
+
+.my-usage .usage-block h4 {
+  margin: 0;
+  color: #2b303a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.usage-warn {
+  margin: 0;
+  padding: 11px 14px;
+  color: #8a3a4e;
+  background: #fdf3f5;
+  border: 1px solid #f0d2d9;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+/* ------------------------------------------------------------------------- */
+/* 좁은 화면                                                                   */
+/* ------------------------------------------------------------------------- */
+
+@media (max-width: 680px) {
+  .policy-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .grant-toolbar { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .grant-filter { justify-self: start; }
+  .my-usage .usage-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .my-usage .usage-tiles strong { font-size: 20px; }
+  .booking-guide-body { gap: 14px; }
+}
+
+@media (max-width: 430px) {
+  /* 이메일까지 넣으면 이름이 밀린다. 좁은 화면에서는 이름만 남긴다. */
+  .grant-people label { grid-template-columns: auto auto minmax(0, 1fr); }
+  .grant-people label > i { display: none; }
+  .my-usage .usage-tiles { grid-template-columns: minmax(0, 1fr); }
+  .my-usage .usage-tiles article { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; }
+  .my-usage .usage-tiles article svg { grid-row: span 1; }
+  .booking-outlook, .booking-blocked-note { font-size: 12.5px; }
 }

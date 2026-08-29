@@ -19,6 +19,8 @@ import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { ASK_ALT, useAsk } from "@/components/ask-dialog";
 import { useNotice } from "@/components/use-notice";
+import { AdminEquipmentReservation } from "@/components/admin-equipment-reservation";
+import { AdminLicenseGrant } from "@/components/admin-license-grant";
 import { ReservationsPanel } from "@/components/admin-reservations-panel";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { adminFetch, adminSend, apiUrl, type AdminResult } from "@/lib/admin-api";
@@ -31,7 +33,11 @@ const groups = [
   // 홈은 한 화면씩 스크롤로 넘어가므로, 그 장을 그대로 탭으로 나눕니다.
   { label: "HOME", tabs: ["히어로", "인트로", "단계", "현황", "일정"] },
   { label: "SHAPE", tabs: ["인사말", "동아리 소개", "조직도", "부원"] },
-  { label: "장비 예약", tabs: ["보유 장비", "라이선스", "장비 예약", "사용 통계"] },
+  // 탭 이름을 나눈 이유: ‘장비예약 관리’ 는 부원이 올린 신청을 확정·반려하는
+  // **매일 하는 일**이고, ‘관리자 장비예약’ 은 운영진이 직접 일정을 잡고 시간을
+  // 막고 규칙을 정하는 자리다. 한 화면에 섞여 있을 때 정기 예약이 목록 맨 아래
+  // 접힌 채로 묻혀 아무도 찾지 못했다.
+  { label: "장비 예약", tabs: ["보유 장비", "라이선스", "라이선스 부여", "장비예약 관리", "관리자 장비예약", "사용 통계"] },
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
   { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"] },
   { label: "바로가기", tabs: ["관련 링크"] },
@@ -52,7 +58,9 @@ const tabPermission: Record<Section, string> = {
   "부원": "content:manage",
   "보유 장비": "equipment:manage",
   "라이선스": "equipment:manage",
-  "장비 예약": "reservations:manage",
+  "라이선스 부여": "equipment:manage",
+  "장비예약 관리": "reservations:manage",
+  "관리자 장비예약": "reservations:manage",
   "사용 통계": "reservations:manage",
   "SHAPE 뉴스": "news:manage",
   "언론보도": "news:manage",
@@ -187,7 +195,9 @@ const sectionGuide: Record<Section, { what: string; where: string; href?: string
   "부원": { what: "부원 카드를 한 명씩 등록하고 사진·역할·회원 구분을 관리합니다.", where: "공개 페이지 SHAPE › 부원", href: "/members" },
   "보유 장비": { what: "장비를 등록하고 사진·상태·예약 조건과 개별 호기를 관리합니다.", where: "공개 페이지 장비 예약 › 보유 장비", href: "/equipment" },
   "라이선스": { what: "장비를 쓰기 전에 이수해야 하는 교육 항목을 만듭니다.", where: "장비 상세의 '사전 조건'과 부원 마이페이지" },
-  "장비 예약": { what: "겹친 신청을 가리고, 예약을 확정·반려하며, 정기 예약을 등록합니다.", where: "회원 마이페이지와 예약 시간표" },
+  "라이선스 부여": { what: "교육 하나를 고르고 이수한 부원을 한 번에 체크해 부여·회수합니다.", where: "부원 마이페이지의 사용 권한과 예약 화면의 장비 카드" },
+  "장비예약 관리": { what: "부원이 올린 신청을 확정·반려합니다. 시간이 겹친 신청만 맨 위에 따로 모입니다.", where: "회원 마이페이지와 예약 시간표" },
+  "관리자 장비예약": { what: "정기 예약을 잡고, 정비·실습으로 시간대를 막고, 예약 규칙(자동 확정 시점·상한)을 정합니다.", where: "예약 시간표와 부원 예약 화면의 안내" },
   "사용 통계": { what: "장비가 언제 얼마나 쓰였는지, 목적과 시급도의 분포를 봅니다.", where: "운영진만 보는 화면입니다." },
   "SHAPE 뉴스": { what: "동아리 활동 소식을 사진과 함께 올립니다.", where: "공개 페이지 소식 › SHAPE 뉴스", href: "/news" },
   "언론보도": { what: "외부 기사·영상 링크를 등록하면 미리보기가 자동으로 만들어집니다.", where: "공개 페이지 소식 › 언론보도", href: "/news/press" },
@@ -465,7 +475,9 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
     );
   if (tab === "보유 장비") return <EquipmentForm />;
   if (tab === "라이선스") return <LicenseManager />;
-  if (tab === "장비 예약") return <ReservationsPanel />;
+  if (tab === "라이선스 부여") return <AdminLicenseGrant />;
+  if (tab === "장비예약 관리") return <ReservationsPanel />;
+  if (tab === "관리자 장비예약") return <AdminEquipmentReservation />;
   if (tab === "사용 통계") return <AdminUsageStats />;
   if (["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"].includes(tab))
     return (

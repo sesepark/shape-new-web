@@ -1,11 +1,12 @@
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -276,6 +277,89 @@ class ReservationSlot(Base):
     equipment_unit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("equipment_units.id", ondelete="CASCADE"))
     reservation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reservations.id", ondelete="CASCADE"))
     slot_start: Mapped[datetime] = mapped_column(UtcDateTime())
+
+
+class ReservationBlackout(Base, Timestamped):
+    """운영진이 막아 둔 시간. 부원은 이 시간에 예약을 넣을 수 없습니다.
+
+    지금까지 시간을 막는 방법은 장비 **전체**를 `MAINTENANCE` 로 돌리는 것뿐이었고,
+    그러면 정비가 잡힌 목요일 저녁 때문에 나머지 엿새까지 함께 닫혔습니다. 목요일
+    저녁 교육 실습 같은 고정 일정은 장비 설명에 "그 시간대 개인 예약은 피해 주세요"
+    라고 **글로만** 적혀 있어서, 실제로 막아 주는 것은 아무것도 없었습니다.
+
+    ## 모양이 하나뿐인 이유
+
+    한 번만 막는 것과 매주 막는 것을 따로 두지 않고 **요일 집합 + 시각 범위 + 날짜
+    범위** 하나로 적습니다. 9월 3일 하루만 막는 것은 `from_date == until_date` 이고
+    요일이 그 하루뿐인 경우이며, 사흘 내리 막는 것은 요일 일곱 개를 모두 고르고
+    시각을 0~24시로 두는 경우입니다. 규칙이 한 모양이면 겹침을 따지는 코드도,
+    관리자 화면도 하나뿐이고, 바로 위에 있는 정기 예약 입력과 생김새가 같아집니다.
+
+    시각은 **한국 시각 자정에서부터 잰 분**입니다(`start_minute`, `end_minute`).
+    UTC 로 저장하면 날짜 경계가 아홉 시간 밀려 "목요일 19시" 가 수요일로 넘어갑니다.
+    """
+
+    __tablename__ = "reservation_blackouts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    equipment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("equipment.id", ondelete="CASCADE"), index=True)
+    # 비어 있으면 그 장비의 **모든 호기**를 막습니다. 카메라 7호기처럼 호기가 많은
+    # 장비에서 하나만 정비하는 경우가 있어 호기를 지정할 수 있게 둡니다.
+    equipment_unit_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment_units.id", ondelete="CASCADE"), index=True
+    )
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    # 0=월요일. 파이썬 `date.weekday()` 와 같은 기준입니다.
+    weekdays: Mapped[list] = mapped_column(JSON, default=list)
+    start_minute: Mapped[int] = mapped_column(Integer, default=0)
+    # 하루를 통째로 막으면 1440 입니다. 자정을 넘겨 이어지는 구간은 만들지 않습니다
+    # — 다음 날 00:00 부터 다시 막으면 되고, 그편이 화면에서도 읽힙니다.
+    end_minute: Mapped[int] = mapped_column(Integer, default=1440)
+    from_date: Mapped[date] = mapped_column(Date)
+    until_date: Mapped[date] = mapped_column(Date)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    @property
+    def audit_label(self) -> str:
+        """수정 내역에 남길 이름. 사유가 비어 있으면 기간으로 대신합니다."""
+        if self.reason and self.reason.strip():
+            return self.reason.strip()
+        return f"{self.from_date} ~ {self.until_date} 사용 제한"
+
+
+class ReservationPolicy(Base, Timestamped):
+    """예약이 굴러가는 시각과 상한. **행이 하나뿐인 표**입니다.
+
+    여기 있는 값은 모두 예전에 파이썬 상수였습니다. 그래서 자동 확정을 한 시간에서
+    두 시간으로 바꾸는 일에도 코드 수정과 배포가 필요했고, 실제로 운영을 맡은
+    사람이 스스로 조절할 수 없었습니다.
+
+    행이 하나뿐이므로 `id` 를 정수 1 로 고정합니다. UUID 를 쓰면 "어느 행이
+    진짜인가" 를 매번 정해야 하는데, 설정은 하나여야 뜻이 분명합니다. 값을 읽는
+    곳이 예약 창구마다 있으므로 `services/reservation_policy.py` 가 잠깐 들고
+    있습니다 — 신청 한 번에 Neon 을 한 번 더 두드리지 않기 위해서입니다.
+    """
+
+    __tablename__ = "reservation_policy"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    # 시작까지 이만큼 남으면 겹치는 신청이 없는 한 시계가 대신 확정합니다.
+    auto_approve_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
+    # 시작이 이만큼 앞인데 아직 대기 중이면 운영진에게 한 번 더 알립니다.
+    staff_reminder_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120")
+    # 예약 시작 이만큼 전부터 '사용 시작' 을 누를 수 있습니다.
+    start_grace_minutes: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+    # 사용 시작 뒤 이만큼 지나도 사용 전 사진이 없으면 한 번 더 재촉합니다.
+    before_photo_grace_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    # 한 건에 잡을 수 있는 최대 길이.
+    max_hours: Mapped[int] = mapped_column(Integer, default=12, server_default="12")
+    # 오늘부터 며칠 앞까지 신청할 수 있는지.
+    booking_window_days: Mapped[int] = mapped_column(Integer, default=180, server_default="180")
+    # 정기 예약을 한 번에 몇 건까지 만들 수 있는지.
+    recurring_max: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    @property
+    def audit_label(self) -> str:
+        return "예약 정책"
 
 
 class RoadmapItem(Base, Timestamped):

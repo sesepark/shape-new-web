@@ -30,8 +30,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Reservation, ReservationStatus
+from app.services import reservation_policy
 from app.services.reservation_alerts import label, tell_owner, when
-from app.services.reservations import AUTO_APPROVE_LEAD, try_auto_approve
+from app.services.reservations import try_auto_approve
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +48,15 @@ async def sweep_auto_decisions(db: AsyncSession) -> list[tuple[str, str, list[di
     """
     now = datetime.now(UTC)
     out: list[tuple[str, str, list[dict]]] = []
+    # 자동 확정 시점은 관리자 화면에서 정합니다. 여기서 고른 대상과
+    # `try_auto_approve` 의 판정이 같은 값을 봐야 하므로, 규칙이 아니라 값만
+    # 읽어 씁니다.
+    lead = (await reservation_policy.current(db)).auto_approve_lead
 
     waiting = (await db.scalars(
         select(Reservation).where(
             Reservation.status == ReservationStatus.PENDING,
-            Reservation.starts_at <= now + AUTO_APPROVE_LEAD,
+            Reservation.starts_at <= now + lead,
             Reservation.ends_at > now,
         ).order_by(Reservation.created_at).limit(BATCH)
     )).all()

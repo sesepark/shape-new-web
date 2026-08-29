@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Check, ChevronRight, CircleAlert, ClipboardPenLine, Lock, Users, Wrench } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, CircleAlert, ClipboardPenLine, Lock, ShieldAlert, Users, Wrench } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ASK_ALT, useAsk } from "@/components/ask-dialog";
+import { BookingGuide } from "@/components/booking-guide";
 import { BookingRequestFields } from "@/components/booking-request-fields";
 import { BookingSlotGrid } from "@/components/booking-slot-grid";
 import { BookingWeekStrip } from "@/components/booking-week-strip";
@@ -13,6 +14,9 @@ import { ScrollingName } from "@/components/scrolling-name";
 import { API_URL } from "@/lib/api";
 import {
   RESERVATION_CLOSE_HOUR,
+  at,
+  confirmLabel,
+  confirmOutlook,
   iso,
   localDay,
   pendingCounts,
@@ -28,9 +32,20 @@ import type {
   EquipmentAvailability,
   EquipmentItem,
   MemberPick,
+  PublicReservationPolicy,
   ReservationPurpose,
   ReservationUrgency,
 } from "@/lib/types";
+
+/**
+ * 규칙 값을 못 받아 왔을 때 쓰는 값. 서버 기본값과 같습니다.
+ *
+ * 안내가 조금 틀리는 것이 안내가 아예 없는 것보다 낫습니다. 다만 **신청 자체는
+ * 서버가 판정**하므로, 이 값이 틀려도 잘못된 예약이 들어가지는 않습니다.
+ */
+const FALLBACK_POLICY: PublicReservationPolicy = {
+  autoApproveMinutes: 60, startGraceMinutes: 10, maxHours: 12, bookingWindowDays: 180,
+};
 
 const dateLabel = (day: string) => new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", weekday: "short" }).format(new Date(`${day}T12:00:00`));
 
@@ -63,6 +78,9 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   const [now, setNow] = useState(0);
   const [day, setDay] = useState(localDay);
   const [availability, setAvailability] = useState<EquipmentAvailability | null>(null);
+  // 예약 규칙 값. 안내를 '한 시간' 이 아니라 **정확한 시각**으로 적기 위해 읽습니다.
+  // 공개 창구라 로그인 없이도 옵니다(캐시를 그대로 탑니다).
+  const [policy, setPolicy] = useState<PublicReservationPolicy | null>(null);
   const [unitId, setUnitId] = useState("");
   const [startHour, setStartHour] = useState("");
   const [endHour, setEndHour] = useState("");
@@ -118,6 +136,20 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
       .catch(() => undefined);
     return () => controller.abort();
   }, [access]);
+
+  // 규칙 값은 누구에게나 같으므로 로그인 여부와 상관없이 한 번만 읽습니다.
+  // 실패하면 화면이 코드의 기본값으로 안내합니다 — 안내가 없는 것보다 낫습니다.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_URL}/reservation-policy`, { signal: controller.signal })
+      .then(async (response) => {
+        setPolicy(response.ok ? ((await response.json()) as PublicReservationPolicy) : FALLBACK_POLICY);
+      })
+      // 못 받아 왔더라도 기본값을 채웁니다. `null` 로 두면 안내 팝업이 값을
+      // 기다리느라 영영 뜨지 않습니다.
+      .catch((error: Error) => { if (error.name !== "AbortError") setPolicy(FALLBACK_POLICY); });
+    return () => controller.abort();
+  }, []);
 
   // 함께 쓸 사람을 고르려면 회원 목록이 필요합니다. 로그인한 회원에게만 옵니다.
   useEffect(() => {
@@ -187,6 +219,11 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   const selectedUnit = availability?.units.find((unit) => unit.id === unitId);
   const reserved = useMemo(() => new Set(selectedUnit?.reservedStarts.map((value) => value.slice(11, 16)) ?? []), [selectedUnit]);
   const pending = useMemo(() => pendingCounts(selectedUnit?.pendingStarts), [selectedUnit]);
+  // 운영진이 막아 둔 칸. 서버가 같은 규칙으로 신청을 거절하므로 두 쪽이 어긋나지 않습니다.
+  const blocked = useMemo(
+    () => new Set(selectedUnit?.blockedStarts?.map((value) => value.slice(11, 16)) ?? []),
+    [selectedUnit],
+  );
 
   /** 그 칸의 끝 시각. 마지막 칸은 자정으로 닫는다. */
   const endOf = useCallback((index: number) => times[index + 1] ?? timeLabel(RESERVATION_CLOSE_HOUR * 60), [times]);
@@ -195,9 +232,20 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   // 시계를 모르는 동안에는 모든 칸을 '빈 시간' 으로 두고, 붙은 직후 30초 시계가
   // 돌면서 지난 칸과 지금 칸이 제자리를 찾는다.
   const stateOf = useCallback(
-    (time: string, index: number) => slotState(day, time, endOf(index), reserved, pending, now),
-    [day, endOf, reserved, pending, now],
+    (time: string, index: number) => slotState(day, time, endOf(index), reserved, pending, blocked, now),
+    [day, endOf, reserved, pending, blocked, now],
   );
+
+  /** 그 날 걸려 있는 사용 제한의 사유. 왜 못 누르는지 화면이 말해 준다. */
+  const blockedReasons = availability?.blockedReasons ?? [];
+  /** 안내 문구에 적을 자동 확정 시점. 서버가 알려 준 값을 사람이 읽는 길이로 바꾼다. */
+  const leadLabel = useMemo(() => {
+    const minutes = policy?.autoApproveMinutes ?? 60;
+    if (minutes <= 0) return "0분";
+    if (minutes % 60 === 0) return `${minutes / 60}시간`;
+    if (minutes > 60) return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
+    return `${minutes}분`;
+  }, [policy]);
 
   /** 고른 구간에 걸려 있는 남의 대기 신청 수. 0 이면 다투는 사람이 없다. */
   const contested = useMemo(() => {
@@ -206,6 +254,18 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
       .filter((time) => time >= startHour && time < endHour)
       .reduce((total, time) => total + (pending.get(time) ?? 0), 0);
   }, [times, startHour, endHour, pending]);
+
+  /**
+   * 지금 고른 시간이 어떻게 확정되는가. 화면이 붙기 전(`now === 0`)에는 시계를
+   * 모르므로 아무 말도 하지 않는다 — 그때 그려 두면 서버의 첫 그림과 달라져
+   * 하이드레이션이 어긋난다.
+   */
+  const outlook = useMemo(() => {
+    if (!now || !startHour || !endHour) return null;
+    const startsAt = at(day, startHour);
+    if (Number.isNaN(startsAt)) return null;
+    return confirmOutlook(startsAt, contested, policy?.autoApproveMinutes ?? 60, now);
+  }, [now, day, startHour, endHour, contested, policy]);
 
   // 단계 표시는 상태를 따로 들지 않고 지금 고른 것에서 끌어낸다. 예전에는 여섯
   // 군데서 `setStage` 를 불렀는데, 한 군데만 빠뜨려도 화면과 실제가 어긋났다.
@@ -229,7 +289,11 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   function chooseSlot(time: string, index: number) {
     const state = stateOf(time, index);
     if (!state.selectable) {
-      setMessage(state.kind === "past" ? "이미 끝난 시간입니다." : "이미 확정된 예약이 있는 시간입니다.");
+      setMessage(
+        state.kind === "past" ? "이미 끝난 시간입니다."
+        : state.kind === "blocked" ? "운영진이 막아 둔 시간입니다. 다른 시간을 골라 주세요."
+        : "이미 확정된 예약이 있는 시간입니다.",
+      );
       return;
     }
     const startIndex = times.indexOf(startHour);
@@ -241,7 +305,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     // 사이에 고를 수 없는 칸이 하나라도 있으면 건너뛸 수 없다. 남이 신청만 해 둔
     // 칸은 건너뛰는 것이 아니라 함께 신청하는 것이므로 여기서 막지 않는다.
     if (times.slice(startIndex, index + 1).some((item, offset) => !stateOf(item, startIndex + offset).selectable)) {
-      setMessage("확정된 예약이나 지난 시간을 건너뛸 수 없습니다.");
+      setMessage("확정된 예약이나 막아 둔 시간, 지난 시간을 건너뛸 수 없습니다.");
       return;
     }
     setEndHour(endOf(index)); setMessage("");
@@ -376,7 +440,10 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     <div className="booking-guidance">
       <strong>장비사용 예약 신청 순서</strong>
       <p>장비와 사용 날짜·시간을 고른 뒤, 사용 목적과 시급도를 골라 신청합니다.</p>
-      <small><CircleAlert size={15} aria-hidden="true" />시작까지 한 시간 안으로 남았고 같은 시간에 다른 신청이 없으면 <b>운영진을 기다리지 않고 바로 확정</b>됩니다.</small>
+      {/* '한 시간' 을 화면에 박아 두면 운영진이 정책을 바꾼 뒤에도 안내가 옛말을
+          한다. 서버가 알려 준 값(`policy`)을 그대로 적는다. */}
+      <small><CircleAlert size={15} aria-hidden="true" />시작까지 {leadLabel} 안으로 남았고 같은 시간에 다른 신청이 없으면 <b>운영진을 기다리지 않고 바로 확정</b>됩니다.</small>
+      <BookingGuide policy={policy} sharedCalendar={equipment.some((item) => item.sharedCalendar)} />
     </div>
     {access === "guest" && <p className="booking-signin" role="status"><Lock size={15} />예약 신청은 승인된 회원만 할 수 있습니다. 예약 가능 시간은 로그인 없이도 확인할 수 있습니다. <Link href="/login">로그인하기</Link></p>}
     {access === "viewer" && <p className="booking-signin" role="status"><Lock size={15} />보기 전용 계정입니다. 예약 현황은 확인하실 수 있지만 신청은 활동 중인 회원만 할 수 있습니다.</p>}
@@ -399,6 +466,24 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
           <h4>예약 시간</h4>
           <div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div>
           <BookingSlotGrid times={times} endOf={endOf} stateOf={stateOf} startHour={startHour} endHour={endHour} onPick={chooseSlot} />
+          {blockedReasons.length > 0 && (
+            <p className="booking-blocked-note" role="status">
+              <ShieldAlert size={16} aria-hidden="true" />
+              <span>
+                이 날에는 운영진이 막아 둔 시간이 있습니다 — <b>{blockedReasons.join(" · ")}</b>.
+                ‘사용 제한’ 으로 표시된 칸은 신청할 수 없습니다.
+              </span>
+            </p>
+          )}
+          {/* 규칙을 설명하는 것만으로는 부족하다. 지금 고른 이 시간이 언제
+              확정되는지를 **시각으로** 적어 준다. 겹쳤을 때는 아래 안내가 할 말을
+              대신하므로 여기서는 비켜 준다. */}
+          {outlook && contested === 0 && (
+            <p className={`booking-outlook${outlook.kind === "immediate" ? " now" : ""}`} role="status">
+              <Check size={16} aria-hidden="true" />
+              <span>{confirmLabel(outlook)}</span>
+            </p>
+          )}
           {contested > 0 && (
             <p className="booking-contest-note" role="status">
               <Users size={16} aria-hidden="true" />

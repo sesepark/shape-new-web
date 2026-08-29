@@ -32,6 +32,8 @@ from app.schemas import (
     CommentWrite,
     MemberNoticeWrite,
     MemberPick,
+    MyUsage,
+    MyUsageEntry,
     NoticeDetailRead,
     NoticeRead,
     NotificationRead,
@@ -55,11 +57,12 @@ from app.security import (
     optional_user,
     reading_user,
 )
-from app.services import cloudinary
+from app.services import cloudinary, reservation_policy
 from app.services.content import sanitize_html
 from app.services.notifications import deliver_push, publish_notice_notifications, publish_owner_notifications
 from app.services.reservation_alerts import tell_owner, tell_user
 from app.services.reservations import (
+    PURPOSE_LABEL,
     as_utc,
     cancel,
     companion_names,
@@ -301,6 +304,83 @@ async def my_reservations(user: User = Depends(reading_user), db: AsyncSession =
     return await read_models(db, items)
 
 
+@router.get("/reservations/summary", response_model=MyUsage)
+async def my_usage(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """내가 장비를 얼마나 썼는지. **내 예약만** 셉니다.
+
+    관리자 사용 통계와 셈법을 같이 씁니다(`admin.reservation_stats`) — 예약 행을
+    읽어 파이썬에서 셉니다. 사용 시간 합계는 `ends_at - starts_at` 이라 Postgres 와
+    SQLite 의 문법이 갈리고, 한 사람의 예약은 학기를 통틀어도 몇백 건입니다.
+
+    '쓴 시간' 은 **사용을 마친 예약**만 셉니다. 앞으로 잡아 둔 시간은 아직 쓴 것이
+    아니고, 반려·취소·만료된 신청은 장비를 한 번도 차지한 적이 없습니다. 조기
+    반납으로 줄어든 예약은 줄어든 뒤의 길이로 잡힙니다 — `release_remaining` 이
+    `ends_at` 자체를 당겨 두기 때문입니다.
+    """
+    rows = (await db.execute(
+        select(
+            Reservation.equipment_unit_id, Reservation.purpose_category, Reservation.status,
+            Reservation.starts_at, Reservation.ends_at, Reservation.after_photo_url,
+        ).where(Reservation.user_id == user.id)
+    )).all()
+    if not rows:
+        return MyUsage()
+
+    units = {
+        row[0]: row[1]
+        for row in (await db.execute(
+            select(EquipmentUnit.id, Equipment.name)
+            .join(Equipment, Equipment.id == EquipmentUnit.equipment_id)
+            .where(EquipmentUnit.id.in_({row[0] for row in rows}))
+        )).all()
+    }
+
+    now = datetime.now(UTC)
+    equipment_stats: dict[str, list] = {}
+    purpose_stats: dict[str, list] = {}
+    total_hours = 0.0
+    completed = upcoming = missing_photo = 0
+    first_used: datetime | None = None
+    last_used: datetime | None = None
+
+    for unit_id, purpose, status, starts_at, ends_at, after_photo in rows:
+        begins, finishes = as_utc(starts_at), as_utc(ends_at)
+        if status in (ReservationStatus.PENDING, ReservationStatus.APPROVED) and finishes > now:
+            upcoming += 1
+        # 사용 시간이 끝났는데 사용 후 사진이 없는 예약. 남이 아니라 본인이 볼 수
+        # 있어야 챙깁니다 — 지금은 알림 한 번이 지나가면 다시 볼 곳이 없습니다.
+        if status in (ReservationStatus.APPROVED, ReservationStatus.IN_USE) and finishes <= now and not after_photo:
+            missing_photo += 1
+        if status != ReservationStatus.COMPLETED:
+            continue
+        completed += 1
+        hours = max(0.0, (finishes - begins).total_seconds() / 3600)
+        total_hours += hours
+        first_used = begins if first_used is None or begins < first_used else first_used
+        last_used = begins if last_used is None or begins > last_used else last_used
+        for bucket, key in ((equipment_stats, units.get(unit_id, "장비")), (purpose_stats, PURPOSE_LABEL.get(purpose, "기타"))):
+            entry = bucket.setdefault(key, [0, 0.0])
+            entry[0] += 1
+            entry[1] += hours
+
+    def listed(bucket: dict) -> list[MyUsageEntry]:
+        out = [MyUsageEntry(label=key, count=count, hours=round(hours, 1)) for key, (count, hours) in bucket.items()]
+        out.sort(key=lambda entry: entry.hours, reverse=True)
+        return out
+
+    return MyUsage(
+        total_count=len(rows),
+        total_hours=round(total_hours, 1),
+        completed_count=completed,
+        upcoming_count=upcoming,
+        missing_photo_count=missing_photo,
+        equipment=listed(equipment_stats),
+        purposes=listed(purpose_stats),
+        first_used_at=first_used,
+        last_used_at=last_used,
+    )
+
+
 # 확정된 예약과, 겹침을 미리 피할 수 있도록 승인 대기 중인 신청까지 보여준다.
 CALENDAR_STATUSES = (
     ReservationStatus.PENDING, ReservationStatus.APPROVED,
@@ -441,7 +521,10 @@ async def owned_reservation(db: AsyncSession, reservation_id: UUID, user: User) 
 
 # 예약 시각보다 한참 앞서 "사용 중"으로 바꿔 버리면 예약 현황이 실제 장비 상태와
 # 어긋나므로, 시작 직전부터만 사용을 시작할 수 있게 한다. 늦게 온 경우는 막지 않는다.
-START_GRACE = timedelta(minutes=10)
+#
+# **이 값은 관리자 화면에서 바꾼다**(`services/reservation_policy.py`). 여기 남은
+# 것은 설정 행이 없을 때의 기본값이다.
+START_GRACE = timedelta(minutes=reservation_policy.DEFAULTS.start_grace_minutes)
 
 
 @router.post("/reservations/{reservation_id}/before", response_model=ReservationRead)
@@ -449,8 +532,9 @@ async def start_reservation(reservation_id: UUID, payload: ReservationPhotoWrite
     reservation = await owned_reservation(db, reservation_id, user)
     if reservation.status != ReservationStatus.APPROVED:
         raise HTTPException(409, "승인된 예약만 시작할 수 있습니다.")
-    if as_utc(reservation.starts_at) - START_GRACE > datetime.now(UTC):
-        raise HTTPException(409, "예약 시작 10분 전부터 사용을 시작할 수 있습니다.")
+    grace = (await reservation_policy.current(db)).start_grace
+    if as_utc(reservation.starts_at) - grace > datetime.now(UTC):
+        raise HTTPException(409, f"예약 시작 {int(grace.total_seconds() // 60)}분 전부터 사용을 시작할 수 있습니다.")
     reservation.before_photo_url, reservation.status = payload.photo_url, ReservationStatus.IN_USE
     await db.commit(); await db.refresh(reservation)
     return (await read_models(db, [reservation]))[0]

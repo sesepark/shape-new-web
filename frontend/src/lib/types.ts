@@ -161,7 +161,17 @@ export interface EquipmentAvailability {
      * 깨지면 안 됩니다.
      */
     pendingStarts?: string[];
+    /**
+     * 운영진이 막아 둔 칸(정비·교육 실습·대회 준비). 화면은 이 칸을 아예 누를
+     * 수 없게 그리고, 서버도 같은 규칙으로 신청을 거절합니다.
+     *
+     * `pendingStarts` 와 같은 이유로 없을 수도 있게 둡니다 — 화면이 백엔드보다
+     * 먼저 올라간 몇 분 동안 이 값이 없다고 깨지면 안 됩니다.
+     */
+    blockedStarts?: string[];
   }[];
+  /** 그 날 걸려 있는 사용 제한의 사유. 왜 못 누르는지 화면이 말해 줍니다. */
+  blockedReasons?: string[];
 }
 
 /** 장비를 함께 쓸 사람을 고를 때 보이는 최소한의 정보. 로그인한 회원에게만 옵니다. */
@@ -193,6 +203,14 @@ export interface ReservationItem {
   unitLabel: string;
   /** 사람이 아니라 시계가 확정한 예약이면 그 시각. */
   autoDecidedAt?: string | null;
+  /**
+   * 대기 중인 신청이 **저절로 확정될 시각**. 겹치는 신청이 있어 사람이 골라야
+   * 하면 비어 있습니다. 규칙만 설명하고 내 경우가 어느 쪽인지는 말해 주지
+   * 않으면, 부원은 결국 운영진에게 직접 물어보게 됩니다.
+   */
+  autoConfirmAt?: string | null;
+  /** 같은 호기·같은 시간을 두고 다투는 다른 대기 신청이 있는지. */
+  contested?: boolean;
   /** 함께 쓰는 사람의 이름. 없으면 빈 목록입니다. */
   companions?: string[];
 }
@@ -402,4 +420,79 @@ export interface ReservationCalendarItem {
   afterPhotoUrl?: string | null;
   /** 함께 쓰는 사람의 이름. */
   companions?: string[];
+}
+
+
+/** 운영진이 막아 둔 시간 한 건. 관리자 화면에서만 씁니다. */
+export interface BlackoutItem {
+  id: string;
+  equipmentId: string;
+  equipmentUnitId?: string | null;
+  equipmentName: string;
+  unitLabel: string;
+  reason: string;
+  /** 0 = 월요일. */
+  weekdays: number[];
+  startTime: string;
+  endTime: string;
+  fromDate: string;
+  untilDate: string;
+  /** 아직 오지 않은 날 중 실제로 막히는 날의 수. */
+  upcomingDays: number;
+  /** 이번에 실제로 취소된 예약 수. 등록 응답에만 채워집니다. */
+  cancelledCount?: number;
+}
+
+/** 막으면 취소될 예약 한 건. 등록 전에 이름과 함께 보여 줍니다. */
+export interface BlackoutClash {
+  id: string;
+  userName: string;
+  equipmentName: string;
+  unitLabel: string;
+  startsAt: string;
+  endsAt: string;
+  status: ReservationStatus;
+}
+
+export interface BlackoutPreview {
+  days: number;
+  clashes: BlackoutClash[];
+}
+
+/** 예약이 굴러가는 시각과 상한. 관리자 화면에서 고칩니다. */
+export interface ReservationPolicy {
+  autoApproveMinutes: number;
+  staffReminderMinutes: number;
+  startGraceMinutes: number;
+  beforePhotoGraceMinutes: number;
+  maxHours: number;
+  bookingWindowDays: number;
+  recurringMax: number;
+}
+
+/** 부원 화면이 읽는 부분. 안내를 **정확한 시각**으로 적는 데 씁니다. */
+export interface PublicReservationPolicy {
+  autoApproveMinutes: number;
+  startGraceMinutes: number;
+  maxHours: number;
+  bookingWindowDays: number;
+}
+
+export interface MyUsageEntry {
+  label: string;
+  count: number;
+  hours: number;
+}
+
+/** 부원 본인의 사용 기록. 남의 기록은 한 건도 들어가지 않습니다. */
+export interface MyUsage {
+  totalCount: number;
+  totalHours: number;
+  completedCount: number;
+  upcomingCount: number;
+  missingPhotoCount: number;
+  equipment: MyUsageEntry[];
+  purposes: MyUsageEntry[];
+  firstUsedAt?: string | null;
+  lastUsedAt?: string | null;
 }

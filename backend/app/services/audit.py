@@ -53,6 +53,7 @@ from app.models import (
     Notice,
     RelatedLink,
     Reservation,
+    ReservationBlackout,
     RoadmapItem,
     User,
 )
@@ -76,6 +77,8 @@ AREAS = {
     "roadmap": "로드맵",
     "links": "바로가기",
     "reservations": "예약",
+    "blackouts": "사용 제한",
+    "reservation-policy": "예약 정책",
     "users": "회원",
     "usage": "서버",
     "audit": "수정 내역",
@@ -90,6 +93,8 @@ BY_TAIL = {
     "owner": "owner",
     "permissions": "permissions",
     "licenses": "licenses",
+    # `/licenses/{id}/members` — 이 교육을 이수한 사람 목록을 통째로 맞추는 자리.
+    "members": "members",
 }
 BY_METHOD = {"POST": "create", "PATCH": "update", "PUT": "replace", "DELETE": "delete"}
 
@@ -117,6 +122,11 @@ NAMED_BY_PATH = {
     "reservations": (Reservation, "audit_label"),
     "reservations/decision": (Reservation, "audit_label"),
     "reservations/cancel": (Reservation, "audit_label"),
+    # 사용 제한은 사유가 비어 있을 수 있어 기간으로 이름을 만듭니다.
+    "blackouts": (ReservationBlackout, "audit_label"),
+    # 여러 명에게 한 번에 부여하는 자리. 이름 자리에는 **어느 교육인지**가 와야
+    # 읽힙니다 — 누구에게 주었는지는 한 줄에 담을 수 없습니다.
+    "licenses/members": (License, "name"),
 }
 
 

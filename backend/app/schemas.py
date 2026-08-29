@@ -296,6 +296,12 @@ class ReservationRead(ORMModel):
     auto_decided_at: datetime | None = None
     # 함께 쓰는 사람의 이름. 예약 현황과 마이페이지에 그대로 보입니다.
     companions: list[str] = []
+    # 대기 중인 신청이 **저절로 확정될 시각**. 규칙만 설명하고 내 경우가 어느
+    # 쪽인지는 말해 주지 않으면, 부원은 결국 운영진에게 직접 물어보게 됩니다.
+    # 겹치는 신청이 있어 사람이 골라야 하는 경우에는 비워 둡니다.
+    auto_confirm_at: datetime | None = None
+    # 같은 호기·같은 시간을 두고 다투는 **다른** 대기 신청이 있는지.
+    contested: bool = False
 
 
 class AdminReservationRead(ReservationRead):
@@ -411,6 +417,165 @@ class UsageStats(BaseModel):
     people: list[UsageCount] = []
     # 요일(0=월) × 시(0~23) 격자. 그 시간대에 걸쳐 있던 예약 수입니다.
     heatmap: list[list[int]] = []
+
+
+class BlackoutWrite(InputModel):
+    """운영진이 시간을 막을 때 보내는 것.
+
+    모양이 정기 예약 입력과 같습니다(요일 + 시각 범위 + 날짜 범위). 한 번만 막는
+    것도 같은 모양으로 적습니다 — 시작 날짜와 끝 날짜를 같은 날로 두면 됩니다.
+    """
+
+    equipment_id: UUID
+    # 비우면 그 장비의 **모든 호기**를 막습니다.
+    equipment_unit_id: UUID | None = None
+    reason: str = Field(default="", max_length=200)
+    weekdays: list[int] = Field(min_length=1, max_length=7)
+    start_time: str = Field(pattern=r"^([01]\d|2[0-3]):(00|30)$")
+    end_time: str = Field(pattern=r"^([01]\d|2[0-3]):(00|30)$|^24:00$")
+    from_date: date
+    until_date: date
+    # 걸리는 예약을 함께 취소할지. **기본이 거짓인 것이 중요합니다** — 미리 보여
+    # 주지 않은 호출이 남의 확정 예약을 조용히 물리면 안 됩니다. 화면은 먼저
+    # 미리보기를 띄우고, 운영진이 확인한 뒤에만 참으로 보냅니다.
+    cancel_conflicts: bool = False
+
+    @field_validator("weekdays")
+    @classmethod
+    def weekdays_must_be_real(cls, value: list[int]) -> list[int]:
+        if any(day < 0 or day > 6 for day in value):
+            raise ValueError("요일은 0(월)부터 6(일) 사이여야 합니다.")
+        return sorted(set(value))
+
+
+class BlackoutRead(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    id: UUID
+    equipment_id: UUID
+    equipment_unit_id: UUID | None = None
+    equipment_name: str = ""
+    unit_label: str = ""
+    reason: str = ""
+    weekdays: list[int] = []
+    start_time: str = ""
+    end_time: str = ""
+    from_date: date
+    until_date: date
+    # 아직 오지 않은 날 중 실제로 막히는 날의 수. 지난 규칙을 지워도 되는지
+    # 판단하는 데 씁니다.
+    upcoming_days: int = 0
+    # 이번에 실제로 취소된 예약 수. 미리보기와 등록 사이에 새 신청이 들어올 수
+    # 있으므로, 화면은 미리보기의 수가 아니라 이 값을 말해야 사실과 맞습니다.
+    cancelled_count: int = 0
+
+
+class BlackoutClash(BaseModel):
+    """막으려는 시간에 이미 들어와 있는 예약 한 건."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    id: UUID
+    user_name: str = ""
+    equipment_name: str = ""
+    unit_label: str = ""
+    starts_at: datetime
+    ends_at: datetime
+    status: ReservationStatus
+
+
+class BlackoutPreview(BaseModel):
+    """등록하면 무슨 일이 일어나는지 미리 보여 줍니다.
+
+    막는 일은 남의 확정 예약을 물리는 일이 될 수 있으므로, 몇 건이 취소되는지
+    **이름과 함께** 먼저 보여 주고 확인을 받습니다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    days: int = 0
+    clashes: list[BlackoutClash] = []
+
+
+class ReservationPolicyRead(ORMModel):
+    """관리자 화면이 읽는 예약 정책. 전부 분 단위이거나 개수입니다."""
+
+    auto_approve_minutes: int
+    staff_reminder_minutes: int
+    start_grace_minutes: int
+    before_photo_grace_minutes: int
+    max_hours: int
+    booking_window_days: int
+    recurring_max: int
+
+
+class ReservationPolicyWrite(InputModel):
+    """정책을 고칠 때 보내는 것. 상한은 실수로 사이트를 잠그지 않을 만큼만 넓습니다.
+
+    자동 확정을 0분으로 두면 '시작하는 순간 확정' 이 되고, 아주 크게 두면 사실상
+    '신청하면 곧바로 확정' 이 됩니다. 둘 다 뜻이 있는 설정이라 막지 않습니다.
+    """
+
+    auto_approve_minutes: int = Field(ge=0, le=60 * 24 * 30)
+    staff_reminder_minutes: int = Field(ge=0, le=60 * 24 * 30)
+    start_grace_minutes: int = Field(ge=0, le=60 * 12)
+    before_photo_grace_minutes: int = Field(ge=1, le=60 * 24)
+    max_hours: int = Field(ge=1, le=24)
+    booking_window_days: int = Field(ge=1, le=365)
+    recurring_max: int = Field(ge=1, le=100)
+
+
+class PublicReservationPolicy(BaseModel):
+    """부원 화면이 읽는 부분.
+
+    예약 신청 화면과 마이페이지가 "이 신청은 언제 확정되는가" 를 **정확한 시각**
+    으로 적으려면 자동 확정 시점을 알아야 합니다. 여기 실리는 것은 규칙 값뿐이고
+    누구의 정보도 들어가지 않으므로 공개 읽기 캐시를 그대로 씁니다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    auto_approve_minutes: int
+    start_grace_minutes: int
+    max_hours: int
+    booking_window_days: int
+
+
+class LicenseMembersWrite(InputModel):
+    """이 교육을 이수한 사람 목록을 통째로 맞춥니다.
+
+    예전에는 회원 한 명을 고르고 그 사람의 라이선스를 손보는 길밖에 없었습니다.
+    교육을 한 번 하고 마흔 명에게 부여하려면 마흔 번 들어갔다 나와야 했습니다.
+    """
+
+    user_ids: list[UUID] = Field(default_factory=list, max_length=500)
+
+
+class LicenseMembersResult(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    granted: int = 0
+    revoked: int = 0
+    total: int = 0
+
+
+class MyUsageEntry(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    label: str
+    count: int = 0
+    hours: float = 0.0
+
+
+class MyUsage(BaseModel):
+    """부원 본인의 사용 기록. 남의 기록은 한 건도 들어가지 않습니다."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    total_count: int = 0
+    total_hours: float = 0.0
+    # 사용을 마친 것만 셉니다. 앞으로의 예약은 '쓴 시간' 이 아닙니다.
+    completed_count: int = 0
+    upcoming_count: int = 0
+    # 사용 후 사진을 올리지 않은 채 끝난 예약. 스스로 볼 수 있어야 챙깁니다.
+    missing_photo_count: int = 0
+    equipment: list[MyUsageEntry] = []
+    purposes: list[MyUsageEntry] = []
+    first_used_at: datetime | None = None
+    last_used_at: datetime | None = None
 
 
 class RoadmapRead(ORMModel):

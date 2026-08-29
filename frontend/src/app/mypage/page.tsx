@@ -12,7 +12,8 @@ import { ImageUploadField } from "@/components/image-upload-field";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL } from "@/lib/api";
-import { purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
+import { MyUsagePanel } from "@/components/my-usage";
+import { confirmNotice, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { media, optimizable } from "@/lib/media";
 import { loadSession, useSession } from "@/lib/session";
 import { appleDevice, currentSubscription, installedToHomeScreen, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
@@ -51,11 +52,25 @@ async function call(path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}${path}`, { credentials: "include", cache: "no-store", ...init });
 }
 
-/** 아직 차례가 아닌 예약에도 다음에 무엇을 해야 하는지 알려 준다. */
-function ReservationNextStep({ status }: { status: ReservationItem["status"] }) {
-  if (status === "PENDING")
-    return <p className="reservation-hint">운영진 승인을 기다리는 중입니다. 같은 시간에 다른 신청이 없으면 <b>시작 한 시간 전에 저절로 확정</b>됩니다. 확정되면 이 자리에서 사용 전 사진을 올리고 시작할 수 있습니다.</p>;
-  if (status === "EXPIRED")
+/**
+ * 아직 차례가 아닌 예약에도 다음에 무엇을 해야 하는지 알려 준다.
+ *
+ * 대기 중인 신청에는 **언제 확정되는지를 시각으로** 적는다. "같은 시간에 다른
+ * 신청이 없으면 시작 한 시간 전에 저절로 확정됩니다" 는 규칙일 뿐, 내 신청이
+ * 어느 쪽인지는 말해 주지 않는다. 겹쳤는지는 내 예약 목록만으로는 알 수 없어
+ * 서버가 판정해 `autoConfirmAt`·`contested` 로 알려 준다.
+ */
+function ReservationNextStep({ reservation }: { reservation: ReservationItem }) {
+  if (reservation.status === "PENDING")
+    return (
+      <p className={`reservation-hint${reservation.contested ? " warn" : ""}`}>
+        {confirmNotice(reservation.autoConfirmAt, reservation.contested)}
+        {reservation.contested
+          ? " 신청서의 ‘기타 내용’ 이 판단에 쓰입니다."
+          : " 확정되면 이 자리에서 사용 전 사진을 올리고 시작할 수 있습니다."}
+      </p>
+    );
+  if (reservation.status === "EXPIRED")
     return <p className="reservation-hint">신청한 시간이 지나 자동으로 만료되었습니다. 다시 쓰시려면 새로 신청해 주세요.</p>;
   return null;
 }
@@ -107,7 +122,7 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
         {(reservation.status === "APPROVED" || reservation.status === "IN_USE") ? (
           <ReservationPhotoStep reservation={reservation} onDone={onChange} />
         ) : (
-          <ReservationNextStep status={reservation.status} />
+          <ReservationNextStep reservation={reservation} />
         )}
         {(reservation.beforePhotoUrl || reservation.afterPhotoUrl) && (
           <div className="reservation-photos">
@@ -597,6 +612,12 @@ function MyPagePanel({ session }: { session: SessionUser }) {
           ) : (
             <p className="empty-inline">아직 신청한 예약이 없습니다.</p>
           )}
+          <section className="mypage-usage">
+            <div className="mypage-section-head">
+              <div><p className="meta">MY USAGE</p><h3>내 사용 기록</h3></div>
+            </div>
+            <MyUsagePanel />
+          </section>
           <MyProjects />
         </section>
         <aside className="mypage-side">

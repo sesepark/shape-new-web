@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,7 @@ from app.models import (
     PermissionGrant,
     RelatedLink,
     Reservation,
+    ReservationBlackout,
     ReservationPurpose,
     ReservationSlot,
     ReservationStatus,
@@ -47,12 +48,18 @@ from app.schemas import (
     AdminRoadmapRead,
     AdminUserRead,
     AuditActor,
+    BlackoutClash,
+    BlackoutPreview,
+    BlackoutRead,
+    BlackoutWrite,
     DirectoryUser,
     EquipmentLicenseWrite,
     EquipmentUnitRead,
     EquipmentUnitWrite,
     EquipmentWrite,
     LicenseAssignment,
+    LicenseMembersResult,
+    LicenseMembersWrite,
     LicenseRead,
     LicenseSetWrite,
     LicenseWrite,
@@ -70,13 +77,15 @@ from app.schemas import (
     RecurringReservationResult,
     RecurringSkip,
     ReservationDecision,
+    ReservationPolicyRead,
+    ReservationPolicyWrite,
     RoadmapWrite,
     UsageCount,
     UsageStats,
     UserDecision,
 )
 from app.security import READING_STATUSES, any_manager, owner_only, require_permission
-from app.services import audit, cloudinary, usage
+from app.services import audit, blackouts, cloudinary, reservation_policy, usage
 from app.services.content import sanitize_html
 from app.services.link_preview import build as build_link_preview
 from app.services.member_cards import ensure_card
@@ -691,7 +700,11 @@ async def reservation_cancel(reservation_id: UUID, payload: ReservationDecision 
 SEOUL = ZoneInfo("Asia/Seoul")
 # 한 번에 만들 수 있는 최대 건수와 기간. 학기 하나(화·수·목 16주 = 48건)보다 짧게
 # 잡은 이유는, 한 번의 실수가 되돌리기 어려운 양이 되지 않게 하기 위해서다.
-RECURRING_MAX = 30
+#
+# 건수는 이제 관리자 화면에서 바꾼다(`services/reservation_policy.py`). 여기 남은
+# 것은 설정 행이 없을 때의 기본값이다. 기간 상한은 코드에 그대로 둔다 — 화면에서
+# 늘릴 이유가 없고, 늘리면 미리보기 목록이 감당하지 못한다.
+RECURRING_MAX = reservation_policy.DEFAULTS.recurring_max
 RECURRING_MAX_DAYS = 200
 
 
@@ -742,11 +755,16 @@ async def create_recurring(
     days = _recurring_days(payload)
     if not days:
         raise HTTPException(422, "그 기간에 해당하는 요일이 없습니다.")
-    if len(days) > RECURRING_MAX:
-        raise HTTPException(422, f"한 번에 {RECURRING_MAX}건까지 만들 수 있습니다. 기간을 나눠 주세요.")
+    # 상한은 관리자 화면에서 정합니다(`services/reservation_policy.py`).
+    limit = (await reservation_policy.current(db)).recurring_max
+    if len(days) > limit:
+        raise HTTPException(422, f"한 번에 {limit}건까지 만들 수 있습니다. 기간을 나눠 주세요.")
 
     # 자격은 한 번만 봅니다. 모든 날짜가 같은 호기이기 때문입니다.
-    await assert_eligible(db, actor.id, payload.equipment_unit_id)
+    _, equipment = await assert_eligible(db, actor.id, payload.equipment_unit_id)
+    # 운영진이 막아 둔 시간은 정기 예약도 피해 갑니다. 이 창구는 `create_pending`
+    # 을 거치지 않고 예약을 직접 만들기 때문에, 여기서 따로 봐야 합니다.
+    rules = await blackouts.rules_for(db, equipment.id, payload.from_date, payload.until_date)
 
     now = datetime.now(UTC)
     group_id = uuid4()
@@ -759,6 +777,10 @@ async def create_recurring(
         ends_at = (midnight + timedelta(minutes=end_minutes)).astimezone(UTC)
         if ends_at <= now:
             skipped.append(RecurringSkip(date=day, reason="이미 지난 시간입니다."))
+            continue
+        blocked = blackouts.hit(rules, payload.equipment_unit_id, starts_at, ends_at)
+        if blocked:
+            skipped.append(RecurringSkip(date=day, reason=f"사용 제한이 걸려 있습니다. {blocked.reason}".strip()))
             continue
         reservation = Reservation(
             equipment_unit_id=payload.equipment_unit_id,
@@ -866,6 +888,346 @@ async def delete_recurring(
     for item in rows:
         await cancel(db, item, "정기 예약이 해제되었습니다.")
     return {"ok": True, "cancelled": len(rows)}
+
+
+# ------------------------------------------------------------- 사용 제한(블록아웃)
+
+
+# 한 규칙이 덮을 수 있는 최대 기간. 학기 하나(약 16주)보다 넉넉하되, 실수로 몇 해를
+# 막아 버리는 일은 없게 합니다.
+BLACKOUT_MAX_DAYS = 400
+# 막힌 시간에 걸려 **취소되는** 상태. 사용 중인 예약은 건드리지 않습니다 — 이미
+# 사람이 장비 앞에 서 있는데 예약만 사라지면 기록과 실제가 어긋납니다.
+BLOCKABLE = (ReservationStatus.PENDING, ReservationStatus.APPROVED)
+
+
+def _blackout_rule(payload: BlackoutWrite) -> ReservationBlackout:
+    """저장하지 않은 규칙 객체. 미리보기와 등록이 같은 판정을 쓰게 합니다."""
+    return ReservationBlackout(
+        equipment_id=payload.equipment_id,
+        equipment_unit_id=payload.equipment_unit_id,
+        reason=payload.reason.strip(),
+        weekdays=payload.weekdays,
+        start_minute=_minutes(payload.start_time),
+        end_minute=_minutes(payload.end_time),
+        from_date=payload.from_date,
+        until_date=payload.until_date,
+    )
+
+
+def _blackout_check(payload: BlackoutWrite) -> None:
+    if payload.until_date < payload.from_date:
+        raise HTTPException(422, "끝나는 날짜가 시작 날짜보다 앞설 수 없습니다.")
+    if (payload.until_date - payload.from_date).days > BLACKOUT_MAX_DAYS:
+        raise HTTPException(422, f"사용 제한은 {BLACKOUT_MAX_DAYS}일 이내에서만 걸 수 있습니다.")
+    if _minutes(payload.end_time) <= _minutes(payload.start_time):
+        raise HTTPException(422, "끝나는 시각이 시작 시각보다 뒤여야 합니다.")
+
+
+async def _blackout_units(db: AsyncSession, rule: ReservationBlackout) -> list[UUID]:
+    """이 규칙이 막는 호기. 호기를 지정하지 않았으면 그 장비의 모든 호기."""
+    if rule.equipment_unit_id:
+        return [rule.equipment_unit_id]
+    return list((await db.scalars(
+        select(EquipmentUnit.id).where(EquipmentUnit.equipment_id == rule.equipment_id)
+    )).all())
+
+
+def _blackout_days(rule: ReservationBlackout, since: date_type) -> int:
+    """`since` 이후로 실제 막히는 날의 수."""
+    first = max(rule.from_date, since)
+    if rule.until_date < first:
+        return 0
+    span = (rule.until_date - first).days
+    wanted = set(rule.weekdays or [])
+    return sum(1 for offset in range(span + 1) if (first + timedelta(days=offset)).weekday() in wanted)
+
+
+async def _blackout_clashes(db: AsyncSession, rule: ReservationBlackout) -> list[Reservation]:
+    """막으려는 시간에 이미 들어와 있는 예약. **앞으로 남은 것만** 봅니다.
+
+    이미 끝난 예약은 사용 기록이라 건드릴 이유가 없고, 사용 중인 예약은 사람이
+    장비 앞에 서 있는 상태라 취소 대상이 아닙니다.
+    """
+    unit_ids = await _blackout_units(db, rule)
+    if not unit_ids:
+        return []
+    now = datetime.now(UTC)
+    window_start = datetime.combine(rule.from_date, time_type.min, tzinfo=SEOUL).astimezone(UTC)
+    window_end = (datetime.combine(rule.until_date, time_type.min, tzinfo=SEOUL) + timedelta(days=1)).astimezone(UTC)
+    rows = (await db.scalars(
+        select(Reservation).where(
+            Reservation.equipment_unit_id.in_(unit_ids),
+            Reservation.status.in_(BLOCKABLE),
+            Reservation.ends_at > max(window_start, now),
+            Reservation.starts_at < window_end,
+        ).order_by(Reservation.starts_at)
+    )).all()
+    return [
+        row for row in rows
+        if blackouts.hit([rule], row.equipment_unit_id, as_utc(row.starts_at), as_utc(row.ends_at))
+    ]
+
+
+async def _blackout_clash_reads(db: AsyncSession, rows: list[Reservation]) -> list[BlackoutClash]:
+    if not rows:
+        return []
+    context = await unit_context(db, rows)
+    people = {
+        person.id: person.name or person.email
+        for person in (await db.scalars(select(User).where(User.id.in_({row.user_id for row in rows})))).all()
+    }
+    return [
+        BlackoutClash(
+            id=row.id,
+            user_name=people.get(row.user_id, "회원"),
+            unit_label=context.get(row.equipment_unit_id, ("", ""))[0],
+            equipment_name=context.get(row.equipment_unit_id, ("", ""))[1],
+            starts_at=as_utc(row.starts_at),
+            ends_at=as_utc(row.ends_at),
+            status=row.status,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/blackouts", response_model=list[BlackoutRead])
+async def list_blackouts(
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """걸려 있는 사용 제한. 지난 것도 함께 보여 주고 남은 날 수를 붙입니다."""
+    rows = list((await db.scalars(
+        select(ReservationBlackout).order_by(ReservationBlackout.from_date.desc())
+    )).all())
+    if not rows:
+        return []
+    names = {
+        row[0]: row[1]
+        for row in (await db.execute(select(Equipment.id, Equipment.name))).all()
+    }
+    units = {
+        row[0]: row[1]
+        for row in (await db.execute(select(EquipmentUnit.id, EquipmentUnit.label))).all()
+    }
+    today = datetime.now(UTC).astimezone(SEOUL).date()
+    return [
+        BlackoutRead(
+            id=row.id,
+            equipment_id=row.equipment_id,
+            equipment_unit_id=row.equipment_unit_id,
+            equipment_name=names.get(row.equipment_id, "장비"),
+            unit_label=units.get(row.equipment_unit_id, "") if row.equipment_unit_id else "",
+            reason=row.reason,
+            weekdays=list(row.weekdays or []),
+            start_time=f"{row.start_minute // 60:02d}:{row.start_minute % 60:02d}",
+            end_time=f"{row.end_minute // 60:02d}:{row.end_minute % 60:02d}",
+            from_date=row.from_date,
+            until_date=row.until_date,
+            upcoming_days=_blackout_days(row, today),
+        )
+        for row in rows
+    ]
+
+
+@router.post("/blackouts/preview", response_model=BlackoutPreview)
+async def preview_blackout(
+    payload: BlackoutWrite,
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """등록하면 무슨 일이 일어나는지 먼저 보여 줍니다.
+
+    막는 일은 남이 이미 잡아 둔 시간을 물리는 일이 될 수 있습니다. 몇 건이
+    취소되는지 **이름과 함께** 보지 못한 채 단추를 누르게 하면 안 됩니다.
+    """
+    _blackout_check(payload)
+    rule = _blackout_rule(payload)
+    today = datetime.now(UTC).astimezone(SEOUL).date()
+    clashes = await _blackout_clashes(db, rule)
+    return BlackoutPreview(days=_blackout_days(rule, today), clashes=await _blackout_clash_reads(db, clashes))
+
+
+@router.post("/blackouts", response_model=BlackoutRead, status_code=201)
+async def create_blackout(
+    request: Request,
+    payload: BlackoutWrite,
+    actor: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """시간을 막습니다. 걸리는 예약은 사유와 함께 취소하고 알립니다.
+
+    **`cancelConflicts` 없이 부르면 걸리는 예약이 있을 때 거절합니다.** 미리보기를
+    보지 않은 호출이 남의 확정 예약을 조용히 물리는 길을 열어 두지 않기 위해서입니다.
+    화면은 먼저 미리보기를 띄우고, 운영진이 확인한 뒤에만 참으로 보냅니다.
+
+    막는 규칙을 **먼저 저장하고** 예약을 취소합니다. 반대로 하면 취소는 됐는데
+    규칙 저장이 실패했을 때 그 시간이 다시 열려 버립니다.
+    """
+    _blackout_check(payload)
+    if not await db.get(Equipment, payload.equipment_id):
+        raise HTTPException(404, "장비를 찾을 수 없습니다.")
+    if payload.equipment_unit_id:
+        unit = await db.get(EquipmentUnit, payload.equipment_unit_id)
+        if not unit or unit.equipment_id != payload.equipment_id:
+            raise HTTPException(422, "그 장비에 속한 호기가 아닙니다.")
+
+    rule = _blackout_rule(payload)
+    clashes = await _blackout_clashes(db, rule)
+    if clashes and not payload.cancel_conflicts:
+        raise HTTPException(409, f"막으려는 시간에 이미 예약 {len(clashes)}건이 있습니다. 먼저 확인해 주세요.")
+
+    rule.created_by = actor.id
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+
+    reason = f"운영진이 그 시간을 사용 제한으로 막았습니다. {rule.reason}".strip()
+    sendable: list[tuple[str, str, list[dict]]] = []
+    for item in clashes:
+        name = await reservation_label(db, item)
+        await cancel(db, item, reason)
+        title = f"예약이 취소되었습니다 · {name} · {reservation_when(item.starts_at)}"
+        sendable.append((title, reason, await tell_reservation_owner(db, item, title)))
+    if sendable:
+        await db.commit()
+    for title, body, devices in sendable:
+        await deliver_push(devices, title, body=body, path="/mypage")
+
+    # 수정 내역에 남길 이름. 이 주소에는 식별자가 없어 자동으로는 이름을 찾을 수
+    # 없습니다(`services/audit.py` 의 설명 참고). 무엇을 막았는지가 나중에 가장
+    # 궁금해지는 기록이므로 직접 담아 둡니다.
+    audit.note(request, target=rule.audit_label, detail=f"{len(clashes)}건 취소" if clashes else "")
+    today = datetime.now(UTC).astimezone(SEOUL).date()
+    equipment = await db.get(Equipment, rule.equipment_id)
+    unit = await db.get(EquipmentUnit, rule.equipment_unit_id) if rule.equipment_unit_id else None
+    return BlackoutRead(
+        id=rule.id,
+        equipment_id=rule.equipment_id,
+        equipment_unit_id=rule.equipment_unit_id,
+        equipment_name=getattr(equipment, "name", "장비"),
+        unit_label=getattr(unit, "label", "") if unit else "",
+        reason=rule.reason,
+        weekdays=list(rule.weekdays or []),
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        from_date=rule.from_date,
+        until_date=rule.until_date,
+        upcoming_days=_blackout_days(rule, today),
+        cancelled_count=len(clashes),
+    )
+
+
+@router.delete("/blackouts/{blackout_id}", status_code=204)
+async def delete_blackout(
+    blackout_id: UUID,
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """제한을 풉니다. 그 시간이 곧바로 다시 열립니다.
+
+    취소된 예약은 되돌아오지 않습니다 — 이미 신청자에게 취소를 알렸고, 그동안
+    다른 사람이 그 시간을 잡았을 수도 있습니다.
+    """
+    rule = await db.get(ReservationBlackout, blackout_id)
+    if not rule:
+        raise HTTPException(404, "사용 제한을 찾을 수 없습니다.")
+    await db.delete(rule)
+    await db.commit()
+
+
+# ------------------------------------------------------------------- 예약 정책
+
+
+@router.get("/reservation-policy", response_model=ReservationPolicyRead)
+async def read_reservation_policy(
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """지금 적용되는 예약 정책. 설정 행이 없으면 기본값으로 만들어 둡니다."""
+    return await reservation_policy.row(db)
+
+
+@router.put("/reservation-policy", response_model=ReservationPolicyRead)
+async def save_reservation_policy(
+    payload: ReservationPolicyWrite,
+    actor: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """정책을 바꿉니다. 예전에는 이 값들이 코드 상수라 배포를 해야 바뀌었습니다.
+
+    바꾼 내용은 수정 내역에 남습니다(관리자 쓰기는 모두 남습니다). 다음 요청부터
+    곧바로 적용되지만, 서버가 여럿이면 다른 프로세스는 최대 1분 동안 옛 값을
+    들고 있습니다(`services/reservation_policy.TTL`).
+    """
+    row = await reservation_policy.row(db)
+    for name in reservation_policy.FIELDS:
+        setattr(row, name, getattr(payload, name))
+    row.updated_by = actor.id
+    await db.commit()
+    await db.refresh(row)
+    reservation_policy.forget()
+    return row
+
+
+# --------------------------------------------------------------- 라이선스 일괄 부여
+
+
+@router.get("/licenses/{license_id}/members")
+async def license_members(
+    license_id: UUID,
+    _: User = Depends(require_permission("equipment:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """이 교육을 이수한 사람의 id 목록."""
+    if not await db.get(License, license_id):
+        raise HTTPException(404, "라이선스를 찾을 수 없습니다.")
+    ids = (await db.scalars(select(UserLicense.user_id).where(UserLicense.license_id == license_id))).all()
+    return {"userIds": [str(user_id) for user_id in ids]}
+
+
+@router.put("/licenses/{license_id}/members", response_model=LicenseMembersResult)
+async def set_license_members(
+    license_id: UUID,
+    payload: LicenseMembersWrite,
+    _: User = Depends(require_permission("equipment:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """이 교육을 이수한 사람 목록을 통째로 맞춥니다.
+
+    예전에는 회원 한 명을 고르고 그 사람의 라이선스를 손보는 길밖에 없었습니다
+    (`PUT /users/{id}/licenses`). 교육을 한 번 하고 마흔 명에게 부여하려면 마흔 번
+    들어갔다 나와야 했습니다.
+
+    **새로 부여받은 사람에게는 알립니다.** 라이선스가 생겼다는 것은 곧 그 장비를
+    예약할 수 있게 됐다는 뜻인데, 지금까지는 예약 화면에 들어가 잠긴 카드가
+    풀린 것을 우연히 보기 전에는 알 길이 없었습니다.
+    """
+    license_row = await db.get(License, license_id)
+    if not license_row:
+        raise HTTPException(404, "라이선스를 찾을 수 없습니다.")
+    wanted = set(payload.user_ids)
+    if wanted:
+        known = set((await db.scalars(
+            select(User.id).where(User.id.in_(wanted), User.deleted_at.is_(None))
+        )).all())
+        if known != wanted:
+            raise HTTPException(422, "없는 회원이 목록에 포함되어 있습니다.")
+    current = set((await db.scalars(select(UserLicense.user_id).where(UserLicense.license_id == license_id))).all())
+    added, removed = wanted - current, current - wanted
+    if removed:
+        await db.execute(delete(UserLicense).where(
+            UserLicense.license_id == license_id, UserLicense.user_id.in_(removed)
+        ))
+    db.add_all([UserLicense(user_id=user_id, license_id=license_id) for user_id in added])
+
+    title = f"{license_row.name} 이수가 등록되었습니다"
+    devices: list[dict] = []
+    for user_id in added:
+        devices += await tell_user(db, user_id, title, "/equipment/reserve")
+    await db.commit()
+    await deliver_push(devices, title, body="이제 이 교육이 필요한 장비를 예약할 수 있습니다.", path="/equipment/reserve")
+    return LicenseMembersResult(granted=len(added), revoked=len(removed), total=len(wanted))
 
 
 # ------------------------------------------------------------------ usage stats

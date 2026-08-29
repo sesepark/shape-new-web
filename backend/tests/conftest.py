@@ -27,6 +27,7 @@ from app.main import app  # noqa: E402
 from app.middleware import CostGuardMiddleware  # noqa: E402
 from app.models import Base, PermissionGrant, User, UserStatus  # noqa: E402
 from app.security import COOKIE_NAME, create_session_token  # noqa: E402
+from app.services import reservation_policy  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +37,9 @@ def reset_rate_limits():
     # 공개 응답 캐시는 프로세스 안에 남으므로, 앞선 시험이 담아 둔 값이 다음
     # 시험의 조회에 그대로 돌아오면 원인을 찾기 어려운 실패가 난다.
     cache.clear()
+    # 예약 정책도 같은 이유로 프로세스 안에 1분 동안 남는다. 정책을 바꾸는 시험
+    # 하나가 뒤따르는 시험 전체의 자동 확정 시점을 바꿔 버릴 수 있다.
+    reservation_policy.forget()
 
 
 @pytest.fixture(autouse=True)

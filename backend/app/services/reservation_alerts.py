@@ -30,15 +30,17 @@ from app.models import (
     ReservationStatus,
     User,
 )
+from app.services import reservation_policy
 from app.services.notifications import devices_of, publish_owner_notifications
 from app.services.reservations import overlapping_pending, unit_title
 
 SEOUL = ZoneInfo("Asia/Seoul")
-# 사용 시작 뒤 이만큼 지나도 사용 전 사진이 없으면 한 번 더 알립니다.
-BEFORE_PHOTO_GRACE = timedelta(minutes=30)
-# 시작이 이만큼 앞으로 다가왔는데 아직 대기 중이면 운영진에게 한 번 더 알립니다.
-# 자동 확정(1시간 전)보다 한 시간 앞이라, 운영진에게 직접 볼 틈이 한 시간 남습니다.
-STAFF_REMINDER_LEAD = timedelta(hours=2)
+# 아래 둘은 **관리자 화면에서 바꿉니다**(`services/reservation_policy.py`). 여기
+# 남은 것은 설정 행이 아직 없을 때의 기본값이고, `sweep_due` 는 매번 설정을 읽어
+# 씁니다. 독촉을 자동 확정보다 앞에 두는 뜻은 그대로입니다 — 시계가 대신 누르기
+# 전에 운영진이 직접 볼 틈을 남깁니다.
+BEFORE_PHOTO_GRACE = timedelta(minutes=reservation_policy.DEFAULTS.before_photo_grace_minutes)
+STAFF_REMINDER_LEAD = timedelta(minutes=reservation_policy.DEFAULTS.staff_reminder_minutes)
 # 운영진 알림을 누르면 가는 곳.
 STAFF_URL = "/admin"
 # 예약 알림을 누르면 가는 곳. 신청한 사람은 마이페이지에서 자기 예약을 봅니다.
@@ -48,6 +50,15 @@ MEMBER_URL = "/mypage"
 def _utc(value: datetime) -> datetime:
     """로컬 SQLite 는 시간대를 잃으므로 비교 전에 UTC 로 맞춥니다."""
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _span(minutes: int) -> str:
+    """분을 사람이 읽는 길이로. 알림 본문이 "60분 전" 이 아니라 "1시간 전" 이 되게."""
+    if minutes % 60 == 0 and minutes >= 60:
+        return f"{minutes // 60}시간"
+    if minutes > 60:
+        return f"{minutes // 60}시간 {minutes % 60}분"
+    return f"{minutes}분"
 
 
 def when(moment: datetime) -> str:
@@ -88,6 +99,9 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
     """
     now = datetime.now(UTC)
     out: list[tuple[str, str, list[dict]]] = []
+    policy = await reservation_policy.current(db)
+    photo_grace = policy.before_photo_grace
+    reminder_lead = policy.staff_reminder_lead
 
     starting = (await db.scalars(
         select(Reservation).where(
@@ -108,7 +122,7 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
     late = (await db.scalars(
         select(Reservation).where(
             Reservation.status.in_([ReservationStatus.APPROVED, ReservationStatus.IN_USE]),
-            Reservation.starts_at <= now - BEFORE_PHOTO_GRACE,
+            Reservation.starts_at <= now - photo_grace,
             Reservation.ends_at > now,
             Reservation.before_photo_url.is_(None),
             Reservation.before_photo_notified_at.is_(None),
@@ -143,13 +157,13 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
     unattended = (await db.scalars(
         select(Reservation).where(
             Reservation.status == ReservationStatus.PENDING,
-            Reservation.starts_at <= now + STAFF_REMINDER_LEAD,
+            Reservation.starts_at <= now + reminder_lead,
             Reservation.ends_at > now,
             Reservation.staff_reminded_at.is_(None),
         ).limit(50)
     )).all()
     for item in unattended:
-        late_arrival = item.created_at and _utc(item.created_at) > _utc(item.starts_at) - STAFF_REMINDER_LEAD
+        late_arrival = item.created_at and _utc(item.created_at) > _utc(item.starts_at) - reminder_lead
         if late_arrival:
             # 접수 알림이 곧 독촉이었던 신청입니다. 다시 울리지 않도록 자국만 남깁니다.
             item.staff_reminded_at = now
@@ -163,7 +177,7 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
         rival = await overlapping_pending(db, item)
         body = (
             "같은 시간에 다른 신청이 있어 자동으로 확정되지 않습니다. 직접 골라 주세요."
-            if rival else "1시간 전까지 처리하지 않으면 자동으로 확정됩니다."
+            if rival else f"{_span(policy.auto_approve_minutes)} 전까지 처리하지 않으면 자동으로 확정됩니다."
         )
         out.append((title, body, await publish_owner_notifications(db, title, STAFF_URL)))
 

@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.schemas import ReservationCreate, ReservationRead
 from app.security import READING_STATUSES
-from app.services import google_calendar
+from app.services import blackouts, google_calendar, reservation_policy
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,11 @@ SEOUL = ZoneInfo("Asia/Seoul")
 
 # 아무도 손대지 않은 신청이 저절로 확정되기까지. 시작 시각이 이만큼 앞으로
 # 다가오면 겹치는 신청이 없는 한 시계가 대신 승인합니다.
-AUTO_APPROVE_LEAD = timedelta(hours=1)
+#
+# **이 값은 이제 관리자 화면에서 바꿉니다**(`services/reservation_policy.py`).
+# 여기 남은 것은 설정 행이 아직 없을 때 쓰는 기본값이고, 실제로 쓰는 값은
+# `reservation_policy.current(db).auto_approve_lead` 입니다.
+AUTO_APPROVE_LEAD = timedelta(minutes=reservation_policy.DEFAULTS.auto_approve_minutes)
 
 PURPOSE_LABEL = {
     ReservationPurpose.CONTEST: "대회",
@@ -149,9 +153,52 @@ async def companion_names(db: AsyncSession, reservations) -> dict:
     return out
 
 
+async def confirm_outlook(db: AsyncSession, reservations) -> dict:
+    """대기 중인 신청마다 (저절로 확정될 시각, 다투는 신청이 있는지).
+
+    화면이 규칙을 설명하는 것만으로는 부족합니다. "같은 시간에 다른 신청이 없으면
+    시작 한 시간 전에 저절로 확정됩니다" 는 규칙이지, **내 신청**이 어느 쪽인지는
+    말해 주지 않습니다. 그러면 부원은 결국 운영진에게 직접 물어보게 됩니다.
+
+    겹치는 신청이 있으면 시각을 비웁니다 — 그때는 사람이 골라야 하고, 저절로
+    확정되지 않는다는 사실 자체가 부원이 알아야 하는 내용입니다.
+
+    질의는 **대기 신청이 하나라도 있을 때만** 한 번 나갑니다. 확정·완료만 있는
+    목록(지난 예약 화면이 그렇습니다)에서는 아무것도 더 읽지 않습니다.
+    """
+    waiting = [item for item in reservations if item.status == ReservationStatus.PENDING]
+    if not waiting:
+        return {}
+    lead = (await reservation_policy.current(db)).auto_approve_lead
+    unit_ids = {item.equipment_unit_id for item in waiting}
+    first = min(as_utc(item.starts_at) for item in waiting)
+    last = max(as_utc(item.ends_at) for item in waiting)
+    rivals = (await db.execute(
+        select(Reservation.id, Reservation.equipment_unit_id, Reservation.starts_at, Reservation.ends_at).where(
+            Reservation.equipment_unit_id.in_(unit_ids),
+            Reservation.status == ReservationStatus.PENDING,
+            Reservation.starts_at < last,
+            Reservation.ends_at > first,
+        )
+    )).all()
+    out: dict = {}
+    for item in waiting:
+        starts_at, ends_at = as_utc(item.starts_at), as_utc(item.ends_at)
+        contested = any(
+            other_id != item.id
+            and unit_id == item.equipment_unit_id
+            and as_utc(other_start) < ends_at
+            and as_utc(other_end) > starts_at
+            for other_id, unit_id, other_start, other_end in rivals
+        )
+        out[item.id] = (None if contested else starts_at - lead, contested)
+    return out
+
+
 async def read_models(db: AsyncSession, reservations, model=ReservationRead, extra=None):
     context = await unit_context(db, reservations)
     together = await companion_names(db, reservations)
+    outlook = await confirm_outlook(db, reservations) if "auto_confirm_at" in model.model_fields else {}
     result = []
     for item in reservations:
         label, equipment_name = context.get(item.equipment_unit_id, ("", ""))
@@ -159,6 +206,9 @@ async def read_models(db: AsyncSession, reservations, model=ReservationRead, ext
         fields.update(unit_label=label, equipment_name=equipment_name, **(extra(item) if extra else {}))
         if "companions" in model.model_fields:
             fields["companions"] = together.get(item.id, [])
+        confirm_at, contested = outlook.get(item.id, (None, False))
+        if "auto_confirm_at" in model.model_fields:
+            fields["auto_confirm_at"], fields["contested"] = confirm_at, contested
         result.append(model(**fields))
     return result
 
@@ -190,10 +240,13 @@ async def create_pending(db: AsyncSession, user_id, payload: ReservationCreate) 
     now = datetime.now(UTC)
     if payload.starts_at.tzinfo is None or payload.ends_at.tzinfo is None:
         raise HTTPException(422, "시간대가 포함된 예약 시간이 필요합니다.")
-    if payload.starts_at > now + timedelta(days=180):
-        raise HTTPException(422, "예약은 180일 이내에서만 신청할 수 있습니다.")
-    if payload.ends_at - payload.starts_at > timedelta(hours=12):
-        raise HTTPException(422, "한 번에 최대 12시간까지 예약할 수 있습니다.")
+    # 상한은 관리자 화면에서 정합니다. 예전에는 180일·12시간이 코드에 박혀 있어
+    # 학기마다 조절할 수 없었습니다.
+    policy = await reservation_policy.current(db)
+    if payload.starts_at > now + policy.booking_window:
+        raise HTTPException(422, f"예약은 {policy.booking_window_days}일 이내에서만 신청할 수 있습니다.")
+    if payload.ends_at - payload.starts_at > policy.max_span:
+        raise HTTPException(422, f"한 번에 최대 {policy.max_hours}시간까지 예약할 수 있습니다.")
     # 장비를 먼저 확인해야 하는 이유: 바로 아래 '지금 돌고 있는 칸' 판정이 그
     # 장비의 예약 단위(30·60·90·120분)에 달려 있다.
     _, equipment = await assert_eligible(db, user_id, payload.equipment_unit_id)
@@ -209,6 +262,11 @@ async def create_pending(db: AsyncSession, user_id, payload: ReservationCreate) 
         raise HTTPException(422, "이미 지난 시간은 예약할 수 없습니다.")
     if payload.starts_at < block_floor(now, equipment.reservation_unit_minutes):
         raise HTTPException(422, "지금 사용 중인 칸부터 예약할 수 있습니다.")
+    # 운영진이 막아 둔 시간(정비·교육 실습·대회 준비)인지 봅니다. 화면도 그 칸을
+    # 눌리지 않게 그리지만, 화면만 믿을 수는 없습니다.
+    blocked = await blackouts.check(db, equipment.id, payload.equipment_unit_id, payload.starts_at, payload.ends_at)
+    if blocked:
+        raise HTTPException(409, f"운영진이 막아 둔 시간입니다. {blocked.reason}".strip())
     taken = await db.scalar(select(ReservationSlot.id).where(
         ReservationSlot.equipment_unit_id == payload.equipment_unit_id,
         ReservationSlot.slot_start >= payload.starts_at,
@@ -273,7 +331,8 @@ async def try_auto_approve(db: AsyncSession, reservation: Reservation, *, calend
     if reservation.status != ReservationStatus.PENDING:
         return False
     now = datetime.now(UTC)
-    if as_utc(reservation.starts_at) > now + AUTO_APPROVE_LEAD:
+    lead = (await reservation_policy.current(db)).auto_approve_lead
+    if as_utc(reservation.starts_at) > now + lead:
         return False
     if as_utc(reservation.ends_at) <= now:
         return False
@@ -328,7 +387,13 @@ async def approve(db: AsyncSession, reservation: Reservation, *, calendar: bool 
         # 17시 40분에 승인하는 것은 여전히 쓸모가 있고, 승인이 늦었다는 이유로
         # 남은 20분까지 버릴 이유가 없다.
         raise HTTPException(409, "이미 끝난 시간의 예약은 승인할 수 없습니다.")
-    await assert_eligible(db, reservation.user_id, reservation.equipment_unit_id)
+    unit, equipment = await assert_eligible(db, reservation.user_id, reservation.equipment_unit_id)
+    # 신청이 들어온 뒤에 운영진이 그 시간을 막았을 수 있습니다. 막을 때 걸리는
+    # 예약을 함께 취소하므로 평소에는 여기까지 오지 않지만, 그 사이에 들어온
+    # 신청이 승인되는 길을 열어 두지는 않습니다.
+    blocked = await blackouts.check(db, equipment.id, unit.id, as_utc(reservation.starts_at), as_utc(reservation.ends_at))
+    if blocked:
+        raise HTTPException(409, f"운영진이 막아 둔 시간입니다. {blocked.reason}".strip())
     reservation.status = ReservationStatus.APPROVED
     db.add_all([ReservationSlot(equipment_unit_id=reservation.equipment_unit_id, reservation_id=reservation.id, slot_start=slot) for slot in slots(reservation.starts_at, reservation.ends_at)])
     try:

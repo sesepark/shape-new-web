@@ -24,7 +24,7 @@
  */
 import { chromium, firefox, webkit } from "playwright";
 import { mkdir } from "node:fs/promises";
-import { mock } from "./admin-sample.mjs";
+import { mockFor } from "./admin-sample.mjs";
 
 const base = process.argv[2] ?? "http://localhost:3100";
 const outDir = process.argv[3];
@@ -34,7 +34,7 @@ const sizes = (process.env.SIZES ?? "3440x1345,2560x985,1920x985,1280x800,820x11
 const TABS = process.env.TABS ? process.env.TABS.split(",") : [
   "히어로","인트로","단계","현황","일정",
   "인사말","동아리 소개","조직도","부원",
-  "보유 장비","라이선스","장비 예약",
+  "보유 장비","라이선스","라이선스 부여","장비예약 관리","관리자 장비예약","사용 통계",
   "SHAPE 뉴스","언론보도","게시판",
   "전체 로드맵","SHAPE-UP","대회","교육","기타",
   "관련 링크",
@@ -126,7 +126,7 @@ await page.route(/\/api\/v1\/pages\//, (route) => {
 // 관리자 창구는 로그인 쿠키가 있어야 답하므로, 자료 모양대로 흉내 낸 응답을 준다.
 await page.route(/\/api\/v1\/admin\//, (route) => {
   const path = new URL(route.request().url()).pathname.replace(/^.*\/api\/v1/, "").split("?")[0];
-  const body = mock[path];
+  const body = mockFor(path);
   if (body === undefined) return route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 });

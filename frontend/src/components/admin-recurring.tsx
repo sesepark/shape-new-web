@@ -50,7 +50,6 @@ function expand(weekdays: number[], from: string, until: string): string[] {
 export function AdminRecurring({ onChanged }: { onChanged: () => void | Promise<void> }) {
   const { ask, dialogNode } = useAsk();
   const { say, node: notice } = useNotice();
-  const [open, setOpen] = useState(false);
   const [equipment, setEquipment] = useState<AdminEquipmentItem[]>([]);
   const [groups, setGroups] = useState<RecurringGroup[]>([]);
   const [approved, setApproved] = useState<AdminReservationItem[]>([]);
@@ -77,10 +76,9 @@ export function AdminRecurring({ onChanged }: { onChanged: () => void | Promise<
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     const load = async () => { await reload(); };
     void load();
-  }, [open, reload]);
+  }, [reload]);
 
   const units = useMemo(
     () => equipment.flatMap((item) => (item.units ?? []).map((unit) => ({ ...unit, equipmentName: item.name }))),
@@ -158,11 +156,11 @@ export function AdminRecurring({ onChanged }: { onChanged: () => void | Promise<
 
   return (
     <section className="admin-recurring">
-      <button type="button" className="text-button recurring-toggle" onClick={() => setOpen(!open)}>
-        <Repeat2 size={15} aria-hidden="true" /> 정기 예약 {open ? "닫기" : "열기"}
-      </button>
-      {open && (
-        <div className="recurring-body">
+      {/* 예전에는 예약 심사 화면 맨 아래에 접혀 있었다. 눌러야 나오는 데다 그
+          자리가 '오늘 승인할 것' 을 보는 곳이라, 학기 일정을 잡으러 온 사람은
+          여기가 있는 줄도 몰랐다. 지금은 운영진 전용 탭으로 나와 늘 펼쳐 둔다. */}
+      <h3><Repeat2 size={17} aria-hidden="true" /> 정기 예약</h3>
+      <div className="recurring-body">
           <p className="form-note">
             교육 트랙처럼 학기 내내 같은 요일·같은 시각을 쓰는 일정을 한 번에 잡습니다.
             <b> 곧바로 확정 상태</b>가 되고, 예약은 등록한 운영진 이름으로 잡힙니다.
@@ -274,8 +272,7 @@ export function AdminRecurring({ onChanged }: { onChanged: () => void | Promise<
               ))}
             </div>
           )}
-        </div>
-      )}
+      </div>
       {dialogNode}
     </section>
   );

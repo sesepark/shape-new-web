@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pendingCounts, slotLabels, slotState, spanLabel, unitTitle, weekDays } from "@/lib/booking";
+import {
+  confirmLabel,
+  confirmNotice,
+  confirmOutlook,
+  momentLabel,
+  pendingCounts,
+  slotLabels,
+  slotState,
+  spanLabel,
+  unitTitle,
+  weekDays,
+} from "@/lib/booking";
 
 afterEach(() => vi.useRealTimers());
 
@@ -118,5 +129,97 @@ describe("예약 구간 한 줄", () => {
 
   it("읽을 수 없는 시각은 빈 줄로 둔다", () => {
     expect(spanLabel("무슨날", "2026-09-01T16:00:00+09:00")).toBe("");
+  });
+});
+
+describe("운영진이 막아 둔 칸", () => {
+  it("막힌 칸은 고를 수 없다", () => {
+    vi.useFakeTimers().setSystemTime(NOW);
+    const blocked = new Set(["19:00"]);
+    expect(slotState(DAY, "19:00", "20:00", none, quiet, blocked)).toMatchObject({
+      kind: "blocked",
+      selectable: false,
+    });
+  });
+
+  it("확정된 예약보다 먼저 판정한다", () => {
+    vi.useFakeTimers().setSystemTime(NOW);
+    // 막을 때 걸리는 예약을 함께 취소하므로 둘이 겹칠 일은 거의 없다. 겹친다면
+    // "왜 못 누르는가" 의 답은 남의 예약이 아니라 사용 제한이다.
+    const state = slotState(DAY, "19:00", "20:00", new Set(["19:00"]), quiet, new Set(["19:00"]));
+    expect(state.kind).toBe("blocked");
+  });
+
+  it("이미 끝난 칸은 막혔든 아니든 지난 시간이다", () => {
+    vi.useFakeTimers().setSystemTime(NOW);
+    expect(slotState(DAY, "10:00", "11:00", none, quiet, new Set(["10:00"])).kind).toBe("past");
+  });
+
+  it("막힌 칸을 주지 않아도 예전처럼 돈다", () => {
+    vi.useFakeTimers().setSystemTime(NOW);
+    expect(slotState(DAY, "19:00", "20:00", none, quiet).kind).toBe("open");
+  });
+});
+
+describe("언제 확정되는가", () => {
+  const NOON = new Date("2026-09-01T12:00:00+09:00").getTime();
+  const THREE = new Date("2026-09-01T15:00:00+09:00").getTime();
+
+  it("자동 확정 창 안이면 곧바로 확정된다", () => {
+    // 15시 예약을 14시 30분에 신청하면(창 60분) 이미 창 안이다.
+    const late = new Date("2026-09-01T14:30:00+09:00").getTime();
+    expect(confirmOutlook(THREE, 0, 60, late)).toEqual({ kind: "immediate" });
+  });
+
+  it("아직 멀면 확정될 시각을 준다", () => {
+    const outlook = confirmOutlook(THREE, 0, 60, NOON);
+    expect(outlook).toMatchObject({ kind: "scheduled" });
+    if (outlook.kind !== "scheduled") throw new Error("scheduled 여야 한다");
+    expect(new Date(outlook.at).toISOString()).toBe("2026-09-01T05:00:00.000Z");
+    expect(confirmLabel(outlook)).toContain("9월 1일");
+  });
+
+  it("겹치면 시각을 주지 않는다", () => {
+    // 저절로 확정되지 않는다는 사실 자체가 부원이 알아야 하는 내용이다.
+    expect(confirmOutlook(THREE, 2, 60, NOON)).toEqual({ kind: "contested", count: 2 });
+    expect(confirmLabel({ kind: "contested", count: 2 })).toContain("2건");
+  });
+
+  it("자동 확정을 0분으로 두면 시작 시각이 곧 확정 시각이다", () => {
+    const outlook = confirmOutlook(THREE, 0, 0, NOON);
+    expect(outlook).toMatchObject({ kind: "scheduled", at: THREE });
+  });
+});
+
+describe("이미 신청한 예약의 안내", () => {
+  const NOON = new Date("2026-09-01T12:00:00+09:00").getTime();
+
+  it("겹쳤으면 사람이 고른다고 말한다", () => {
+    expect(confirmNotice("2026-09-01T14:00:00+09:00", true, NOON)).toContain("운영진이 직접");
+  });
+
+  it("시각을 모르면 규칙을 말하지 않는다", () => {
+    expect(confirmNotice(null, false, NOON)).toBe("운영진 승인을 기다리는 중입니다.");
+    expect(confirmNotice("무슨날", false, NOON)).toBe("운영진 승인을 기다리는 중입니다.");
+  });
+
+  it("확정 시각이 지났으면 곧 바뀐다고 말한다", () => {
+    expect(confirmNotice("2026-09-01T11:00:00+09:00", false, NOON)).toContain("곧");
+  });
+
+  it("아직이면 그 시각을 적는다", () => {
+    expect(confirmNotice("2026-09-01T14:00:00+09:00", false, NOON)).toContain("9월 1일");
+  });
+});
+
+describe("시각 한 줄", () => {
+  it("읽을 수 없는 값은 빈 줄로 둔다", () => {
+    expect(momentLabel("무슨날")).toBe("");
+  });
+
+  it("날짜와 시각을 함께 적는다", () => {
+    const line = momentLabel("2026-09-01T14:00:00+09:00");
+    expect(line).toContain("9월 1일");
+    expect(line).toContain("14:00");
   });
 });

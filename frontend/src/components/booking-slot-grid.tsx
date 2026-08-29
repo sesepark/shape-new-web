@@ -33,6 +33,7 @@ export function BookingSlotGrid({
         <li><i className="swatch live" />지금 사용 가능</li>
         <li><i className="swatch contested" />신청 있음</li>
         <li><i className="swatch taken" />확정됨</li>
+        <li><i className="swatch blocked" />사용 제한</li>
         <li><i className="swatch gone" />지난 시간</li>
       </ul>
       <p className="slot-picked" role="status">
@@ -47,6 +48,7 @@ export function BookingSlotGrid({
           const flags = [
             state.kind === "live" ? "지금" : "",
             state.kind === "taken" ? "확정" : "",
+            state.kind === "blocked" ? "사용 제한" : "",
             state.pending > 0 && state.kind !== "taken" ? `신청 ${state.pending}` : "",
           ].filter(Boolean);
           const className = [
@@ -54,6 +56,7 @@ export function BookingSlotGrid({
             inRange ? "range" : "",
             state.kind === "past" ? "gone" : "",
             state.kind === "taken" ? "taken" : "",
+            state.kind === "blocked" ? "blocked" : "",
             state.kind === "live" ? "live" : "",
             state.pending > 0 && state.selectable ? "contested" : "",
           ].filter(Boolean).join(" ");
@@ -62,7 +65,12 @@ export function BookingSlotGrid({
               key={time}
               type="button"
               disabled={!state.selectable}
-              title={state.kind === "past" ? "이미 끝난 시간입니다" : state.kind === "taken" ? "이미 확정된 예약이 있습니다" : undefined}
+              title={
+                state.kind === "past" ? "이미 끝난 시간입니다"
+                : state.kind === "taken" ? "이미 확정된 예약이 있습니다"
+                : state.kind === "blocked" ? "운영진이 막아 둔 시간입니다"
+                : undefined
+              }
               className={className}
               onClick={() => onPick(time, index)}
             >

@@ -15,7 +15,7 @@ const users = Array.from({ length: 34 }, (_, i) => ({
   name: 긴이름[i % 긴이름.length] + (i > 7 ? String(i) : ""),
   email: i % 3 === 0 ? `very.long.email.address.for.layout.testing.${i}@snu.ac.kr` : `m${i}@snu.ac.kr`,
   imageUrl: null,
-  status: ["ACTIVE", "PENDING", "REJECTED", "ACTIVE"][i % 4],
+  status: ["APPROVED", "PENDING", "REJECTED", "APPROVED"][i % 4],
   isOwner: i === 0,
   createdAt: iso(i * 3),
   permissions: i % 5 === 0 ? ["content:manage", "equipment:manage", "reservations:manage", "news:manage", "notices:manage", "roadmap:manage", "links:manage"] : i % 3 === 0 ? ["content:manage"] : [],
@@ -159,7 +159,44 @@ const usage = {
   ],
 };
 
+// 운영진이 막아 둔 시간. 사유가 긴 것과 이미 지나간 것을 함께 둔다 — 목록에서
+// 흐리게 보이는 자리와 글이 상자를 넘는 자리를 둘 다 재기 위해서다.
+const blackouts = [
+  {
+    id: ID("blk", 0), equipmentId: ID("eq", 0), equipmentUnitId: null,
+    equipmentName: equipment[0]?.name ?? "AI Worker", unitLabel: "",
+    reason: "목요일 저녁 교육 트랙 정규 실습 — 조별 데이터 수집과 정책 평가를 함께 돌리므로 개인 예약을 받지 않습니다.",
+    weekdays: [3], startTime: "19:00", endTime: "22:00",
+    fromDate: iso(0).slice(0, 10), untilDate: iso(-120).slice(0, 10), upcomingDays: 16,
+  },
+  {
+    id: ID("blk", 1), equipmentId: ID("eq", 1), equipmentUnitId: ID("unit1", 1),
+    equipmentName: equipment[1]?.name ?? "OMY", unitLabel: "OMY 2호기",
+    reason: "정기 점검", weekdays: [0, 1, 2, 3, 4, 5, 6], startTime: "00:00", endTime: "24:00",
+    fromDate: iso(9).slice(0, 10), untilDate: iso(7).slice(0, 10), upcomingDays: 0,
+  },
+];
+
+const reservationPolicy = {
+  autoApproveMinutes: 60, staffReminderMinutes: 120, startGraceMinutes: 10,
+  beforePhotoGraceMinutes: 30, maxHours: 12, bookingWindowDays: 180, recurringMax: 30,
+};
+
+/**
+ * 주소에 식별자가 들어가는 창구. 표만으로는 맞출 수 없어 따로 본다.
+ *
+ * `/admin/licenses/{id}/members` 는 목록이 아니라 `{ userIds }` 를 돌려주므로,
+ * 모르는 주소의 기본값인 `[]` 를 주면 화면이 그 자리에서 깨진다.
+ */
+export function mockFor(path) {
+  if (/^\/admin\/licenses\/[^/]+\/members$/.test(path)) {
+    return { userIds: users.filter((_, index) => index % 2 === 0).map((row) => row.id) };
+  }
+  return mock[path];
+}
+
 export const mock = {
+  "/admin/blackouts": blackouts, "/admin/reservation-policy": reservationPolicy,
   "/admin/users": users, "/admin/directory": users.map(({ id, name, email, imageUrl, status }) => ({ id, name, email, imageUrl, status })),
   "/admin/licenses": licenses, "/admin/equipment": equipment, "/admin/reservations": reservations,
   "/admin/reservations/recurring": recurringGroups, "/admin/reservations/stats": usageStats,

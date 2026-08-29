@@ -33,10 +33,11 @@ from app.schemas import (
     MemberProject,
     NewsDetailRead,
     NewsRead,
+    PublicReservationPolicy,
     RoadmapRead,
 )
 from app.security import READING_STATUSES, has_permission, optional_user
-from app.services import google_calendar
+from app.services import blackouts, google_calendar, reservation_policy
 from app.services.reservations import slots
 
 router = APIRouter(tags=["public"])
@@ -141,6 +142,10 @@ async def equipment_availability(equipment_id: UUID, date: date_type = Query(), 
     if not equipment:
         raise HTTPException(404, "장비를 찾을 수 없습니다.")
     units = (await db.scalars(select(EquipmentUnit).where(EquipmentUnit.equipment_id == equipment_id, EquipmentUnit.status == EquipmentStatus.ACTIVE).order_by(EquipmentUnit.label))).all()
+    # 운영진이 막아 둔 시간. 장비 단위로 한 번만 읽고 호기별 판정은 파이썬이
+    # 합니다 — 카메라처럼 호기가 일곱인 장비에서 호기마다 물어보면 질의가
+    # 일곱 배가 됩니다.
+    rules = await blackouts.rules_for(db, equipment_id, date, date)
     day_start = datetime.combine(date, time.min, tzinfo=SEOUL).astimezone(UTC)
     day_end = (datetime.combine(date, time.min, tzinfo=SEOUL) + timedelta(days=1)).astimezone(UTC)
     reserved: list = []
@@ -174,16 +179,44 @@ async def equipment_availability(equipment_id: UUID, date: date_type = Query(), 
         "reservationUnitMinutes": equipment.reservation_unit_minutes,
         "openHour": OPEN_HOUR,
         "closeHour": CLOSE_HOUR,
+        # 그 날 걸려 있는 사용 제한의 사유. 왜 못 누르는지 화면이 말해 주지
+        # 않으면 부원은 결국 운영진에게 물어보게 됩니다.
+        "blockedReasons": sorted({rule.reason.strip() for rule in rules if rule.reason and rule.reason.strip()}),
         "units": [
             {
                 "id": unit.id,
                 "label": unit.label,
                 "reservedStarts": [slot.astimezone(SEOUL).isoformat() for unit_id, slot in reserved if unit_id == unit.id],
                 "pendingStarts": pending_starts(unit.id),
+                # 운영진이 막아 둔 칸. 화면은 이 칸을 아예 누를 수 없게 그립니다.
+                # 서버도 같은 규칙으로 신청을 거절하므로 두 쪽이 어긋나지 않습니다.
+                "blockedStarts": [mark.astimezone(SEOUL).isoformat() for mark in blackouts.blocked_starts(rules, unit.id, date)],
             }
             for unit in units
         ],
     }
+
+
+@router.get("/reservation-policy", response_model=PublicReservationPolicy)
+async def public_reservation_policy(db: AsyncSession = Depends(get_db)):
+    """예약이 굴러가는 규칙 값. 부원 화면이 안내를 **정확한 시각**으로 적기 위해 읽습니다.
+
+    "시작 한 시간 전에 저절로 확정됩니다" 라는 설명만으로는 부원이 자기 신청이
+    언제 확정되는지 알 수 없습니다. 화면이 "8월 30일 13:00에 확정됩니다" 라고
+    적으려면 그 '한 시간' 이 지금 몇 분인지 알아야 합니다.
+
+    **여기 실리는 것은 규칙 값뿐입니다** — 누가 무엇을 예약했는지는 한 글자도
+    들어가지 않습니다. 그래서 누가 부르든 같은 응답이고, 공개 읽기 캐시를 그대로
+    씁니다(`PUBLIC_EXACT`). 설정을 고쳐도 최대 캐시 시간만큼 옛 값이 보일 수
+    있는데, 이 값은 그 사이에 예약이 잘못 처리될 성질의 것이 아닙니다.
+    """
+    policy = await reservation_policy.current(db)
+    return PublicReservationPolicy(
+        auto_approve_minutes=policy.auto_approve_minutes,
+        start_grace_minutes=policy.start_grace_minutes,
+        max_hours=policy.max_hours,
+        booking_window_days=policy.booking_window_days,
+    )
 
 
 # 로드맵은 학기마다 쌓이기만 하고 지워지지 않습니다. 화면이 실제로 보여 주는

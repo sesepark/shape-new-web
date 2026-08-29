@@ -26,7 +26,7 @@ export function iso(day: string, time: string): string {
   return new Date(`${day}T${time}:00${KST}`).toISOString();
 }
 
-export type SlotKind = "past" | "taken" | "live" | "open";
+export type SlotKind = "past" | "blocked" | "taken" | "live" | "open";
 
 export interface SlotState {
   kind: SlotKind;
@@ -48,6 +48,9 @@ export interface SlotState {
  *
  * 다투는 신청(`pending`)은 **모든 상태에 함께 실어 준다.** 지금 쓸 수 있으면서
  * 동시에 남도 신청해 둔 칸이 있기 때문이다.
+ *
+ * `blocked` 는 운영진이 막아 둔 칸이다(정비·교육 실습·대회 준비). 서버도 같은
+ * 규칙으로 신청을 거절하므로 두 쪽이 어긋나지 않는다.
  */
 export function slotState(
   day: string,
@@ -55,6 +58,7 @@ export function slotState(
   end: string,
   reserved: Set<string>,
   pending: Map<string, number>,
+  blocked: Set<string> = new Set(),
   now: number = Date.now(),
 ): SlotState {
   const count = pending.get(start) ?? 0;
@@ -63,6 +67,10 @@ export function slotState(
   if (Number.isNaN(startsAt) || Number.isNaN(endsAt) || endsAt <= now) {
     return { kind: "past", pending: count, selectable: false };
   }
+  // 운영진이 막아 둔 칸은 확정 예약보다 먼저 본다. 막을 때 걸리는 예약을 함께
+  // 취소하므로 둘이 겹칠 일은 거의 없지만, 겹친다면 "왜 못 누르는가" 의 답은
+  // 남의 예약이 아니라 사용 제한이다.
+  if (blocked.has(start)) return { kind: "blocked", pending: count, selectable: false };
   if (reserved.has(start)) return { kind: "taken", pending: count, selectable: false };
   if (startsAt <= now) return { kind: "live", pending: count, selectable: true };
   return { kind: "open", pending: count, selectable: true };
@@ -136,7 +144,14 @@ export function unitTitle(equipmentName?: string, unitLabel?: string): string {
 }
 
 const dayStamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" });
-const timeStamp = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
+/**
+ * 시각은 **24시간제**로 적는다.
+ *
+ * 예약 화면의 시간표·정기 예약·사용 제한이 모두 `19:00` 같은 24시간 눈금을 쓴다.
+ * 여기만 `오후 7:00` 으로 적으면 같은 시각이 화면마다 다른 모양으로 보이고,
+ * 특히 "언제 확정되는가" 를 알려 주는 자리에서는 그 차이가 곧 오해가 된다.
+ */
+const timeStamp = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /**
  * 예약 구간 한 줄. 같은 날이면 날짜를 한 번만 적는다.
@@ -152,4 +167,68 @@ export function spanLabel(startsAt: string, endsAt: string): string {
   return sameDay
     ? `${dayStamp.format(from)} ${timeStamp.format(from)} – ${timeStamp.format(to)}`
     : `${dayStamp.format(from)} ${timeStamp.format(from)} – ${dayStamp.format(to)} ${timeStamp.format(to)}`;
+}
+
+
+/** ISO 시각 한 줄. "8월 30일 13:00" 처럼 적습니다. */
+export function momentLabel(value: string | number | Date): string {
+  const moment = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(moment.getTime())) return "";
+  return `${dayStamp.format(moment)} ${timeStamp.format(moment)}`;
+}
+
+/**
+ * 이 신청이 어떻게 확정되는가.
+ *
+ * 화면이 규칙을 설명하는 것만으로는 부족하다. "같은 시간에 다른 신청이 없으면
+ * 시작 한 시간 전에 저절로 확정됩니다" 는 규칙이지, **내 신청**이 어느 쪽인지는
+ * 말해 주지 않는다. 그러면 부원은 결국 운영진에게 직접 물어보게 된다.
+ *
+ * 신청하기 **전**(예약 화면에서 시간을 고른 순간)과 신청한 **뒤**(마이페이지)
+ * 양쪽에서 같은 판정을 쓴다. 두 화면이 다른 말을 하면 어느 쪽도 믿을 수 없다.
+ */
+export type ConfirmOutlook =
+  | { kind: "immediate" }
+  | { kind: "scheduled"; at: number }
+  | { kind: "contested"; count: number };
+
+export function confirmOutlook(
+  startsAt: number,
+  contested: number,
+  autoApproveMinutes: number,
+  now: number = Date.now(),
+): ConfirmOutlook {
+  if (contested > 0) return { kind: "contested", count: contested };
+  const due = startsAt - autoApproveMinutes * 60_000;
+  return due <= now ? { kind: "immediate" } : { kind: "scheduled", at: due };
+}
+
+/** 위 판정을 사람이 읽는 한 줄로. 신청 화면에서 쓰는 '앞으로 어떻게 될지' 입니다. */
+export function confirmLabel(outlook: ConfirmOutlook): string {
+  if (outlook.kind === "immediate") return "지금 신청하면 곧바로 확정됩니다.";
+  if (outlook.kind === "contested") {
+    return `같은 시간에 신청이 ${outlook.count}건 있습니다. 저절로 확정되지 않고 운영진이 한 건을 고릅니다.`;
+  }
+  return `${momentLabel(outlook.at)}에 저절로 확정됩니다. 그 전에 운영진이 먼저 확정할 수도 있습니다.`;
+}
+
+/**
+ * 이미 신청한 예약에 붙이는 한 줄. 서버가 계산한 시각을 그대로 씁니다.
+ *
+ * 서버가 판정하는 이유는 화면이 **남의 신청**을 볼 수 없기 때문입니다. 겹쳤는지
+ * 여부는 내 예약 목록만으로는 알 수 없습니다.
+ */
+export function confirmNotice(
+  autoConfirmAt: string | null | undefined,
+  contested: boolean | undefined,
+  now: number = Date.now(),
+): string {
+  if (contested) return "같은 시간에 다른 신청이 있어 운영진이 직접 한 건을 고릅니다.";
+  if (!autoConfirmAt) return "운영진 승인을 기다리는 중입니다.";
+  const due = new Date(autoConfirmAt).getTime();
+  if (Number.isNaN(due)) return "운영진 승인을 기다리는 중입니다.";
+  // 이미 그 시각을 지났으면 다음 훑기에서 확정됩니다(길어야 몇 분).
+  return due <= now
+    ? "곧 저절로 확정됩니다. 잠시 뒤 새로 고치면 확정으로 바뀝니다."
+    : `${momentLabel(due)}에 저절로 확정됩니다.`;
 }

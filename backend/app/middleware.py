@@ -20,7 +20,9 @@ API_PREFIX = "/api/v1"
 # 앞머리로 열어 두면 `/roadmap/me`(회원 본인의 일정)까지 걸려든다. 지금은 그 창구가
 # 로그인을 요구해서 새지 않지만, 공개 여부를 **인증 하나에만** 기대게 된다.
 PUBLIC_READS = ("/pages/", "/news", "/equipment/", "/links", "/push/public-key", "/member-profiles", "/shape-up")
-PUBLIC_EXACT = ("/equipment", "/roadmap")
+# `/reservation-policy` 는 규칙 값만 돌려줍니다. 누구의 예약도 실리지 않으므로
+# 공유 캐시에 올려도 남의 정보가 새지 않습니다.
+PUBLIC_EXACT = ("/equipment", "/roadmap", "/reservation-policy")
 # Availability changes the moment a reservation is approved, so it gets a much
 # shorter shared cache than the editorial content.
 VOLATILE_READS = ("/availability",)
