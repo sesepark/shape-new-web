@@ -698,13 +698,9 @@ async def reservation_cancel(reservation_id: UUID, payload: ReservationDecision 
 # ------------------------------------------------------- recurring reservations
 
 SEOUL = ZoneInfo("Asia/Seoul")
-# 한 번에 만들 수 있는 최대 건수와 기간. 학기 하나(화·수·목 16주 = 48건)보다 짧게
-# 잡은 이유는, 한 번의 실수가 되돌리기 어려운 양이 되지 않게 하기 위해서다.
-#
-# 건수는 이제 관리자 화면에서 바꾼다(`services/reservation_policy.py`). 여기 남은
-# 것은 설정 행이 없을 때의 기본값이다. 기간 상한은 코드에 그대로 둔다 — 화면에서
-# 늘릴 이유가 없고, 늘리면 미리보기 목록이 감당하지 못한다.
-RECURRING_MAX = reservation_policy.DEFAULTS.recurring_max
+# 한 번에 만들 수 있는 최대 **기간**. 건수 상한은 관리자 화면에서 정한다
+# (`services/reservation_policy.py`). 기간은 코드에 그대로 둔다 — 화면에서 늘릴
+# 이유가 없고, 늘리면 등록 전 미리보기 목록이 감당하지 못한다.
 RECURRING_MAX_DAYS = 200
 
 
@@ -1148,8 +1144,21 @@ async def read_reservation_policy(
     return await reservation_policy.row(db)
 
 
+# 수정 내역에 남길 이름. 어떤 값이 얼마에서 얼마로 바뀌었는지가 나중에 궁금해진다.
+POLICY_LABEL = {
+    "auto_approve_minutes": "자동 확정",
+    "staff_reminder_minutes": "운영진 독촉",
+    "start_grace_minutes": "사용 시작 여유",
+    "before_photo_grace_minutes": "사진 독촉",
+    "max_hours": "한 건 최대",
+    "booking_window_days": "예약 가능 기간",
+    "recurring_max": "정기 예약 최대",
+}
+
+
 @router.put("/reservation-policy", response_model=ReservationPolicyRead)
 async def save_reservation_policy(
+    request: Request,
     payload: ReservationPolicyWrite,
     actor: User = Depends(require_permission("reservations:manage")),
     db: AsyncSession = Depends(get_db),
@@ -1161,6 +1170,15 @@ async def save_reservation_policy(
     들고 있습니다(`services/reservation_policy.TTL`).
     """
     row = await reservation_policy.row(db)
+    # 무엇이 얼마에서 얼마로 바뀌었는지를 기록에 남긴다. 이 주소에는 식별자가 없어
+    # 자동으로는 이름을 찾을 수 없고(`services/audit.py`), 설정 변경은 나중에
+    # "언제부터 규칙이 달라졌지" 를 되짚게 되는 자리다.
+    changes = [
+        f"{POLICY_LABEL[name]} {getattr(row, name)}→{getattr(payload, name)}"
+        for name in reservation_policy.FIELDS
+        if getattr(row, name) != getattr(payload, name)
+    ]
+    audit.note(request, target="예약 정책", detail=", ".join(changes) if changes else "바뀐 값 없음")
     for name in reservation_policy.FIELDS:
         setattr(row, name, getattr(payload, name))
     row.updated_by = actor.id

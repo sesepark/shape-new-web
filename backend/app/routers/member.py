@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -521,10 +521,7 @@ async def owned_reservation(db: AsyncSession, reservation_id: UUID, user: User) 
 
 # 예약 시각보다 한참 앞서 "사용 중"으로 바꿔 버리면 예약 현황이 실제 장비 상태와
 # 어긋나므로, 시작 직전부터만 사용을 시작할 수 있게 한다. 늦게 온 경우는 막지 않는다.
-#
-# **이 값은 관리자 화면에서 바꾼다**(`services/reservation_policy.py`). 여기 남은
-# 것은 설정 행이 없을 때의 기본값이다.
-START_GRACE = timedelta(minutes=reservation_policy.DEFAULTS.start_grace_minutes)
+# 그 '직전' 이 몇 분인지는 관리자 화면에서 정한다(`services/reservation_policy.py`).
 
 
 @router.post("/reservations/{reservation_id}/before", response_model=ReservationRead)

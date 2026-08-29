@@ -113,9 +113,11 @@ export function AdminRecurring({ onChanged }: { onChanged: () => void | Promise<
     }
     const confirmed = await ask({
       title: `정기 예약 ${preview.length - clashes}건을 등록할까요?`,
+      // 미리보기는 **확정된 예약**만 압니다. 사용 제한이 걸린 날도 서버가 건너뛰므로,
+      // 여기서 "N일이 만들어진다" 고 단정하지 않고 그럴 수 있다고만 적습니다.
       description: clashes > 0
-        ? `이미 확정된 예약이 있는 ${clashes}일은 건너뜁니다. 나머지는 곧바로 확정 상태로 잡힙니다.`
-        : "곧바로 확정 상태로 잡힙니다. 운영진이 넣는 것이라 승인을 따로 기다리지 않습니다.",
+        ? `이미 확정된 예약이 있는 ${clashes}일은 건너뜁니다. 사용 제한이 걸린 날도 함께 건너뜁니다. 나머지는 곧바로 확정 상태로 잡힙니다.`
+        : "곧바로 확정 상태로 잡힙니다. 운영진이 넣는 것이라 승인을 따로 기다리지 않습니다. 사용 제한이 걸린 날은 건너뜁니다.",
       confirmLabel: "등록",
     });
     if (confirmed === null) return;
@@ -131,8 +133,12 @@ export function AdminRecurring({ onChanged }: { onChanged: () => void | Promise<
       return;
     }
     const result = (await response.json()) as RecurringResult;
+    // 건너뛴 이유는 서버가 날짜마다 알려 준다 — 확정 예약이 있거나, 운영진이 막아
+    // 두었거나, 이미 지난 시간이거나. 예전에는 화면이 "이미 예약이 있는" 하나로
+    // 뭉뚱그려 적어서, 사용 제한 때문에 건너뛴 날도 예약 탓으로 보였다.
+    const reasons = [...new Set(result.skipped.map((row) => row.reason))].join(" / ");
     say(result.skipped.length
-      ? `${result.created.length}건을 등록했습니다. 이미 예약이 있는 ${result.skipped.length}일은 건너뛰었습니다.`
+      ? `${result.created.length}건을 등록했습니다. ${result.skipped.length}일은 건너뛰었습니다 — ${reasons}`
       : `${result.created.length}건을 등록했습니다.`);
     setWeekdays([]);
     await reload();

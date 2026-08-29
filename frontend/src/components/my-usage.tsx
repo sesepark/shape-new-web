@@ -62,14 +62,35 @@ export function MyUsagePanel() {
     return () => controller.abort();
   }, []);
 
+  // 못 불러왔으면 **제목까지 함께** 감춥니다. 예전에는 이 자리에서 `null` 만
+  // 돌려주어, 마이페이지에 'MY USAGE / 내 사용 기록' 이라는 제목만 덩그러니
+  // 남았습니다. 그래서 구획 전체를 이 컴포넌트가 그립니다.
   if (failed) return null;
-  if (!usage) return <p className="form-note">사용 기록을 불러오는 중입니다.</p>;
-  if (usage.totalCount === 0) {
-    return <p className="empty-inline">아직 사용 기록이 없습니다. 장비를 한 번 쓰고 나면 여기에 쌓입니다.</p>;
+
+  const body = !usage ? (
+    <p className="form-note">사용 기록을 불러오는 중입니다.</p>
+  ) : usage.totalCount === 0 ? (
+    <p className="empty-inline">아직 사용 기록이 없습니다. 장비를 한 번 쓰고 나면 여기에 쌓입니다.</p>
+  ) : null;
+
+  if (body) {
+    return (
+      <section className="mypage-usage">
+        <div className="mypage-section-head">
+          <div><p className="meta">MY USAGE</p><h3>내 사용 기록</h3></div>
+        </div>
+        {body}
+      </section>
+    );
   }
+  if (!usage) return null;
 
   return (
-    <div className="my-usage">
+    <section className="mypage-usage">
+      <div className="mypage-section-head">
+        <div><p className="meta">MY USAGE</p><h3>내 사용 기록</h3></div>
+      </div>
+      <div className="my-usage">
       <div className="usage-tiles">
         <article>
           <Clock3 aria-hidden="true" />
@@ -114,6 +135,7 @@ export function MyUsagePanel() {
         {usage.firstUsedAt && ` 처음 사용 ${momentLabel(usage.firstUsedAt)}`}
         {usage.lastUsedAt && ` · 마지막 사용 ${momentLabel(usage.lastUsedAt)}`}
       </p>
-    </div>
+      </div>
+    </section>
   );
 }

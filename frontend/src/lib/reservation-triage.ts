@@ -1,4 +1,4 @@
-import { purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
+import { CLOCK_OPTIONS, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import type { AdminReservationItem, ReservationUrgency } from "@/lib/types";
 
 const URGENCY_RANK: Record<ReservationUrgency, number> = { HIGH: 0, NORMAL: 1, LOW: 2 };
@@ -77,7 +77,8 @@ export function sortReservations(
   return sorted;
 }
 
-const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+// 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
+const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", ...CLOCK_OPTIONS });
 
 /**
  * 겹친 신청 중 한쪽을 확정할 때, 나머지에게 보낼 반려 사유의 초안.

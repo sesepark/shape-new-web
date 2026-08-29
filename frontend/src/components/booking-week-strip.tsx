@@ -16,10 +16,13 @@ import { weekDays } from "@/lib/booking";
 export function BookingWeekStrip({
   day,
   today,
+  maxDay,
   onPick,
 }: {
   day: string;
   today: string;
+  /** 신청할 수 있는 마지막 날. 예약 가능 기간을 짧게 잡아 두면 뒤쪽이 잠긴다. */
+  maxDay?: string;
   onPick: (day: string) => void;
 }) {
   const days = weekDays(today, 7, today);
@@ -31,6 +34,8 @@ export function BookingWeekStrip({
           key={entry.day}
           type="button"
           aria-pressed={entry.day === day}
+          disabled={Boolean(maxDay) && entry.day > maxDay!}
+          title={Boolean(maxDay) && entry.day > maxDay! ? "예약 가능 기간을 넘은 날짜입니다" : undefined}
           className={`${entry.day === day ? "active" : ""}${entry.isToday ? " today" : ""}`}
           onClick={() => onPick(entry.day)}
         >

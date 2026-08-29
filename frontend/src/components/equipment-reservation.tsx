@@ -236,6 +236,19 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     [day, endOf, reserved, pending, blocked, now],
   );
 
+  /**
+   * 신청할 수 있는 마지막 날짜. 서버가 거절할 날짜를 화면이 고를 수 있게 두지
+   * 않는다 — 예전에는 180일이 코드에 박혀 있고 화면은 아무 날짜나 고를 수 있어서,
+   * 신청서를 다 채우고 단추를 누른 뒤에야 422 를 만났다.
+   */
+  const lastDay = useMemo(() => {
+    const days = policy?.bookingWindowDays ?? 180;
+    const edge = new Date(`${today}T12:00:00`);
+    if (Number.isNaN(edge.getTime())) return "";
+    edge.setDate(edge.getDate() + days);
+    return localDay(edge);
+  }, [today, policy]);
+
   /** 그 날 걸려 있는 사용 제한의 사유. 왜 못 누르는지 화면이 말해 준다. */
   const blockedReasons = availability?.blockedReasons ?? [];
   /** 안내 문구에 적을 자동 확정 시점. 서버가 알려 준 값을 사람이 읽는 길이로 바꾼다. */
@@ -297,8 +310,15 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
       return;
     }
     const startIndex = times.indexOf(startHour);
+    const cap = policy?.maxHours ?? 12;
     // 아직 아무것도 없거나, 시작보다 앞을 누르면 그 칸 하나로 다시 시작한다.
     if (!startHour || time <= startHour) {
+      // 예약 단위가 상한보다 큰 장비도 있을 수 있다(단위 120분에 상한 1시간).
+      // 그때는 한 칸만 눌러도 서버가 거절하므로, 화면이 먼저 말해 준다.
+      if ((at(day, endOf(index)) - at(day, time)) / 3_600_000 > cap) {
+        setMessage(`한 번에 최대 ${cap}시간까지 예약할 수 있습니다. 이 장비는 한 칸이 그보다 깁니다.`);
+        return;
+      }
       setStartHour(time); setEndHour(endOf(index)); setMessage("");
       return;
     }
@@ -306,6 +326,12 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     // 칸은 건너뛰는 것이 아니라 함께 신청하는 것이므로 여기서 막지 않는다.
     if (times.slice(startIndex, index + 1).some((item, offset) => !stateOf(item, startIndex + offset).selectable)) {
       setMessage("확정된 예약이나 막아 둔 시간, 지난 시간을 건너뛸 수 없습니다.");
+      return;
+    }
+    // 서버와 같은 상한이다. 여기서 막지 않으면 열 칸을 고른 뒤에야 거절당한다.
+    const hours = (at(day, endOf(index)) - at(day, startHour)) / 3_600_000;
+    if (hours > cap) {
+      setMessage(`한 번에 최대 ${cap}시간까지 예약할 수 있습니다.`);
       return;
     }
     setEndHour(endOf(index)); setMessage("");
@@ -455,11 +481,11 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
 
     <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title">
       <div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div>
-      <BookingWeekStrip day={day} today={today} onPick={(next) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(next); }} />
+      <BookingWeekStrip day={day} today={today} maxDay={lastDay} onPick={(next) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(next); }} />
       <div className="booking-schedule-grid">
         <article className="booking-date-card">
           <h4>예약 날짜</h4>
-          <label><span>다른 날짜 고르기</span><input type="date" min={today} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }} /></label>
+          <label><span>다른 날짜 고르기</span><input type="date" min={today} max={lastDay || undefined} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }} /></label>
           <p><CalendarDays size={16} aria-hidden="true" />{dateLabel(day)}</p>
         </article>
         <article className="booking-time-card" aria-busy={loading}>

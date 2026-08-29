@@ -43,6 +43,7 @@ export function AdminBlackouts({ onChanged }: { onChanged?: () => void | Promise
   const [untilDate, setUntilDate] = useState(localDay);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const today = localDay();
 
   const reload = useCallback(async () => {
     const [gear, list] = await Promise.all([adminFetch("/admin/equipment"), adminFetch("/admin/blackouts")]);
@@ -218,11 +219,13 @@ export function AdminBlackouts({ onChanged }: { onChanged?: () => void | Promise
         </label>
         <label>
           시작 날짜
-          <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+          {/* 지난 날짜를 고르면 "그 기간에 해당하는 요일이 없다" 는 엉뚱한 이유가
+              돌아온다(막는 날 수를 오늘 이후로만 세기 때문). 애초에 못 고르게 둔다. */}
+          <input type="date" min={today} value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
         </label>
         <label>
           끝나는 날짜
-          <input type="date" value={untilDate} min={fromDate} onChange={(event) => setUntilDate(event.target.value)} />
+          <input type="date" value={untilDate} min={fromDate > today ? fromDate : today} onChange={(event) => setUntilDate(event.target.value)} />
         </label>
       </div>
 

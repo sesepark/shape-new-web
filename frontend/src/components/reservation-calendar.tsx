@@ -5,7 +5,7 @@ import Image from "next/image";
 import { media, optimizable } from "@/lib/media";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { board } from "@/lib/board";
-import { purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
+import { CLOCK_OPTIONS, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { useSession } from "@/lib/session";
 import type { ReservationCalendarItem, ReservationStatus } from "@/lib/types";
@@ -15,7 +15,8 @@ const statusLabel: Record<ReservationStatus, string> = {
   PENDING: "승인 대기", APPROVED: "예약 확정", IN_USE: "사용 중",
   COMPLETED: "사용 완료", REJECTED: "반려", CANCELLED: "취소", EXPIRED: "기간 지남",
 };
-const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
+// 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
+const clock = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
 const fullDate = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
 const range = (item: ReservationCalendarItem) => `${clock.format(new Date(item.startsAt))} – ${clock.format(new Date(item.endsAt))}`;
 

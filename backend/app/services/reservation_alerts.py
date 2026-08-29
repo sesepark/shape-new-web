@@ -16,7 +16,7 @@
 들어오지 않는 새벽에는 알림이 조금 늦게 갈 수 있습니다.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -35,12 +35,10 @@ from app.services.notifications import devices_of, publish_owner_notifications
 from app.services.reservations import overlapping_pending, unit_title
 
 SEOUL = ZoneInfo("Asia/Seoul")
-# 아래 둘은 **관리자 화면에서 바꿉니다**(`services/reservation_policy.py`). 여기
-# 남은 것은 설정 행이 아직 없을 때의 기본값이고, `sweep_due` 는 매번 설정을 읽어
-# 씁니다. 독촉을 자동 확정보다 앞에 두는 뜻은 그대로입니다 — 시계가 대신 누르기
-# 전에 운영진이 직접 볼 틈을 남깁니다.
-BEFORE_PHOTO_GRACE = timedelta(minutes=reservation_policy.DEFAULTS.before_photo_grace_minutes)
-STAFF_REMINDER_LEAD = timedelta(minutes=reservation_policy.DEFAULTS.staff_reminder_minutes)
+# 사진 독촉과 운영진 독촉 시점은 **관리자 화면에서 정합니다**
+# (`services/reservation_policy.py`). `sweep_due` 가 매번 설정을 읽어 씁니다.
+# 독촉을 자동 확정보다 앞에 두는 뜻은 그대로입니다 — 시계가 대신 누르기 전에
+# 운영진이 직접 볼 틈을 남깁니다.
 # 운영진 알림을 누르면 가는 곳.
 STAFF_URL = "/admin"
 # 예약 알림을 누르면 가는 곳. 신청한 사람은 마이페이지에서 자기 예약을 봅니다.

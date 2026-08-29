@@ -3495,6 +3495,8 @@ const auditAction: Record<string, { label: string; tone: "make" | "edit" | "drop
   owner: { label: "owner 바꿈", tone: "drop" },
   permissions: { label: "권한 설정", tone: "edit" },
   licenses: { label: "라이선스 설정", tone: "edit" },
+  // 교육 하나를 골라 이수자를 한 번에 맞추는 자리(라이선스 부여 탭).
+  members: { label: "이수자 설정", tone: "edit" },
 };
 
 /**

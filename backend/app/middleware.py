@@ -25,7 +25,13 @@ PUBLIC_READS = ("/pages/", "/news", "/equipment/", "/links", "/push/public-key",
 PUBLIC_EXACT = ("/equipment", "/roadmap", "/reservation-policy")
 # Availability changes the moment a reservation is approved, so it gets a much
 # shorter shared cache than the editorial content.
-VOLATILE_READS = ("/availability",)
+#
+# `/reservation-policy` 도 짧은 쪽에 둡니다. 값이 바뀌는 일은 드물지만, 바뀌는
+# 순간 **부원 화면의 안내 문구가 통째로 옛말이 됩니다** — 자동 확정을 두 시간으로
+# 늘려 놓고 화면은 한 시간이라고 말하는 상태가 긴 캐시만큼 이어집니다. 응답이
+# 아주 작고 서버 쪽에도 1분짜리 캐시가 따로 있어(`services/reservation_policy.py`)
+# 짧게 두는 값이 거의 들지 않습니다.
+VOLATILE_READS = ("/availability", "/reservation-policy")
 
 
 logger = logging.getLogger(__name__)

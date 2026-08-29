@@ -29,13 +29,10 @@ logger = logging.getLogger(__name__)
 CANCELLABLE = {ReservationStatus.PENDING, ReservationStatus.APPROVED}
 SEOUL = ZoneInfo("Asia/Seoul")
 
-# 아무도 손대지 않은 신청이 저절로 확정되기까지. 시작 시각이 이만큼 앞으로
-# 다가오면 겹치는 신청이 없는 한 시계가 대신 승인합니다.
-#
-# **이 값은 이제 관리자 화면에서 바꿉니다**(`services/reservation_policy.py`).
-# 여기 남은 것은 설정 행이 아직 없을 때 쓰는 기본값이고, 실제로 쓰는 값은
-# `reservation_policy.current(db).auto_approve_lead` 입니다.
-AUTO_APPROVE_LEAD = timedelta(minutes=reservation_policy.DEFAULTS.auto_approve_minutes)
+# 자동 확정 시점(기본 한 시간)은 **관리자 화면에서 정합니다.** 값은
+# `reservation_policy.current(db).auto_approve_lead` 로 읽고, 설정 행이 아직
+# 없을 때의 기본값은 `reservation_policy.DEFAULTS` 한 곳에만 적혀 있습니다.
+# 여기에 상수를 다시 두지 마세요 — 두 곳이 어긋나면 어느 쪽이 진짜인지 알 수 없습니다.
 
 PURPOSE_LABEL = {
     ReservationPurpose.CONTEST: "대회",

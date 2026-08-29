@@ -145,13 +145,23 @@ export function unitTitle(equipmentName?: string, unitLabel?: string): string {
 
 const dayStamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" });
 /**
- * 시각은 **24시간제**로 적는다.
+ * 예약 시각은 **어디서나 24시간제**로 적는다.
  *
  * 예약 화면의 시간표·정기 예약·사용 제한이 모두 `19:00` 같은 24시간 눈금을 쓴다.
- * 여기만 `오후 7:00` 으로 적으면 같은 시각이 화면마다 다른 모양으로 보이고,
+ * 한 화면만 `오후 7:00` 으로 적으면 같은 시각이 자리마다 다른 모양으로 보이고,
  * 특히 "언제 확정되는가" 를 알려 주는 자리에서는 그 차이가 곧 오해가 된다.
+ *
+ * **예약 시각을 적는 곳은 모두 이 설정을 가져다 쓴다.** 마이페이지·예약 현황
+ * 달력·지금 쓸 예약 띠·관리자 심사 화면이 저마다 `Intl.DateTimeFormat` 을 따로
+ * 만들고 있어서, 한 곳만 고쳤을 때 같은 카드 안에서 두 형식이 섞였다.
  */
-const timeStamp = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+export const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
+
+const timeStamp = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
 
 /**
  * 예약 구간 한 줄. 같은 날이면 날짜를 한 번만 적는다.

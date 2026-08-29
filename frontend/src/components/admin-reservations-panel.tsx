@@ -7,7 +7,7 @@ import { useAsk } from "@/components/ask-dialog";
 import { ScrollingName } from "@/components/scrolling-name";
 import { useNotice } from "@/components/use-notice";
 import { adminFetch, adminSend } from "@/lib/admin-api";
-import { purposeLabel, spanLabel, unitTitle, urgencyLabel } from "@/lib/booking";
+import { CLOCK_OPTIONS, purposeLabel, spanLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { conflictGroups, rejectionDraft, sortReservations, withoutConflicts } from "@/lib/reservation-triage";
 import { media, optimizable } from "@/lib/media";
 import type { AdminReservationItem } from "@/lib/types";
@@ -22,7 +22,8 @@ export const reservationStatusLabel: Record<string, string> = {
   EXPIRED: "기간 지남",
 };
 
-const moment = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+// 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
+const moment = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", ...CLOCK_OPTIONS });
 const SORTS: [string, string][] = [
   ["start", "시작 시각순"],
   ["created", "신청순"],

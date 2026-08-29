@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Camera, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api";
-import { unitTitle } from "@/lib/booking";
+import { CLOCK_OPTIONS, unitTitle } from "@/lib/booking";
 import { useSession } from "@/lib/session";
 import type { ReservationItem } from "@/lib/types";
 
@@ -17,7 +17,8 @@ const START_GRACE_MINUTES = 10;
  */
 const CACHE_KEY = "shape:reservations";
 const CACHE_MS = 3 * 60_000;
-const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
+// 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
+const clock = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
 
 function cached(): ReservationItem[] | null {
   try {

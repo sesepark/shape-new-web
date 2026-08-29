@@ -13,7 +13,7 @@ import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL } from "@/lib/api";
 import { MyUsagePanel } from "@/components/my-usage";
-import { confirmNotice, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
+import { CLOCK_OPTIONS, confirmNotice, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { media, optimizable } from "@/lib/media";
 import { loadSession, useSession } from "@/lib/session";
 import { appleDevice, currentSubscription, installedToHomeScreen, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
@@ -41,8 +41,9 @@ function permissionNote(item: EquipmentPermission) {
 }
 
 const statusLabel: Record<ReservationItem["status"], string> = { PENDING: "승인 대기", APPROVED: "예약 확정", REJECTED: "반려", CANCELLED: "취소", IN_USE: "사용 중", COMPLETED: "사용 완료", EXPIRED: "기간 지남" };
-const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
-const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+// 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
+const clock = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
+const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", ...CLOCK_OPTIONS });
 /** 마이페이지에 바로 보여 주는 알림 수. 나머지는 '전체 보기' 팝업에서 봅니다. */
 const PREVIEW = 8;
 
@@ -612,12 +613,7 @@ function MyPagePanel({ session }: { session: SessionUser }) {
           ) : (
             <p className="empty-inline">아직 신청한 예약이 없습니다.</p>
           )}
-          <section className="mypage-usage">
-            <div className="mypage-section-head">
-              <div><p className="meta">MY USAGE</p><h3>내 사용 기록</h3></div>
-            </div>
-            <MyUsagePanel />
-          </section>
+          <MyUsagePanel />
           <MyProjects />
         </section>
         <aside className="mypage-side">

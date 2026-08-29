@@ -3207,6 +3207,8 @@ async def test_예약_정책은_누구나_읽되_운영진만_고친다(client, 
     assert public.json()["autoApproveMinutes"] == 60
     assert set(public.json()) == {"autoApproveMinutes", "startGraceMinutes", "maxHours", "bookingWindowDays"}
     assert public_read("/api/v1/reservation-policy") is True
+    # 값이 바뀌면 부원 화면의 안내가 통째로 옛말이 되므로 짧은 캐시에 둔다.
+    assert "s-maxage=30" in public.headers.get("cache-control", "")
     assert (await login(client, member).put("/api/v1/admin/reservation-policy", json=POLICY)).status_code == 403
 
 
@@ -3307,3 +3309,42 @@ async def test_내_사용_기록은_내_예약만_센다(client, session):
     assert mine["missingPhotoCount"] == 1
     assert [row["label"] for row in mine["purposes"]] == ["대회"]
     assert mine["equipment"][0]["hours"] == 2.0
+
+
+async def test_예약_정책_변경은_무엇이_바뀌었는지_남는다(client, session):
+    """설정 변경은 나중에 "언제부터 규칙이 달라졌지" 를 되짚게 되는 자리다.
+
+    이 주소에는 식별자가 없어 자동으로는 이름을 찾을 수 없으므로(`services/audit.py`),
+    창구가 직접 이름과 바뀐 값을 담는다.
+    """
+    from app.models import AuditLog
+
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    http = login(client, officer)
+    # 먼저 한 번 읽어 설정 행을 만든다. 만들기까지 기록에 섞이지 않게 하기 위함이다.
+    assert (await http.get("/api/v1/admin/reservation-policy")).status_code == 200
+    assert (await http.put("/api/v1/admin/reservation-policy",
+                           json={**POLICY, "autoApproveMinutes": 90, "maxHours": 8})).status_code == 200
+
+    row = (await session.scalars(select(AuditLog).where(AuditLog.area == "예약 정책"))).all()[-1]
+    assert row.target == "예약 정책"
+    assert "자동 확정 60→90" in row.detail
+    assert "한 건 최대 12→8" in row.detail
+
+
+async def test_라이선스_일괄_부여는_어느_교육인지_남는다(client, session):
+    """누구에게 주었는지는 한 줄에 담을 수 없다. 이름 자리에는 교육이 와야 읽힌다."""
+    from app.models import AuditLog
+
+    manager = await make_user(session, "gear@example.com", permissions=["equipment:manage"])
+    member = await make_user(session, "member@example.com")
+    licence = License(name="OMY 운용 교육")
+    session.add(licence)
+    await session.commit()
+    assert (await login(client, manager).put(
+        f"/api/v1/admin/licenses/{licence.id}/members", json={"userIds": [str(member.id)]})).status_code == 200
+
+    row = (await session.scalars(select(AuditLog))).all()[-1]
+    assert row.area == "라이선스"
+    assert row.action == "members"
+    assert row.target == "OMY 운용 교육"
