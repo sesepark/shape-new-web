@@ -18,7 +18,9 @@ from app.models import (
     LinkVisibility,
     NewsPost,
     RelatedLink,
+    Reservation,
     ReservationSlot,
+    ReservationStatus,
     RoadmapItem,
     RoadmapMember,
     User,
@@ -35,6 +37,7 @@ from app.schemas import (
 )
 from app.security import READING_STATUSES, has_permission, optional_user
 from app.services import google_calendar
+from app.services.reservations import slots
 
 router = APIRouter(tags=["public"])
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -117,21 +120,69 @@ async def list_equipment(db: AsyncSession = Depends(get_db)):
 
 @router.get("/equipment/{equipment_id}/availability")
 async def equipment_availability(equipment_id: UUID, date: date_type = Query(), db: AsyncSession = Depends(get_db)):
+    """그 날 이 장비의 시간표. 확정된 칸과 **아직 대기 중인 칸**을 함께 알려 줍니다.
+
+    대기 중인 칸을 싣는 이유는, 같은 시간을 원하는 사람이 둘이라는 사실이 지금은
+    승인 단추를 누를 때까지 아무에게도 보이지 않기 때문입니다. 신청하기 전에
+    보이면 다른 시간으로 옮기거나, 왜 이 시간이어야 하는지 적어 둘 수 있습니다.
+
+    **여기 실리는 것은 호기와 시각뿐입니다 — 누가 신청했는지는 들어가지 않습니다.**
+    그래서 누가 부르든 같은 응답이고, `PUBLIC_READS` 허용 목록과 30초 공유 캐시를
+    그대로 써도 남의 정보가 새지 않습니다.
+
+    대가는 최대 30초의 지연입니다. 예약 화면의 요청은 쿠키를 보내지 않으므로(다른
+    출처라 붙지 않습니다) 회원의 요청도 캐시를 탑니다. 방금 신청한 사람이 곧바로
+    새로 고치면 자기 신청이 아직 안 보일 수 있습니다. 이것을 `cache.clear()` 로
+    고치면 안 됩니다 — 소식·장비 등 공개 읽기가 전부 함께 비워지고, 회원 한 사람의
+    신청(분당 20건까지)이 Neon 을 깨우는 방아쇠가 됩니다. 30초는 그 값을 치르지
+    않기로 한 선택입니다.
+    """
     equipment = await db.get(Equipment, equipment_id)
     if not equipment:
         raise HTTPException(404, "장비를 찾을 수 없습니다.")
     units = (await db.scalars(select(EquipmentUnit).where(EquipmentUnit.equipment_id == equipment_id, EquipmentUnit.status == EquipmentStatus.ACTIVE).order_by(EquipmentUnit.label))).all()
     day_start = datetime.combine(date, time.min, tzinfo=SEOUL).astimezone(UTC)
     day_end = (datetime.combine(date, time.min, tzinfo=SEOUL) + timedelta(days=1)).astimezone(UTC)
-    reserved = []
+    reserved: list = []
+    waiting: list = []
     if units:
-        reserved = (await db.execute(select(ReservationSlot.equipment_unit_id, ReservationSlot.slot_start).where(ReservationSlot.equipment_unit_id.in_([unit.id for unit in units]), ReservationSlot.slot_start >= day_start, ReservationSlot.slot_start < day_end))).all()
+        unit_ids = [unit.id for unit in units]
+        reserved = (await db.execute(select(ReservationSlot.equipment_unit_id, ReservationSlot.slot_start).where(ReservationSlot.equipment_unit_id.in_(unit_ids), ReservationSlot.slot_start >= day_start, ReservationSlot.slot_start < day_end))).all()
+        # 대기 신청은 확정 예약과 달리 슬롯 표가 없습니다(그것은 승인할 때만
+        # 만듭니다). 구간으로 읽어 와 아래에서 30분 칸으로 폅니다. 호기마다
+        # 물어보면 호기가 늘어난 만큼 Neon 을 두드리므로 질의는 한 번입니다.
+        waiting = (await db.execute(select(Reservation.equipment_unit_id, Reservation.starts_at, Reservation.ends_at).where(
+            Reservation.equipment_unit_id.in_(unit_ids),
+            Reservation.status == ReservationStatus.PENDING,
+            Reservation.starts_at < day_end,
+            Reservation.ends_at > day_start,
+        ))).all()
+
+    def pending_starts(unit_id) -> list[str]:
+        """그 호기에서 대기 중인 30분 칸. 같은 시각이 여러 번 나오면 그만큼 겹친 것."""
+        marks: list[datetime] = []
+        for owner, begins, finishes in waiting:
+            if owner != unit_id:
+                continue
+            begins = begins if begins.tzinfo else begins.replace(tzinfo=UTC)
+            finishes = finishes if finishes.tzinfo else finishes.replace(tzinfo=UTC)
+            marks += list(slots(max(begins, day_start), min(finishes, day_end)))
+        return sorted(mark.astimezone(SEOUL).isoformat() for mark in marks)
+
     return {
         "equipmentId": equipment.id,
         "reservationUnitMinutes": equipment.reservation_unit_minutes,
         "openHour": OPEN_HOUR,
         "closeHour": CLOSE_HOUR,
-        "units": [{"id": unit.id, "label": unit.label, "reservedStarts": [slot.astimezone(SEOUL).isoformat() for unit_id, slot in reserved if unit_id == unit.id]} for unit in units],
+        "units": [
+            {
+                "id": unit.id,
+                "label": unit.label,
+                "reservedStarts": [slot.astimezone(SEOUL).isoformat() for unit_id, slot in reserved if unit_id == unit.id],
+                "pendingStarts": pending_starts(unit.id),
+            }
+            for unit in units
+        ],
     }
 
 

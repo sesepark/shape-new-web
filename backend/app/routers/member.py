@@ -58,17 +58,23 @@ from app.security import (
 from app.services import cloudinary
 from app.services.content import sanitize_html
 from app.services.notifications import deliver_push, publish_notice_notifications, publish_owner_notifications
-from app.services.reservation_alerts import tell_user
-from app.services.reservations import cancel, companion_names, create_pending, read_models
+from app.services.reservation_alerts import tell_owner, tell_user
+from app.services.reservations import (
+    as_utc,
+    cancel,
+    companion_names,
+    create_pending,
+    overlapping_pending,
+    publish_to_calendar,
+    read_models,
+    release_remaining,
+    try_auto_approve,
+    unit_title,
+)
 from app.services.revalidate import refresh
 
 router = APIRouter(tags=["member"])
 SEOUL = ZoneInfo("Asia/Seoul")
-
-
-def as_utc(value: datetime) -> datetime:
-    """저장된 시각을 항상 UTC 기준으로 비교한다(로컬 SQLite 는 시간대를 잃는다)."""
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 @router.get("/equipment-permissions")
@@ -353,7 +359,8 @@ async def reservation_calendar(
             user_id=item.user_id,
             equipment_name=units.get(item.equipment_unit_id, ("", ""))[1],
             unit_label=units.get(item.equipment_unit_id, ("", ""))[0],
-            user_name=people.get(item.user_id, "회원"), purpose=item.purpose,
+            user_name=people.get(item.user_id, "회원"),
+            purpose_category=item.purpose_category, urgency=item.urgency,
             starts_at=item.starts_at, ends_at=item.ends_at, status=item.status,
             before_photo_url=item.before_photo_url, after_photo_url=item.after_photo_url,
             companions=together.get(item.id, []),
@@ -366,31 +373,62 @@ async def reservation_calendar(
 async def request_reservation(payload: ReservationCreate, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
     """장비 예약을 신청합니다.
 
-    신청은 운영진이 승인해야 진행되므로, 신청이 들어오면 운영진에게 알립니다.
-    예전에는 아무 표시가 없어서 관리자 화면을 직접 열어 보기 전에는 기다리는
-    신청이 있는지 알 수 없었습니다.
+    신청이 들어오면 운영진에게 알립니다. 예전에는 아무 표시가 없어서 관리자 화면을
+    직접 열어 보기 전에는 기다리는 신청이 있는지 알 수 없었습니다.
+
+    다만 **모든 신청이 사람의 승인을 기다리지는 않습니다.** 시작이 한 시간 안이고
+    다투는 신청이 없으면 여기서 곧바로 확정됩니다(`try_auto_approve`). 그래서
+    운영진에게 보내는 말도 세 갈래로 갈립니다 — 자동으로 확정됐다, 겹쳐서 사람이
+    골라야 한다, 평소처럼 승인해 달라.
     """
-    reservation, created = await create_pending(db, user.id, payload)
-    read = (await read_models(db, [reservation]))[0]
+    reservation, created, _ = await create_pending(db, user.id, payload)
     if not created:
-        return read
-    when = reservation.starts_at.astimezone(SEOUL).strftime("%m월 %d일 %H:%M")
-    title = f"새 예약 신청 · {read.equipment_name} {read.unit_label} · {when}"
-    devices = await publish_owner_notifications(db, title, "/admin")
+        return (await read_models(db, [reservation]))[0]
+
+    # 지금 돌고 있는 칸을 장비 앞에서 잡는 경우가 가장 흔한데, 그때 운영진을
+    # 기다리게 하면 자동화의 의미가 없다. 시작이 한 시간 안이고 다투는 신청이
+    # 없으면 여기서 곧바로 확정된다.
+    confirmed = await try_auto_approve(db, reservation)
+    read = (await read_models(db, [reservation]))[0]
+    when = as_utc(reservation.starts_at).astimezone(SEOUL).strftime("%m월 %d일 %H:%M")
+    what = f"{unit_title(read.equipment_name, read.unit_label)} · {when}"
+
+    if confirmed:
+        # 이미 확정된 것을 두고 "승인해 주세요" 라고 하면 안 된다. 운영진에게는
+        # 무슨 일이 있었는지만 알리고, 신청한 본인에게는 확정을 알린다.
+        staff_title = f"예약이 자동으로 확정되었습니다 · {what}"
+        staff_body = f"{user.name} 님의 신청입니다. 겹치는 예약이 없어 자동으로 확정했습니다."
+    elif await overlapping_pending(db, reservation):
+        # 자동 확정이 막히는 유일한 경우이자, 사람이 반드시 개입해야 하는 유일한
+        # 경우다. 그래서 접수 알림과 다른 제목으로 따로 알린다.
+        staff_title = f"같은 시간에 신청이 겹쳤습니다 · {what}"
+        staff_body = f"{user.name} 님의 신청이 다른 신청과 겹칩니다. 누구를 확정할지 정해 주세요."
+    else:
+        staff_title = f"새 예약 신청 · {what}"
+        staff_body = f"{user.name} 님이 예약을 신청했습니다. 승인해 주세요."
+
+    staff_devices = await publish_owner_notifications(db, staff_title, "/admin")
+
+    # 확정되었으면 신청한 본인에게도 남깁니다. 알림 상자에 기록이 남아야 나중에
+    # "언제 확정됐지?" 를 화면에서 되짚을 수 있습니다.
+    mine = f"예약이 확정되었습니다 · {what}" if confirmed else ""
+    mine_devices = await tell_owner(db, reservation, mine) if confirmed else []
 
     # 함께 쓰기로 이름이 올라간 사람에게도 알립니다. 모르는 사이에 이름이 올라가
     # 있으면 곤란하고, 시간에 맞춰 와야 하는 사람이기도 합니다.
     together = payload.companion_ids or []
     mate_devices: list[dict] = []
-    mate_title = f"함께 쓰는 예약에 이름이 올라갔습니다 · {read.equipment_name} {read.unit_label} · {when}"
+    mate_title = f"함께 쓰는 예약에 이름이 올라갔습니다 · {what}"
     for mate in {companion for companion in together if companion != user.id}:
         mate_devices += await tell_user(db, mate, mate_title)
 
     await db.commit()
     # 푸시는 저장이 끝난 뒤에 보냅니다. 저장이 실패했는데 알림만 가는 일을 막습니다.
-    await deliver_push(devices, title, body=f"{user.name} 님이 예약을 신청했습니다. 승인해 주세요.", path="/admin")
+    await deliver_push(staff_devices, staff_title, body=staff_body, path="/admin")
     if mate_devices:
         await deliver_push(mate_devices, mate_title, body=f"{user.name} 님이 신청했습니다.", path="/mypage")
+    if mine_devices:
+        await deliver_push(mine_devices, mine, body="시간이 되면 사용 전 사진을 올리고 시작해 주세요.", path="/mypage")
     return read
 
 
@@ -420,11 +458,21 @@ async def start_reservation(reservation_id: UUID, payload: ReservationPhotoWrite
 
 @router.post("/reservations/{reservation_id}/after", response_model=ReservationRead)
 async def complete_reservation(reservation_id: UUID, payload: ReservationPhotoWrite, user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
+    """사용을 마칩니다. 원하면 남은 시간을 그 자리에서 돌려줍니다.
+
+    예전에는 상태만 `COMPLETED` 로 바뀌고 확정 슬롯은 끝 시각까지 그대로 남았습니다.
+    17~19시를 잡고 17시 10분에 끝내도 19시까지 아무도 그 장비를 쓸 수 없었습니다.
+    """
     reservation = await owned_reservation(db, reservation_id, user)
     if reservation.status != ReservationStatus.IN_USE:
         raise HTTPException(409, "사용 중인 예약만 완료할 수 있습니다.")
     reservation.after_photo_url, reservation.status = payload.photo_url, ReservationStatus.COMPLETED
+    returned = await release_remaining(db, reservation) if payload.release_remaining else None
     await db.commit(); await db.refresh(reservation)
+    if returned:
+        # 시간이 바뀌었으니 공유 캘린더의 일정도 새 끝 시각으로 맞춥니다. 일정
+        # 식별자가 예약 번호에서 나오므로 같은 일정이 갱신됩니다.
+        await publish_to_calendar(db, reservation)
     return (await read_models(db, [reservation]))[0]
 
 

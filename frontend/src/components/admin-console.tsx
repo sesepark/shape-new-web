@@ -18,6 +18,10 @@ import { HomeHero, HomeIntro, HomeNext, HomeNumbers, HomePillars } from "@/compo
 import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { ASK_ALT, useAsk } from "@/components/ask-dialog";
+import { useNotice } from "@/components/use-notice";
+import { ReservationsPanel } from "@/components/admin-reservations-panel";
+import { AdminUsageStats } from "@/components/admin-usage-stats";
+import { adminFetch, adminSend, apiUrl, type AdminResult } from "@/lib/admin-api";
 import { date as longDate } from "@/lib/format";
 import { media, optimizable } from "@/lib/media";
 import type { ShapeMember } from "@/lib/members";
@@ -27,7 +31,7 @@ const groups = [
   // 홈은 한 화면씩 스크롤로 넘어가므로, 그 장을 그대로 탭으로 나눕니다.
   { label: "HOME", tabs: ["히어로", "인트로", "단계", "현황", "일정"] },
   { label: "SHAPE", tabs: ["인사말", "동아리 소개", "조직도", "부원"] },
-  { label: "장비 예약", tabs: ["보유 장비", "라이선스", "장비 예약"] },
+  { label: "장비 예약", tabs: ["보유 장비", "라이선스", "장비 예약", "사용 통계"] },
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
   { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"] },
   { label: "바로가기", tabs: ["관련 링크"] },
@@ -49,6 +53,7 @@ const tabPermission: Record<Section, string> = {
   "보유 장비": "equipment:manage",
   "라이선스": "equipment:manage",
   "장비 예약": "reservations:manage",
+  "사용 통계": "reservations:manage",
   "SHAPE 뉴스": "news:manage",
   "언론보도": "news:manage",
   "게시판": "notices:manage",
@@ -62,8 +67,6 @@ const tabPermission: Record<Section, string> = {
   "수정 내역": "owner",
   "서버": "owner",
 };
-const apiUrl =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 /**
  * 관리자 화면이 공개 응답을 읽을 때 붙이는 설정.
  *
@@ -87,26 +90,6 @@ type AdminRow = Record<
   string | number | boolean | null | Record<string, unknown> | unknown[]
 >;
 const emptyRows: AdminRow[] = [];
-
-/** A dropped connection must read as a failed call, never an unhandled reject. */
-type AdminResult = { ok: boolean; status: number; json: () => Promise<unknown> };
-const offline: AdminResult = { ok: false, status: 0, json: async () => ({}) };
-
-async function adminFetch(path: string, init: RequestInit = {}): Promise<AdminResult> {
-  try {
-    return await fetch(`${apiUrl}${path}`, { credentials: "include", cache: "no-store", ...init });
-  } catch {
-    return offline;
-  }
-}
-
-async function adminSend(path: string, method: string, body?: unknown): Promise<AdminResult> {
-  return adminFetch(path, {
-    method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-}
 
 
 /**
@@ -204,7 +187,8 @@ const sectionGuide: Record<Section, { what: string; where: string; href?: string
   "부원": { what: "부원 카드를 한 명씩 등록하고 사진·역할·회원 구분을 관리합니다.", where: "공개 페이지 SHAPE › 부원", href: "/members" },
   "보유 장비": { what: "장비를 등록하고 사진·상태·예약 조건과 개별 호기를 관리합니다.", where: "공개 페이지 장비 예약 › 보유 장비", href: "/equipment" },
   "라이선스": { what: "장비를 쓰기 전에 이수해야 하는 교육 항목을 만듭니다.", where: "장비 상세의 '사전 조건'과 부원 마이페이지" },
-  "장비 예약": { what: "회원이 신청한 예약을 승인·반려하고 사용 전후 사진을 확인합니다.", where: "회원 마이페이지와 예약 시간표" },
+  "장비 예약": { what: "겹친 신청을 가리고, 예약을 확정·반려하며, 정기 예약을 등록합니다.", where: "회원 마이페이지와 예약 시간표" },
+  "사용 통계": { what: "장비가 언제 얼마나 쓰였는지, 목적과 시급도의 분포를 봅니다.", where: "운영진만 보는 화면입니다." },
   "SHAPE 뉴스": { what: "동아리 활동 소식을 사진과 함께 올립니다.", where: "공개 페이지 소식 › SHAPE 뉴스", href: "/news" },
   "언론보도": { what: "외부 기사·영상 링크를 등록하면 미리보기가 자동으로 만들어집니다.", where: "공개 페이지 소식 › 언론보도", href: "/news/press" },
   "게시판": { what: "승인된 회원만 보는 내부 공지를 씁니다. 공개하면 알림이 함께 전달됩니다.", where: "공개 페이지 소식 › 게시판(로그인 필요)", href: "/notices" },
@@ -482,6 +466,7 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
   if (tab === "보유 장비") return <EquipmentForm />;
   if (tab === "라이선스") return <LicenseManager />;
   if (tab === "장비 예약") return <ReservationsPanel />;
+  if (tab === "사용 통계") return <AdminUsageStats />;
   if (["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"].includes(tab))
     return (
       <RoadmapForm key={tab} fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
@@ -607,15 +592,6 @@ function dateOnly(value: unknown): string {
   const at = new Date(value);
   if (Number.isNaN(at.getTime())) return "";
   return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-}
-
-function useNotice() {
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
-  const say = useCallback((text: string, ok = true) => setNotice(text ? { text, ok } : null), []);
-  const node = notice
-    ? <p className={`save-notice${notice.ok ? "" : " danger"}`} role="status">{notice.text}</p>
-    : null;
-  return { say, node };
 }
 
 function useAdminRows(path: string) {
@@ -2826,14 +2802,6 @@ function LinkForm() {
   );
 }
 
-const reservationStatusLabel: Record<string, string> = {
-  PENDING: "승인 대기",
-  APPROVED: "예약 확정",
-  REJECTED: "반려",
-  CANCELLED: "취소",
-  IN_USE: "사용 중",
-  COMPLETED: "사용 완료",
-};
 const memberStatusLabel: Record<MemberStatus, string> = {
   PENDING: "승인 대기",
   APPROVED: "활동 회원",
@@ -2949,164 +2917,6 @@ function LicenseManager() {
         <div className="empty-state">
           <h2>등록된 라이선스가 없습니다</h2>
           <p>첫 교육 항목을 만들면 장비 예약 조건으로 사용할 수 있습니다.</p>
-        </div>
-      )}
-      {dialogNode}
-    </div>
-  );
-}
-
-function ReservationsPanel() {
-  const { ask, dialogNode } = useAsk();
-  const [rows, setRows] = useState<AdminReservationItem[] | null>(null);
-  const [filter, setFilter] = useState("PENDING");
-  const { say, node: notice } = useNotice();
-  const reload = useCallback(async () => {
-    const query = filter === "ALL" ? "" : `?status=${filter}`;
-    const response = await adminFetch(`/admin/reservations${query}`).catch(() => null);
-    if (!response) {
-      say("백엔드 서버에 연결하지 못했습니다.", false);
-      setRows([]);
-      return;
-    }
-    if (!response.ok) {
-      say("목록을 확인하려면 예약 관리 권한이 필요합니다.", false);
-      setRows([]);
-      return;
-    }
-    // 여기서 알림을 지우지 않습니다. 승인·반려 직후에도 목록을 다시 읽는데,
-    // 그때 지워 버리면 "승인했습니다" 가 떴다가 곧바로 사라집니다.
-    setRows((await response.json()) as AdminReservationItem[]);
-  }, [filter, say]);
-  useEffect(() => {
-    const load = async () => { await reload(); };
-    void load();
-  }, [reload]);
-  async function decide(row: AdminReservationItem, approve: boolean) {
-    let reason: string | null = null;
-    if (approve) {
-      const confirmed = await ask({
-        title: "이 예약을 승인할까요?",
-        description: `${row.equipmentName} ${row.unitLabel} · ${row.userName} 님의 신청입니다. 승인하면 그 시간이 다른 회원에게 확정 예약으로 표시됩니다.`,
-        confirmLabel: "승인",
-      });
-      if (confirmed === null) return;
-    } else {
-      reason = await ask({
-        title: "예약을 반려합니다",
-        description: `${row.userName} 님에게 그대로 전달되니, 다음에 어떻게 신청하면 되는지 함께 적어 주세요.`,
-        confirmLabel: "반려",
-        tone: "danger",
-        field: { label: "반려 사유", multiline: true, required: true, defaultValue: "", placeholder: "예: 같은 시간에 교육 트랙 실습이 예정되어 있습니다. 오후 시간대로 다시 신청해 주세요." },
-      });
-      if (reason === null) return;
-    }
-    const response = await adminSend(`/admin/reservations/${row.id}/decision`, "POST", { approve, reason });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
-      say(detail?.detail ?? "처리하지 못했습니다. 같은 시간에 확정된 예약이 있는지 확인해 주세요.", false);
-      return;
-    }
-    say(approve
-      ? `${row.userName} 님의 ${row.equipmentName} 예약을 승인했습니다.`
-      : `${row.userName} 님의 ${row.equipmentName} 예약을 반려했습니다.`);
-    await reload();
-  }
-  async function cancel(row: AdminReservationItem) {
-    const reason = await ask({
-      title: "확정된 예약을 취소합니다",
-      description: `${row.equipmentName} ${row.unitLabel} · ${row.userName} 님의 예약입니다. 취소하면 그 시간이 다시 열립니다.`,
-      confirmLabel: "예약 취소",
-      tone: "danger",
-      field: { label: "취소 사유", multiline: true, required: true, placeholder: "예: 장비 긴급 점검이 잡혀 사용이 어렵습니다." },
-    });
-    if (reason === null) return;
-    const response = await adminSend(`/admin/reservations/${row.id}/cancel`, "POST", { approve: false, reason });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
-      say(detail?.detail ?? "취소하지 못했습니다.", false);
-      return;
-    }
-    say("예약을 취소하고 시간을 다시 열었습니다.");
-    await reload();
-  }
-  return (
-    <div className="admin-form">
-      <p className="form-note">
-        승인하면 해당 시간이 다른 회원에게 확정 예약으로 표시되고, 데이터베이스가 중복 슬롯을 차단합니다. 사용 전후 사진은 회원이 올린 그대로 확인할 수 있습니다.
-      </p>
-      {/* 승인 단추가 사이트 밖에도 무언가를 남긴다는 것을 운영진이 알아야 합니다.
-          그 캘린더는 SHAPE 만 보는 곳이 아니라 장비를 함께 쓰는 다른 분들도 봅니다. */}
-      <p className="form-note">
-        <strong>AI Worker</strong> 예약은 승인하는 순간 동아리 공유 캘린더 ‘휴머노이드 운용’ 에도 일정이 올라가고, 취소하면 그 일정이 지워집니다.
-        반려한 예약은 캘린더에 올라간 적이 없으므로 지울 것도 없습니다.
-      </p>
-      <div className="board-filter" aria-label="예약 상태 필터">
-        {["PENDING", "APPROVED", "IN_USE", "COMPLETED", "ALL"].map((value) => (
-          <button type="button" key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>
-            {value === "ALL" ? "전체" : reservationStatusLabel[value]}
-          </button>
-        ))}
-      </div>
-      {notice}
-      {rows === null ? (
-        <p className="form-note">예약 목록을 불러오는 중입니다.</p>
-      ) : rows.length ? (
-        <div className="admin-reservations">
-          {rows.map((row) => (
-            <article key={row.id}>
-              <header>
-                <div>
-                  <strong>{row.equipmentName || "장비"}{row.unitLabel ? ` · ${row.unitLabel}` : ""}</strong>
-                  <p>{moment.format(new Date(row.startsAt))} — {moment.format(new Date(row.endsAt))}</p>
-                </div>
-                <span className={`reservation-status ${row.status.toLowerCase()}`}>{reservationStatusLabel[row.status]}</span>
-              </header>
-              <p className="reservation-purpose">{row.purpose}</p>
-              <p className="form-note">
-                {row.userName} · {row.userEmail}
-                {row.rejectionReason ? ` · 사유: ${row.rejectionReason}` : ""}
-              </p>
-              {(row.beforePhotoUrl || row.afterPhotoUrl) && (
-                <div className="reservation-photos">
-                  {row.beforePhotoUrl && (
-                    <figure>
-                      <Image src={media(row.beforePhotoUrl, 400)} alt="사용 전 사진" width={320} height={220} unoptimized={!optimizable(row.beforePhotoUrl)} />
-                      <figcaption>사용 전</figcaption>
-                    </figure>
-                  )}
-                  {row.afterPhotoUrl && (
-                    <figure>
-                      <Image src={media(row.afterPhotoUrl, 400)} alt="사용 후 사진" width={320} height={220} unoptimized={!optimizable(row.afterPhotoUrl)} />
-                      <figcaption>사용 후</figcaption>
-                    </figure>
-                  )}
-                </div>
-              )}
-              <div className="inline-actions">
-                {row.status === "PENDING" && (
-                  <>
-                    <button className="button small" type="button" onClick={() => decide(row, true)}>
-                      승인
-                    </button>
-                    <button className="button secondary small" type="button" onClick={() => decide(row, false)}>
-                      반려
-                    </button>
-                  </>
-                )}
-                {(row.status === "PENDING" || row.status === "APPROVED") && (
-                  <button className="text-button danger" type="button" onClick={() => cancel(row)}>
-                    예약 취소
-                  </button>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <h2>표시할 예약이 없습니다</h2>
-          <p>필터를 바꾸면 지난 예약과 사용 기록도 확인할 수 있습니다.</p>
         </div>
       )}
       {dialogNode}

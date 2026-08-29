@@ -24,11 +24,11 @@ Google OAuth·Neon 없이 로컬에서 전체 흐름을 확인할 때는 SQLite 
 ```bash
 # 1) 데모 데이터 시드 (운영진/부원/장비/호기/라이선스/예약/로드맵/공지)
 cd backend
-DATABASE_URL="sqlite+aiosqlite://$(pwd)/dev.sqlite3" SESSION_SECRET="local-development-secret-value" \
+DATABASE_URL="sqlite+aiosqlite:///$(pwd)/dev.sqlite3" SESSION_SECRET="local-development-secret-value" \
   .venv/bin/python scripts/dev_seed.py
 
 # 2) API
-DATABASE_URL="sqlite+aiosqlite://$(pwd)/dev.sqlite3" SESSION_SECRET="local-development-secret-value" \
+DATABASE_URL="sqlite+aiosqlite:///$(pwd)/dev.sqlite3" SESSION_SECRET="local-development-secret-value" \
   FRONTEND_URL="http://localhost:3000" .venv/bin/python -m uvicorn app.main:app --port 8000
 
 # 3) 웹
@@ -42,7 +42,7 @@ cd ../frontend && npm run dev
 
 ```bash
 cd backend
-DATABASE_URL="sqlite+aiosqlite://$(pwd)/dev.sqlite3" SESSION_SECRET="local-development-secret-value" \
+DATABASE_URL="sqlite+aiosqlite:///$(pwd)/dev.sqlite3" SESSION_SECRET="local-development-secret-value" \
   .venv/bin/python scripts/dev_token.py 오유하    # 이름·이메일 일부로 검색, 생략하면 전체
 ```
 

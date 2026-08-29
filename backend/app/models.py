@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     JSON,
@@ -16,6 +17,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
+
+SEOUL = ZoneInfo("Asia/Seoul")
 
 
 class UtcDateTime(TypeDecorator):
@@ -70,6 +73,34 @@ class ReservationStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
     IN_USE = "IN_USE"
     COMPLETED = "COMPLETED"
+    # 아무도 손대지 않은 채 사용 시간이 다 지나간 신청. `CANCELLED` 로 뭉뚱그리면
+    # '사람이 물린 것' 과 '그냥 지나간 것' 이 관리자 목록에서 구분되지 않는다.
+    EXPIRED = "EXPIRED"
+
+
+class ReservationPurpose(str, enum.Enum):
+    """무엇 때문에 장비를 쓰는가.
+
+    같은 시간에 신청이 겹쳤을 때 운영진이 무엇을 먼저 봐야 하는지 정하는 축이다.
+    자유서술 한 줄만으로는 대회 마감 때문에 오늘 꼭 써야 하는 신청과 다음 주에
+    해도 되는 연습이 똑같아 보였다.
+
+    한글이 아니라 영문 멤버로 두는 이유는 `LinkVisibility` 와 같다 — 정렬과 점수
+    계산을 서버가 하므로 순서가 로케일에 흔들리면 안 된다. 화면 글자는 UI 가 붙인다.
+    """
+
+    CONTEST = "CONTEST"      # 대회
+    SHAPE_UP = "SHAPE_UP"    # SHAPE-UP
+    EDUCATION = "EDUCATION"  # 교육
+    OTHER = "OTHER"          # 기타
+
+
+class ReservationUrgency(str, enum.Enum):
+    """얼마나 급한가. 신청한 사람이 스스로 고른다."""
+
+    HIGH = "HIGH"      # 매우 시급
+    NORMAL = "NORMAL"  # 보통
+    LOW = "LOW"        # 낮음
 
 
 class Timestamped:
@@ -178,7 +209,17 @@ class Reservation(Base, Timestamped):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     starts_at: Mapped[datetime] = mapped_column(UtcDateTime())
     ends_at: Mapped[datetime] = mapped_column(UtcDateTime())
-    purpose: Mapped[str] = mapped_column(Text)
+    # 덧붙이는 말. 예전 이름은 `purpose` 였고 '사용 목적 및 작업 내용' 을 받았다.
+    # 이제 목적은 아래 `purpose_category` 가 맡고, 이 칸은 '왜 하필 이 시간이어야
+    # 하는가' 를 적는 자리다. 시간이 겹쳤을 때 운영진이 실제로 읽는 곳이라,
+    # 신청 화면에서도 그렇게 안내한다.
+    note: Mapped[str] = mapped_column(Text, default="", server_default="")
+    purpose_category: Mapped[ReservationPurpose] = mapped_column(
+        Enum(ReservationPurpose), default=ReservationPurpose.OTHER, server_default=ReservationPurpose.OTHER.value
+    )
+    urgency: Mapped[ReservationUrgency] = mapped_column(
+        Enum(ReservationUrgency), default=ReservationUrgency.NORMAL, server_default=ReservationUrgency.NORMAL.value
+    )
     status: Mapped[ReservationStatus] = mapped_column(Enum(ReservationStatus), default=ReservationStatus.PENDING)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     before_photo_url: Mapped[str | None] = mapped_column(String(1000))
@@ -187,6 +228,30 @@ class Reservation(Base, Timestamped):
     start_notified_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
     before_photo_notified_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
     photo_notified_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    # 운영진에게 "아직 안 보셨습니다" 를 한 번만 보내기 위한 자국.
+    staff_reminded_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    # 사람이 아니라 시계가 결정한 예약(자동 확정·자동 만료). 승인·취소 화면에
+    # 누른 사람 이름이 없는 이유를 남긴다.
+    auto_decided_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    # 정기 예약으로 한꺼번에 만들어진 묶음. 학기 하나를 통째로 물릴 때 쓴다.
+    recurrence_group_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+
+    @property
+    def audit_label(self) -> str:
+        """수정 내역에 남길 이름.
+
+        예약에는 제목이 없다. 예전에는 '사용 목적' 자유서술을 그대로 썼는데, 그
+        칸이 선택 입력이 되면서 비어 있는 예약이 생긴다. 비면 수정 내역에
+        "무엇을 승인했는지" 가 사라지므로, 그때는 시각으로 이름을 만든다.
+        """
+        if self.note and self.note.strip():
+            return self.note.strip()
+        when = self.starts_at
+        if when is None:
+            return "예약"
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return when.astimezone(SEOUL).strftime("%m월 %d일 %H:%M 예약")
 
 
 class ReservationCompanion(Base):

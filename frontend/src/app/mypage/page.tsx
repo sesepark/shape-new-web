@@ -12,6 +12,7 @@ import { ImageUploadField } from "@/components/image-upload-field";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL } from "@/lib/api";
+import { purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { media, optimizable } from "@/lib/media";
 import { loadSession, useSession } from "@/lib/session";
 import { appleDevice, currentSubscription, installedToHomeScreen, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
@@ -38,7 +39,7 @@ function permissionNote(item: EquipmentPermission) {
   return equipmentStatusNote[item.status] || "사용 불가";
 }
 
-const statusLabel: Record<ReservationItem["status"], string> = { PENDING: "승인 대기", APPROVED: "예약 확정", REJECTED: "반려", CANCELLED: "취소", IN_USE: "사용 중", COMPLETED: "사용 완료" };
+const statusLabel: Record<ReservationItem["status"], string> = { PENDING: "승인 대기", APPROVED: "예약 확정", REJECTED: "반려", CANCELLED: "취소", IN_USE: "사용 중", COMPLETED: "사용 완료", EXPIRED: "기간 지남" };
 const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
 const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
 /** 마이페이지에 바로 보여 주는 알림 수. 나머지는 '전체 보기' 팝업에서 봅니다. */
@@ -53,10 +54,21 @@ async function call(path: string, init: RequestInit = {}) {
 /** 아직 차례가 아닌 예약에도 다음에 무엇을 해야 하는지 알려 준다. */
 function ReservationNextStep({ status }: { status: ReservationItem["status"] }) {
   if (status === "PENDING")
-    return <p className="reservation-hint">운영진 승인을 기다리는 중입니다. 승인되면 이 자리에서 <b>사용 전 사진</b>을 올리고 사용을 시작할 수 있습니다.</p>;
-  if (status === "REJECTED" || status === "CANCELLED")
-    return null;
+    return <p className="reservation-hint">운영진 승인을 기다리는 중입니다. 같은 시간에 다른 신청이 없으면 <b>시작 한 시간 전에 저절로 확정</b>됩니다. 확정되면 이 자리에서 사용 전 사진을 올리고 시작할 수 있습니다.</p>;
+  if (status === "EXPIRED")
+    return <p className="reservation-hint">신청한 시간이 지나 자동으로 만료되었습니다. 다시 쓰시려면 새로 신청해 주세요.</p>;
   return null;
+}
+
+/** 예약 카드에 붙는 분류·시급도 딱지. 무엇을 위한 예약인지 한눈에 보입니다. */
+function ReservationTags({ reservation }: { reservation: ReservationItem }) {
+  return (
+    <ul className="reservation-tags">
+      <li className="purpose-chip">{purposeLabel(reservation.purposeCategory)}</li>
+      <li className="urgency-badge" data-level={reservation.urgency ?? "NORMAL"}>{urgencyLabel(reservation.urgency)}</li>
+      {reservation.autoDecidedAt && <li className="auto-chip">자동 확정</li>}
+    </ul>
+  );
 }
 
 function ReservationCard({ reservation, onChange }: { reservation: ReservationItem; onChange: (next: ReservationItem) => void }) {
@@ -67,7 +79,7 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
   async function cancel() {
     const confirmed = await ask({
       title: "예약을 취소할까요?",
-      description: `${reservation.equipmentName} ${reservation.unitLabel} · ${reservation.purpose || "신청한 예약"}을 취소합니다. 취소하면 그 시간이 다른 회원에게 다시 열립니다.`,
+      description: `${unitTitle(reservation.equipmentName, reservation.unitLabel)} · ${stamp.format(starts)} 예약을 취소합니다. 취소하면 그 시간이 다른 회원에게 다시 열립니다.`,
       confirmLabel: "예약 취소",
       tone: "danger",
     });
@@ -83,9 +95,10 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
         <span>{new Intl.DateTimeFormat("ko-KR", { month: "short" }).format(starts)}</span>
       </div>
       <div className="reservation-body">
-        <h4>{reservation.purpose}</h4>
+        <h4>{unitTitle(reservation.equipmentName, reservation.unitLabel)}</h4>
         <p><Clock3 size={14} />{clock.format(starts)} – {clock.format(new Date(reservation.endsAt))}</p>
-        <p className="reservation-target">{reservation.equipmentName || "장비"}{reservation.unitLabel ? ` · ${reservation.unitLabel}` : ""}</p>
+        <ReservationTags reservation={reservation} />
+        {reservation.note && <p className="reservation-note">{reservation.note}</p>}
         {/* 함께 쓰는 사람이 있으면 누구인지 보여 줍니다. */}
         {reservation.companions && reservation.companions.length > 0 && (
           <p className="reservation-companions"><Users size={14} /> 함께 쓰는 부원: {reservation.companions.join(", ")}</p>

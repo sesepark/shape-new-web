@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AutoTextarea } from "@/components/auto-textarea";
 
 type Field = {
@@ -25,11 +25,22 @@ export const ASK_ALT = "\u0000alt";
 
 export type AskOptions = {
   title: string;
-  description?: string;
+  /**
+   * 한 줄이면 글자만 주면 되고, 목록이나 굵은 글씨가 필요하면 그대로 넘겨도
+   * 됩니다. 글자일 때만 `<p>` 로 감쌉니다 — `<p>` 안에 `<ul>` 을 넣으면
+   * 브라우저가 문단을 조용히 닫아 버려 뒤쪽이 밖으로 새어 나옵니다.
+   */
+  description?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   /** 주면 취소와 확인 사이에 단추가 하나 더 생기고, 누르면 `ASK_ALT` 가 옵니다. */
   altLabel?: string;
+  /**
+   * 가운데 단추의 무게. 기본은 붉은 계열입니다 — "저장하지 않고 이동" 처럼
+   * 되돌릴 수 없는 선택이 그 자리에 오는 경우가 많기 때문입니다. 그저 다른 곳으로
+   * 가는 것뿐인 단추에는 `plain` 을 주어 경고처럼 보이지 않게 합니다.
+   */
+  altTone?: "warn" | "plain";
   tone?: "default" | "danger";
   field?: Field;
 };
@@ -87,7 +98,11 @@ export function useAsk() {
             {pending.tone === "danger" && <AlertTriangle size={19} aria-hidden="true" />}
             {pending.title}
           </h3>
-          {pending.description && <p>{pending.description}</p>}
+          {pending.description !== undefined && pending.description !== null && (
+            typeof pending.description === "string"
+              ? <p>{pending.description}</p>
+              : <div className="ask-body">{pending.description}</div>
+          )}
           {pending.field && (
             <label>
               {pending.field.label}
@@ -126,7 +141,11 @@ export function useAsk() {
           {pending.altLabel ? (
             <div className="ask-actions stacked">
               <button type="submit" className="button">{pending.confirmLabel ?? "확인"}</button>
-              <button type="button" className="button secondary ask-alt" onClick={() => settle(ASK_ALT)}>
+              <button
+                type="button"
+                className={`button secondary ask-alt${pending.altTone === "plain" ? " plain" : ""}`}
+                onClick={() => settle(ASK_ALT)}
+              >
                 {pending.altLabel}
               </button>
               <button type="button" className="button secondary" onClick={() => settle(null)}>

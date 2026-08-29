@@ -30,13 +30,24 @@ from app.models import (
     ReservationStatus,
     User,
 )
-from app.services.notifications import devices_of
+from app.services.notifications import devices_of, publish_owner_notifications
+from app.services.reservations import overlapping_pending, unit_title
 
 SEOUL = ZoneInfo("Asia/Seoul")
 # 사용 시작 뒤 이만큼 지나도 사용 전 사진이 없으면 한 번 더 알립니다.
 BEFORE_PHOTO_GRACE = timedelta(minutes=30)
+# 시작이 이만큼 앞으로 다가왔는데 아직 대기 중이면 운영진에게 한 번 더 알립니다.
+# 자동 확정(1시간 전)보다 한 시간 앞이라, 운영진에게 직접 볼 틈이 한 시간 남습니다.
+STAFF_REMINDER_LEAD = timedelta(hours=2)
+# 운영진 알림을 누르면 가는 곳.
+STAFF_URL = "/admin"
 # 예약 알림을 누르면 가는 곳. 신청한 사람은 마이페이지에서 자기 예약을 봅니다.
 MEMBER_URL = "/mypage"
+
+
+def _utc(value: datetime) -> datetime:
+    """로컬 SQLite 는 시간대를 잃으므로 비교 전에 UTC 로 맞춥니다."""
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def when(moment: datetime) -> str:
@@ -48,7 +59,7 @@ async def label(db: AsyncSession, reservation: Reservation) -> str:
     """'AI Worker 1호기' 처럼 무엇을 예약했는지 한 줄로."""
     unit = await db.get(EquipmentUnit, reservation.equipment_unit_id)
     equipment = await db.get(Equipment, unit.equipment_id) if unit else None
-    return " ".join(part for part in [getattr(equipment, "name", ""), getattr(unit, "label", "")] if part)
+    return unit_title(getattr(equipment, "name", ""), getattr(unit, "label", ""))
 
 
 async def tell_owner(db: AsyncSession, reservation: Reservation, title: str) -> list[dict]:
@@ -69,6 +80,9 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
        사진은 장비 상태를 확인하는 유일한 기록이라 놓치면 되돌릴 수 없습니다.
     3. **사용이 끝났는데 사진이 없는 예약** — 끝난 시각이 지났고 사용 후 사진이
        아직 없으면 한 번 알립니다.
+    4. **시작이 두 시간 앞인데 아직 대기 중인 신청** — 운영진에게 알립니다.
+       이 훑기는 알림만 만들고 **아무 상태도 바꾸지 않습니다.** 자동 확정과
+       자동 만료는 `reservation_sweeps` 가 따로 맡습니다.
 
     이미 보낸 것은 `*_notified_at` 칸으로 가려냅니다.
     """
@@ -119,6 +133,39 @@ async def sweep_due(db: AsyncSession) -> list[tuple[str, str, list[dict]]]:
         title = f"사용 후 사진을 올려 주세요 · {name}"
         item.photo_notified_at = now
         out.append((title, "사용이 끝났습니다. 정리 상태를 사진으로 남겨 주세요.", await tell_owner(db, item, title)))
+
+    # 아직 대기 중인데 시작이 코앞인 신청. 운영진에게 한 번 더 알립니다.
+    #
+    # 처음부터 두 시간 안쪽으로 들어온 신청은 접수 알림이 이미 그 역할을 했으므로
+    # 여기서 또 울리지 않습니다(아래 `late_arrival`). 그 비교는 컬럼끼리 시각을
+    # 빼는 일이라 SQL 로 쓰면 Postgres 와 SQLite 문법이 갈립니다. 후보가 몇 건
+    # 되지 않으므로 읽어 와서 파이썬에서 거릅니다.
+    unattended = (await db.scalars(
+        select(Reservation).where(
+            Reservation.status == ReservationStatus.PENDING,
+            Reservation.starts_at <= now + STAFF_REMINDER_LEAD,
+            Reservation.ends_at > now,
+            Reservation.staff_reminded_at.is_(None),
+        ).limit(50)
+    )).all()
+    for item in unattended:
+        late_arrival = item.created_at and _utc(item.created_at) > _utc(item.starts_at) - STAFF_REMINDER_LEAD
+        if late_arrival:
+            # 접수 알림이 곧 독촉이었던 신청입니다. 다시 울리지 않도록 자국만 남깁니다.
+            item.staff_reminded_at = now
+            continue
+        name = await label(db, item)
+        item.staff_reminded_at = now
+        title = f"아직 승인하지 않은 예약이 있습니다 · {name} · {when(item.starts_at)}"
+        # 운영진이 실제로 알고 싶은 것은 "내가 지금 움직여야 하는가" 입니다.
+        # 겹치는 신청이 있으면 자동 확정이 막히므로 사람이 반드시 골라야 하고,
+        # 없으면 그냥 두어도 한 시간 전에 저절로 확정됩니다.
+        rival = await overlapping_pending(db, item)
+        body = (
+            "같은 시간에 다른 신청이 있어 자동으로 확정되지 않습니다. 직접 골라 주세요."
+            if rival else "1시간 전까지 처리하지 않으면 자동으로 확정됩니다."
+        )
+        out.append((title, body, await publish_owner_notifications(db, title, STAFF_URL)))
 
     if out:
         await db.commit()

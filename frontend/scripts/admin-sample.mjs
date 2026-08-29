@@ -36,17 +36,76 @@ const equipment = ["AI Worker", "OMY", "LeRobot SO-ARM 101", "Unitree G1 휴머�
   units: Array.from({ length: (i % 3) + 1 }, (_, u) => ({ id: ID(`unit${i}`, u), equipmentId: ID("eq", i), label: `${name} ${u + 1}호기`, status: "ACTIVE" })),
 }));
 
-const reservations = Array.from({ length: 28 }, (_, i) => ({
-  id: ID("rsv", i), equipmentUnitId: ID("unit0", 0), userId: ID("user", i % 34),
-  startsAt: iso(-(i % 14) + 7), endsAt: iso(-(i % 14) + 6.9),
-  purpose: i % 3 === 0 ? "SHAPE-UP 3팀 모방학습 데이터 수집. 리더-팔로워 구성으로 집기 동작 200회를 반복하고, 실패 사례를 따로 기록해 다음 주 정기 미팅에서 공유할 예정입니다." : "정기 교육 실습",
-  status: ["PENDING", "APPROVED", "REJECTED", "CANCELLED"][i % 4],
-  rejectionReason: i % 4 === 2 ? "같은 시간에 대회 준비 일정이 잡혀 있습니다." : null,
-  beforePhotoUrl: null, afterPhotoUrl: null,
-  equipmentName: equipment[i % equipment.length].name, unitLabel: `${equipment[i % equipment.length].name} 1호기`,
-  companions: i % 5 === 0 ? ["남궁민수", "황보름다운", "Alexander Christopher"] : [],
-  userName: 긴이름[i % 긴이름.length], userEmail: `very.long.email.address.${i}@snu.ac.kr`, createdAt: iso(i),
-}));
+/**
+ * 예약 목 자료.
+ *
+ * 예전에는 모든 행이 같은 호기였고 `endsAt` 이 `startsAt` 보다 **앞서** 있었다.
+ * 그래서 겹침 묶음도, 시간 표시도 실제와 다른 것을 그려 보고 있었다.
+ *
+ * 지금은 호기를 흩고, 그중 한 호기(`unit0-0`)에 **일부러 세 건을 겹쳐** 둔다.
+ * 그러지 않으면 관리자 화면의 겹침 묶음이 한 번도 그려지지 않아, 좁은 화면에서
+ * 깨지는지 알 수 없다.
+ */
+const 예약단위 = [ID("unit0", 0), ID("unit1", 0), ID("unit2", 0), ID("unit3", 0)];
+const 목적 = ["CONTEST", "SHAPE_UP", "EDUCATION", "OTHER"];
+const 시급도 = ["HIGH", "NORMAL", "LOW"];
+/** 앞으로 다가올 시각. 하루 뒤부터 시작해 겹치도록 두 시간씩 잡는다. */
+const 앞으로 = (hours) => new Date(Date.now() + hours * 3600000).toISOString();
+
+const reservations = Array.from({ length: 28 }, (_, i) => {
+  // 앞의 세 건은 같은 호기·같은 시간대를 두고 다툰다(3중 겹침).
+  const 다툼 = i < 3;
+  const unitId = 다툼 ? 예약단위[0] : 예약단위[i % 예약단위.length];
+  const 시작 = 다툼 ? 24 + i : 24 + i * 3;
+  return {
+    id: ID("rsv", i), equipmentUnitId: unitId, userId: ID("user", i % 34),
+    startsAt: 앞으로(시작), endsAt: 앞으로(시작 + 2),
+    note: i % 3 === 0
+      ? "금요일이 대회 제출 마감이라 이번 주 안에 데이터 수집을 마쳐야 합니다. 리더-팔로워 구성으로 집기 동작 200회를 반복하고, 실패 사례를 따로 기록해 다음 주 정기 미팅에서 공유할 예정입니다."
+      : i % 3 === 1 ? "정기 교육 실습" : "",
+    purposeCategory: 목적[i % 목적.length],
+    urgency: 시급도[i % 시급도.length],
+    status: 다툼 ? "PENDING" : ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "EXPIRED"][i % 5],
+    rejectionReason: i % 5 === 2 ? "같은 시간에 대회 준비 일정이 잡혀 있습니다." : null,
+    beforePhotoUrl: null, afterPhotoUrl: null,
+    autoDecidedAt: i % 4 === 1 ? iso(1) : null,
+    recurrenceGroupId: i % 7 === 0 ? ID("grp", 0) : null,
+    conflictsWith: 다툼 ? [0, 1, 2].filter((n) => n !== i).map((n) => ID("rsv", n)) : [],
+    priority: 다툼 ? [70, 35, 15][i] : 20,
+    priorityReasons: 다툼 ? ["매우 시급 +40", "대회 +30"] : ["보통 +20"],
+    equipmentName: equipment[i % equipment.length].name, unitLabel: `${equipment[i % equipment.length].name} 1호기`,
+    companions: i % 5 === 0 ? ["남궁민수", "황보름다운", "Alexander Christopher"] : [],
+    userName: 긴이름[i % 긴이름.length], userEmail: `very.long.email.address.${i}@snu.ac.kr`, createdAt: iso(i),
+  };
+});
+
+/** 정기 예약 묶음과 사용 통계. 새 관리자 탭이 빈 화면으로만 검사되지 않게 한다. */
+const recurringGroups = [
+  {
+    groupId: ID("grp", 0), equipmentName: "AI Worker", unitLabel: "AI Worker 1호기",
+    weekdays: [1, 2, 3], startTime: "18:00", endTime: "20:00",
+    firstDate: iso(30).slice(0, 10), lastDate: iso(-60).slice(0, 10), total: 24, upcoming: 16,
+  },
+];
+
+const usageStats = {
+  fromDate: iso(30).slice(0, 10), untilDate: iso(0).slice(0, 10), days: 30,
+  totalCount: 42, totalHours: 118.5,
+  equipment: equipment.slice(0, 5).map((item, i) => ({
+    key: item.id, label: item.name, count: 12 - i * 2, hours: 40 - i * 7, utilisation: 18.5 - i * 3,
+  })),
+  purposes: 목적.map((key, i) => ({ key, label: ["대회", "SHAPE-UP", "교육", "기타"][i], count: 16 - i * 4, hours: 44 - i * 10, utilisation: null })),
+  urgencies: 시급도.map((key, i) => ({ key, label: ["매우 시급", "보통", "낮음"][i], count: 18 - i * 6, hours: 40 - i * 12, utilisation: null })),
+  decisions: [
+    { key: "auto", label: "자동 확정", count: 26, hours: 0, utilisation: null },
+    { key: "staff", label: "운영진 승인", count: 11, hours: 0, utilisation: null },
+    { key: "EXPIRED", label: "만료", count: 3, hours: 0, utilisation: null },
+    { key: "REJECTED", label: "반려", count: 2, hours: 0, utilisation: null },
+  ],
+  people: 긴이름.slice(0, 6).map((name, i) => ({ key: ID("user", i), label: name, count: 9 - i, hours: 22 - i * 3, utilisation: null })),
+  heatmap: Array.from({ length: 7 }, (_, weekday) =>
+    Array.from({ length: 24 }, (_, hour) => (hour >= 18 && hour <= 21 && weekday < 4 ? (weekday + hour) % 6 : hour % 3 === 0 ? 1 : 0))),
+};
 
 const news = Array.from({ length: 22 }, (_, i) => ({
   id: ID("news", i), title: 긴제목[i % 긴제목.length], summary: "요약문이 길어졌을 때 목록에서 어떻게 되는지 봅니다. ".repeat(2),
@@ -103,6 +162,7 @@ const usage = {
 export const mock = {
   "/admin/users": users, "/admin/directory": users.map(({ id, name, email, imageUrl, status }) => ({ id, name, email, imageUrl, status })),
   "/admin/licenses": licenses, "/admin/equipment": equipment, "/admin/reservations": reservations,
+  "/admin/reservations/recurring": recurringGroups, "/admin/reservations/stats": usageStats,
   "/admin/news": news, "/admin/notices": notices, "/admin/roadmap": roadmap, "/admin/links": links,
   "/admin/audit": audit, "/admin/usage": usage,
 };

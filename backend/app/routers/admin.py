@@ -1,8 +1,12 @@
-from datetime import UTC, datetime
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
+from datetime import date as date_type
+from datetime import time as time_type
+from typing import Literal
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +26,10 @@ from app.models import (
     PermissionGrant,
     RelatedLink,
     Reservation,
+    ReservationPurpose,
+    ReservationSlot,
     ReservationStatus,
+    ReservationUrgency,
     RoadmapItem,
     RoadmapMember,
     User,
@@ -58,8 +65,14 @@ from app.schemas import (
     PageWrite,
     PermissionSetWrite,
     PermissionWrite,
+    RecurringGroupRead,
+    RecurringReservationCreate,
+    RecurringReservationResult,
+    RecurringSkip,
     ReservationDecision,
     RoadmapWrite,
+    UsageCount,
+    UsageStats,
     UserDecision,
 )
 from app.security import READING_STATUSES, any_manager, owner_only, require_permission
@@ -72,7 +85,23 @@ from app.services.reservation_alerts import label as reservation_label
 from app.services.reservation_alerts import tell_owner as tell_reservation_owner
 from app.services.reservation_alerts import tell_upcoming_users, tell_user
 from app.services.reservation_alerts import when as reservation_when
-from app.services.reservations import approve, cancel, read_models
+from app.services.reservation_triage import (
+    PURPOSE_LABEL,
+    URGENCY_LABEL,
+    pending_conflicts,
+    score,
+)
+from app.services.reservations import (
+    approve,
+    as_utc,
+    assert_eligible,
+    cancel,
+    publish_many,
+    read_models,
+    set_companions,
+    slots,
+    unit_context,
+)
 from app.services.revalidate import refresh
 
 # 관리자 창구의 쓰기는 빠짐없이 수정 내역에 남습니다. 창구마다 부르지 않고
@@ -555,18 +584,55 @@ async def delete_link(item_id: UUID, _: User = Depends(require_permission("links
 # ----------------------------------------------------------------- reservations
 
 
+# 시급도를 그대로 ORDER BY 하면 `HIGH, LOW, NORMAL` 알파벳 순이 되어 '낮음' 이
+# '보통' 위로 올라온다. 뜻하는 순서를 직접 적어 준다.
+URGENCY_RANK = case(
+    (Reservation.urgency == ReservationUrgency.HIGH, 0),
+    (Reservation.urgency == ReservationUrgency.NORMAL, 1),
+    else_=2,
+)
+
+
 @router.get("/reservations", response_model=list[AdminReservationRead])
 async def list_reservations(
     status: ReservationStatus | None = Query(default=None),
+    urgency: ReservationUrgency | None = Query(default=None),
+    category: ReservationPurpose | None = Query(default=None),
+    # 기본은 그대로 시작 시각 역순. 바꾸면 지금 화면의 차례가 말없이 뒤집힌다.
+    sort: Literal["start", "created", "urgency", "priority"] = Query(default="start"),
     limit: int = Query(default=100, ge=1, le=300),
     _: User = Depends(require_permission("reservations:manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Reservation).order_by(Reservation.starts_at.desc()).limit(limit)
+    """예약 목록. 겹친 신청끼리 서로를 가리키게 하고 추천 순서도 함께 준다.
+
+    `sort="priority"` 는 `created_at` 으로 한 쪽을 떠 온 뒤 파이썬에서 다시 세운다.
+    즉 **페이지 경계는 여전히 신청 순서로 정해진다** — 300건을 넘게 쌓아 두고 부르면
+    점수가 가장 높은 건이 페이지 밖에 있을 수 있다. 동아리 규모에서는 일어나지
+    않지만, 나중에 이 코드를 읽는 사람이 놀라지 않도록 적어 둔다.
+    """
+    query = select(Reservation).limit(limit)
     if status:
         query = query.where(Reservation.status == status)
-    items = (await db.scalars(query)).all()
+    if urgency:
+        query = query.where(Reservation.urgency == urgency)
+    if category:
+        query = query.where(Reservation.purpose_category == category)
+    if sort == "created":
+        query = query.order_by(Reservation.created_at.desc())
+    elif sort == "urgency":
+        query = query.order_by(URGENCY_RANK, Reservation.created_at)
+    elif sort == "priority":
+        query = query.order_by(Reservation.created_at.desc())
+    else:
+        query = query.order_by(Reservation.starts_at.desc())
+    items = list((await db.scalars(query)).all())
     people = {user.id: user for user in (await db.scalars(select(User).where(User.id.in_({item.user_id for item in items})))).all()} if items else {}
+    conflicts = pending_conflicts(items)
+    now = datetime.now(UTC)
+    scores = {item.id: score(item, now) for item in items}
+    if sort == "priority":
+        items.sort(key=lambda item: (-scores[item.id][0], item.created_at or now))
     return await read_models(
         db,
         items,
@@ -574,6 +640,9 @@ async def list_reservations(
         extra=lambda item: {
             "user_name": getattr(people.get(item.user_id), "name", ""),
             "user_email": getattr(people.get(item.user_id), "email", ""),
+            "conflicts_with": conflicts.get(item.id, []),
+            "priority": scores[item.id][0],
+            "priority_reasons": scores[item.id][1],
         },
     )
 
@@ -615,6 +684,314 @@ async def reservation_cancel(reservation_id: UUID, payload: ReservationDecision 
     await db.commit()
     await deliver_push(devices, title, body=(payload.reason if payload else None) or "운영진이 예약을 취소했습니다.", path="/mypage")
     return {"ok": True}
+
+
+# ------------------------------------------------------- recurring reservations
+
+SEOUL = ZoneInfo("Asia/Seoul")
+# 한 번에 만들 수 있는 최대 건수와 기간. 학기 하나(화·수·목 16주 = 48건)보다 짧게
+# 잡은 이유는, 한 번의 실수가 되돌리기 어려운 양이 되지 않게 하기 위해서다.
+RECURRING_MAX = 30
+RECURRING_MAX_DAYS = 200
+
+
+def _minutes(label: str) -> int:
+    hour, minute = label.split(":")
+    return int(hour) * 60 + int(minute)
+
+
+def _recurring_days(payload: RecurringReservationCreate) -> list[date_type]:
+    wanted = set(payload.weekdays)
+    span = (payload.until_date - payload.from_date).days
+    return [
+        payload.from_date + timedelta(days=offset)
+        for offset in range(span + 1)
+        if (payload.from_date + timedelta(days=offset)).weekday() in wanted
+    ]
+
+
+@router.post("/reservations/recurring", response_model=RecurringReservationResult, status_code=201)
+async def create_recurring(
+    payload: RecurringReservationCreate,
+    actor: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """요일과 기간으로 정기 예약을 한 번에 잡습니다.
+
+    교육 트랙은 화·수·목이 학기 내내 고정인데, 지금까지는 같은 신청을 매주 손으로
+    되풀이해야 했습니다.
+
+    **곧바로 확정 상태로 만듭니다.** 승인하는 사람이 직접 넣는 것이라 대기를 거칠
+    이유가 없습니다. 예약은 넣은 운영진의 계정으로 잡히고, 실제로 오는 사람은
+    기존 '함께 쓰는 부원' 으로 붙입니다 — 새 개념을 만들지 않고, 사고가 났을 때
+    물어볼 곳도 종전과 같습니다.
+
+    **겹치는 날짜는 건너뛰고 알려 줍니다.** 한 주가 겹친다고 학기 전체를 실패시키면
+    운영진이 겹치는 주를 스스로 찾아 기간을 쪼개 다시 넣어야 합니다.
+    """
+    if payload.until_date < payload.from_date:
+        raise HTTPException(422, "끝나는 날짜가 시작 날짜보다 앞설 수 없습니다.")
+    if (payload.until_date - payload.from_date).days > RECURRING_MAX_DAYS:
+        raise HTTPException(422, f"정기 예약은 {RECURRING_MAX_DAYS}일 이내에서만 잡을 수 있습니다.")
+    start_minutes, end_minutes = _minutes(payload.start_time), _minutes(payload.end_time)
+    if end_minutes <= start_minutes:
+        raise HTTPException(422, "끝나는 시각이 시작 시각보다 뒤여야 합니다.")
+    if end_minutes - start_minutes > 12 * 60:
+        raise HTTPException(422, "한 번에 최대 12시간까지 예약할 수 있습니다.")
+
+    days = _recurring_days(payload)
+    if not days:
+        raise HTTPException(422, "그 기간에 해당하는 요일이 없습니다.")
+    if len(days) > RECURRING_MAX:
+        raise HTTPException(422, f"한 번에 {RECURRING_MAX}건까지 만들 수 있습니다. 기간을 나눠 주세요.")
+
+    # 자격은 한 번만 봅니다. 모든 날짜가 같은 호기이기 때문입니다.
+    await assert_eligible(db, actor.id, payload.equipment_unit_id)
+
+    now = datetime.now(UTC)
+    group_id = uuid4()
+    created: list[Reservation] = []
+    skipped: list[RecurringSkip] = []
+
+    for day in days:
+        midnight = datetime.combine(day, time_type.min, tzinfo=SEOUL)
+        starts_at = (midnight + timedelta(minutes=start_minutes)).astimezone(UTC)
+        ends_at = (midnight + timedelta(minutes=end_minutes)).astimezone(UTC)
+        if ends_at <= now:
+            skipped.append(RecurringSkip(date=day, reason="이미 지난 시간입니다."))
+            continue
+        reservation = Reservation(
+            equipment_unit_id=payload.equipment_unit_id,
+            user_id=actor.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            note=payload.note,
+            purpose_category=payload.purpose_category,
+            urgency=payload.urgency,
+            status=ReservationStatus.APPROVED,
+            recurrence_group_id=group_id,
+        )
+        try:
+            # 날짜마다 저장점을 둡니다. 한 주가 겹쳐도 나머지 주는 살아남습니다.
+            # 겹침은 `uq_reservation_slot` 이 잡아 줍니다 — 미리 조회해 두고 그
+            # 사이에 남이 예약하는 틈까지 막으려면 결국 이 제약에 기대야 합니다.
+            async with db.begin_nested():
+                db.add(reservation)
+                await db.flush()
+                await set_companions(db, reservation, payload.companion_ids, actor.id)
+                db.add_all([
+                    ReservationSlot(
+                        equipment_unit_id=payload.equipment_unit_id,
+                        reservation_id=reservation.id,
+                        slot_start=slot,
+                    )
+                    for slot in slots(starts_at, ends_at)
+                ])
+                await db.flush()
+        except IntegrityError:
+            skipped.append(RecurringSkip(date=day, reason="이미 확정된 예약이 있습니다."))
+            continue
+        created.append(reservation)
+
+    await db.commit()
+    for item in created:
+        await db.refresh(item)
+    # 캘린더 등록은 저장이 모두 끝난 뒤에 한 번에 합니다.
+    await publish_many(db, created)
+    return RecurringReservationResult(
+        group_id=group_id,
+        created=await read_models(db, created),
+        skipped=skipped,
+    )
+
+
+@router.get("/reservations/recurring", response_model=list[RecurringGroupRead])
+async def list_recurring(
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """정기 예약 묶음 목록. 아직 남은 건수를 함께 보여 줍니다."""
+    items = list((await db.scalars(
+        select(Reservation)
+        .where(Reservation.recurrence_group_id.is_not(None),
+               Reservation.status.in_([ReservationStatus.APPROVED, ReservationStatus.IN_USE, ReservationStatus.COMPLETED]))
+        .order_by(Reservation.starts_at)
+    )).all())
+    if not items:
+        return []
+    context = await unit_context(db, items)
+    now = datetime.now(UTC)
+    groups: dict[UUID, list[Reservation]] = {}
+    for item in items:
+        groups.setdefault(item.recurrence_group_id, []).append(item)
+    out = []
+    for group_id, rows in groups.items():
+        first, last = rows[0], rows[-1]
+        unit_label, equipment_name = context.get(first.equipment_unit_id, ("", ""))
+        local_start = as_utc(first.starts_at).astimezone(SEOUL)
+        local_end = as_utc(first.ends_at).astimezone(SEOUL)
+        out.append(RecurringGroupRead(
+            group_id=group_id,
+            equipment_name=equipment_name,
+            unit_label=unit_label,
+            weekdays=sorted({as_utc(row.starts_at).astimezone(SEOUL).weekday() for row in rows}),
+            start_time=local_start.strftime("%H:%M"),
+            end_time=local_end.strftime("%H:%M"),
+            first_date=local_start.date(),
+            last_date=as_utc(last.starts_at).astimezone(SEOUL).date(),
+            total=len(rows),
+            upcoming=sum(1 for row in rows if as_utc(row.starts_at) > now),
+        ))
+    out.sort(key=lambda group: (group.first_date or date_type.min), reverse=True)
+    return out
+
+
+@router.delete("/reservations/recurring/{group_id}")
+async def delete_recurring(
+    group_id: UUID,
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """묶음에서 **아직 시작하지 않은** 예약만 물립니다.
+
+    이미 지나간 것은 실제로 있었던 사용 기록이라 그대로 둡니다. 지우면 사용 통계와
+    사용 전후 사진이 함께 사라집니다.
+    """
+    now = datetime.now(UTC)
+    rows = (await db.scalars(select(Reservation).where(
+        Reservation.recurrence_group_id == group_id,
+        Reservation.starts_at > now,
+        Reservation.status.in_([ReservationStatus.PENDING, ReservationStatus.APPROVED]),
+    ))).all()
+    for item in rows:
+        await cancel(db, item, "정기 예약이 해제되었습니다.")
+    return {"ok": True, "cancelled": len(rows)}
+
+
+# ------------------------------------------------------------------ usage stats
+
+
+USAGE_STATUSES = (ReservationStatus.APPROVED, ReservationStatus.IN_USE, ReservationStatus.COMPLETED)
+DECISION_LABEL = {
+    "auto": "자동 확정",
+    "staff": "운영진 승인",
+    ReservationStatus.REJECTED.value: "반려",
+    ReservationStatus.CANCELLED.value: "취소",
+    ReservationStatus.EXPIRED.value: "만료",
+}
+STATS_MAX_DAYS = 366
+
+
+@router.get("/reservations/stats", response_model=UsageStats)
+async def reservation_stats(
+    from_date: date_type = Query(alias="from"),
+    until_date: date_type = Query(alias="to"),
+    _: User = Depends(require_permission("reservations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """장비가 실제로 얼마나 쓰였는지.
+
+    집계를 SQL 로 여섯 번 나눠 하지 않고 **한 번에 읽어 파이썬에서 셉니다.**
+    이유가 둘입니다. 첫째, 사용 시간 합계는 `ends_at - starts_at` 이라 Postgres 와
+    SQLite 의 문법이 달라 한 문장으로 쓸 수 없습니다. 둘째, 요일×시간 히트맵은
+    어차피 예약을 시간 단위로 펴야 해서 행이 필요합니다. 기간을 366일로 묶어 두면
+    동아리 규모에서 읽어 오는 양은 몇 천 행을 넘지 않습니다.
+
+    가동률의 분모는 24시간입니다(`OPEN_HOUR, CLOSE_HOUR = 0, 24`). 새벽이 포함돼
+    숫자가 낮게 나오므로 화면에 '24시간 기준' 이라고 적어 둡니다.
+    """
+    if until_date < from_date:
+        raise HTTPException(422, "끝나는 날짜가 시작 날짜보다 앞설 수 없습니다.")
+    days = (until_date - from_date).days + 1
+    if days > STATS_MAX_DAYS:
+        raise HTTPException(422, f"기간은 {STATS_MAX_DAYS}일 이내로 골라 주세요.")
+
+    window_start = datetime.combine(from_date, time_type.min, tzinfo=SEOUL).astimezone(UTC)
+    window_end = (datetime.combine(until_date, time_type.min, tzinfo=SEOUL) + timedelta(days=1)).astimezone(UTC)
+
+    rows = (await db.execute(
+        select(
+            Reservation.equipment_unit_id, Reservation.user_id, Reservation.purpose_category,
+            Reservation.urgency, Reservation.status, Reservation.auto_decided_at,
+            Reservation.starts_at, Reservation.ends_at,
+        ).where(Reservation.starts_at < window_end, Reservation.ends_at > window_start)
+    )).all()
+
+    units = {
+        row[0]: (row[1], row[2])
+        for row in (await db.execute(
+            select(EquipmentUnit.id, EquipmentUnit.equipment_id, Equipment.name)
+            .join(Equipment, Equipment.id == EquipmentUnit.equipment_id)
+        )).all()
+    }
+    unit_counts: dict[UUID, int] = {}
+    for equipment_id, _name in units.values():
+        unit_counts[equipment_id] = unit_counts.get(equipment_id, 0) + 1
+    people = {
+        person.id: person.name or person.email
+        for person in (await db.scalars(select(User).where(User.id.in_({row[1] for row in rows})))).all()
+    } if rows else {}
+
+    equipment_stats: dict[UUID, list] = {}
+    purpose_stats: dict[str, list] = {}
+    urgency_stats: dict[str, list] = {}
+    decision_stats: dict[str, int] = {}
+    people_stats: dict[UUID, list] = {}
+    heatmap = [[0] * 24 for _ in range(7)]
+    total_count, total_hours = 0, 0.0
+
+    for unit_id, user_id, purpose, urgency, status, auto_at, starts_at, ends_at in rows:
+        key = ("auto" if auto_at else "staff") if status in USAGE_STATUSES else status.value
+        decision_stats[key] = decision_stats.get(key, 0) + 1
+        if status not in USAGE_STATUSES:
+            continue
+        begins = max(as_utc(starts_at), window_start)
+        finishes = min(as_utc(ends_at), window_end)
+        hours = max(0.0, (finishes - begins).total_seconds() / 3600)
+        total_count += 1
+        total_hours += hours
+
+        equipment_id = units.get(unit_id, (None, ""))[0]
+        for bucket, bucket_key in ((equipment_stats, equipment_id), (people_stats, user_id)):
+            row = bucket.setdefault(bucket_key, [0, 0.0])
+            row[0] += 1
+            row[1] += hours
+        for bucket, bucket_key in ((purpose_stats, purpose.value), (urgency_stats, urgency.value)):
+            row = bucket.setdefault(bucket_key, [0, 0.0])
+            row[0] += 1
+            row[1] += hours
+
+        # 히트맵은 예약이 걸쳐 있는 매 시간을 한 칸씩 채웁니다. 한국 시각 기준입니다.
+        cursor = begins.astimezone(SEOUL).replace(minute=0, second=0, microsecond=0)
+        last = finishes.astimezone(SEOUL)
+        while cursor < last:
+            heatmap[cursor.weekday()][cursor.hour] += 1
+            cursor += timedelta(hours=1)
+
+    def rank(bucket: dict, labels, utilise: bool = False) -> list[UsageCount]:
+        out = []
+        for key, (count, hours) in bucket.items():
+            capacity = days * 24 * max(1, unit_counts.get(key, 1)) if utilise else 0
+            out.append(UsageCount(
+                key=str(key), label=labels(key), count=count, hours=round(hours, 1),
+                utilisation=round(hours / capacity * 100, 1) if capacity else None,
+            ))
+        out.sort(key=lambda row: row.hours, reverse=True)
+        return out
+
+    return UsageStats(
+        from_date=from_date, until_date=until_date, days=days,
+        total_count=total_count, total_hours=round(total_hours, 1),
+        equipment=rank(equipment_stats, lambda key: next((name for eq, name in units.values() if eq == key), "장비"), utilise=True),
+        purposes=rank(purpose_stats, lambda key: PURPOSE_LABEL.get(ReservationPurpose(key), key)),
+        urgencies=rank(urgency_stats, lambda key: URGENCY_LABEL.get(ReservationUrgency(key), key)),
+        decisions=[
+            UsageCount(key=key, label=DECISION_LABEL.get(key, key), count=count)
+            for key, count in sorted(decision_stats.items(), key=lambda pair: -pair[1])
+        ],
+        people=rank(people_stats, lambda key: people.get(key, "회원"))[:10],
+        heatmap=heatmap,
+    )
 
 
 # ---------------------------------------------------------------------- members

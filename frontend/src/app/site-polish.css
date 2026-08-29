@@ -4194,3 +4194,525 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   .partner-card-inner { transform:none; transition:none; }
   .partner-card-inner::after { display:none; }
 }
+
+/* ==========================================================================
+   예약 신청 화면 — 지금 칸, 대기 신청, 목적·시급도
+   --------------------------------------------------------------------------
+   여기 있는 칸 상태 규칙에는 반드시 `.booking-schedule-section` 접두사를 붙인다.
+   `responsive-additions.css` 가 `.booking-schedule-section .booking-slots
+   button:disabled` (명시도 0,3,1) 로 이미 색을 정해 두어서, 접두사 없이 쓰면
+   파일 순서와 무관하게 진다. 실제로 지난 칸의 빗금이 그렇게 묻혔다.
+   ========================================================================== */
+
+/* 단계 표시를 누르면 그 자리로 간다. 두 번째 줄에 지금 고른 값을 적어 둔다.
+   `li` 는 flex, 그 안의 `button` 은 grid 다. 둘 다 `min-width:0` 을 주지 않으면
+   칸이 안의 글자 길이(max-content)만큼 벌어져 4단 격자가 화면 밖으로 밀린다.
+   실제로 390px 에서 412px 까지 넘쳤다. */
+/* 예약 화면 전체가 한 칸짜리 격자(`globals.css` 422)인데, 칸 폭이 `auto` 라
+   **가장 넓은 자식의 min-content** 로 정해진다. 날짜 띠처럼 안에서 굴러가는
+   상자가 들어오면 그 상자의 본디 폭(버튼 일곱 개)이 그대로 칸 폭이 되어, 화면이
+   좁을 때 본문 전체가 가로로 밀린다(390px 에서 412px 가 됐다).
+   칸을 화면 폭에 묶어 두면 안쪽 상자가 자기 자리에서 굴러간다. */
+.booking-app { grid-template-columns: minmax(0, 1fr); }
+
+.reservation-steps li { min-width: 0; }
+
+/* 좁은 화면의 2단 격자를 `1fr` 로 두면 칸의 최소 폭이 안쪽 글자의 min-content 라,
+   긴 값 한 줄이 격자를 화면 밖으로 밀어낸다. 실제로 390px 에서 412px 가 됐다.
+   `minmax(0, 1fr)` 로 바꿔 칸이 줄어들 수 있게 한다. (globals.css 748,
+   responsive-additions.css 30 을 덮는다.) */
+@media (max-width: 900px) {
+  .reservation-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.reservation-steps li button {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  justify-items: center;
+  color: inherit;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.reservation-steps li button > span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.reservation-steps .step-state {
+  max-width: 100%;
+  color: #7b8290;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  /* 장비 이름은 임의로 길 수 있다. 줄바꿈 대신 말줄임으로 잘라 칸 높이를 지킨다. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reservation-steps li.active .step-state { color: #cfe0ff; }
+
+/* 가까운 날짜 띠. 줄바꿈이 아니라 가로 스크롤이라, 글꼴 폭이 달라져도 한 줄이다. */
+.booking-week {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.booking-week::-webkit-scrollbar { display: none; }
+
+.booking-week button {
+  flex: 0 0 auto;
+  min-width: 52px;
+  min-height: 56px;
+  padding: 7px 6px;
+  display: grid;
+  gap: 2px;
+  place-items: center;
+  color: #414855;
+  background: #fff;
+  border: 1px solid #dfe3ea;
+  border-radius: 12px;
+  cursor: pointer;
+  scroll-snap-align: center;
+}
+
+.booking-week button i { color: #7c838f; font-size: 11px; font-style: normal; font-weight: 800; }
+.booking-week button b { font-size: 15px; font-weight: 800; }
+.booking-week button.today { border-color: #b9c8f2; }
+.booking-week button.active { color: #fff; background: var(--blue); border-color: var(--blue); }
+.booking-week button.active i { color: #d6e2ff; }
+
+/* 칸 상태 범례. 색만으로 읽지 않아도 되도록 글자를 함께 둔다. */
+.slot-legend {
+  margin: 14px 0 8px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  list-style: none;
+  color: #6b727d;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.slot-legend li { display: inline-flex; align-items: center; gap: 5px; }
+
+.slot-legend .swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #dcdfe5;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.slot-legend .swatch.live { background: #fff2e2; border-color: #f0c08a; }
+.slot-legend .swatch.contested { background: #fff; border-color: var(--blue); border-style: dashed; }
+.slot-legend .swatch.taken { background: #dfe4ec; border-color: #c6cdd8; }
+.slot-legend .swatch.gone { background: repeating-linear-gradient(135deg, #f6f7f9 0 4px, #e9ecf1 4px 8px); }
+
+.slot-picked { margin: 0 0 10px; color: #686e77; font-size: 12px; }
+.slot-picked b { color: var(--blue); font-size: 13px; }
+
+.booking-schedule-section .booking-slots button {
+  min-height: 46px;
+  display: grid;
+  gap: 1px;
+  place-content: center;
+  line-height: 1.25;
+}
+
+.booking-schedule-section .booking-slots .slot-flag {
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 800;
+  opacity: .85;
+}
+
+/* 지금 돌고 있는 칸. 눌러서 바로 쓸 수 있다는 것이 가장 눈에 띄어야 한다. */
+.booking-schedule-section .booking-slots button.live {
+  color: #8a4b06;
+  background: #fff4e6;
+  border-color: #f0c08a;
+}
+
+.booking-schedule-section .booking-slots button.live .slot-flag { color: #b3630a; }
+
+/* 남이 신청해 두었지만 함께 신청할 수 있는 칸. 테두리로만 알린다. */
+.booking-schedule-section .booking-slots button.contested {
+  border-style: dashed;
+  border-color: var(--blue);
+}
+
+.booking-schedule-section .booking-slots button.contested .slot-flag { color: var(--blue); }
+
+/* 고른 칸은 무엇보다 먼저 '고른 것' 으로 보여야 한다. 위의 `.live`·`.contested`
+   와 명시도가 같으므로 반드시 뒤에 와야 이긴다 — 앞에 두면 지금 칸을 골랐을 때
+   골랐다는 표시가 사라진다(실제로 그랬다). */
+.booking-schedule-section .booking-slots button.start,
+.booking-schedule-section .booking-slots button.range {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+  border-style: solid;
+}
+
+.booking-schedule-section .booking-slots button.start .slot-flag,
+.booking-schedule-section .booking-slots button.range .slot-flag { color: #dbe5ff; }
+
+/* 이미 확정된 칸과 이미 끝난 칸. 둘 다 못 누르지만 이유가 다르다. */
+.booking-schedule-section .booking-slots button.taken:disabled {
+  color: #737b88;
+  background: #e4e8ef;
+  border-color: #ccd3dd;
+  text-decoration: none;
+}
+
+.booking-schedule-section .booking-slots button.gone:disabled {
+  color: #b6bcc7;
+  background: repeating-linear-gradient(135deg, #f6f7f9 0 5px, #eef0f4 5px 10px);
+  border-color: #e6e9ee;
+  text-decoration: line-through;
+}
+
+/* 고른 시간에 남의 신청이 걸려 있을 때. 기타 내용으로 데려간다. */
+.booking-contest-note {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  display: flex;
+  gap: 9px;
+  color: #7a4a09;
+  background: #fff8ec;
+  border: 1px solid #f2d9b0;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.booking-contest-note svg { flex: 0 0 auto; margin-top: 2px; }
+.booking-contest-note b { font-weight: 900; }
+.booking-contest-note .text-button { margin-left: 6px; color: #a2620b; font-weight: 800; }
+
+/* 목적·시급도·기타 내용 */
+.booking-choices { margin: 20px 0 4px; display: grid; gap: 18px; }
+.booking-choice { display: grid; gap: 8px; }
+.booking-choice .field-hint { color: #767c86; font-size: 12px; line-height: 1.55; }
+
+.booking-choice button[data-level="HIGH"].active { background: #b62446; border-color: #b62446; }
+.booking-choice button[data-level="NORMAL"].active { background: #243e78; border-color: #243e78; }
+.booking-choice button[data-level="LOW"].active { background: #6b7383; border-color: #6b7383; }
+
+.booking-note { margin: 4px 0 0; display: grid; gap: 8px; }
+.booking-note textarea { padding: 14px; border: 1px solid #cbd1da; border-radius: 10px; line-height: 1.6; }
+
+/* 요약 아래 칩 줄. 지금 무엇이 정해졌는지 한눈에 보인다. */
+.booking-summary-strip {
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+}
+
+.booking-summary-strip li {
+  padding: 5px 10px;
+  color: #4b525e;
+  background: #f2f5f9;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.booking-summary-strip li[data-level="HIGH"] { color: #fff; background: #b62446; }
+.booking-summary-strip li.warn { color: #8a4b06; background: #fff2e0; }
+
+/* 제출 전 확인 목록. 제출 검사와 같은 조건을 쓰므로 서로 어긋날 수 없다. */
+.booking-checklist {
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  list-style: none;
+  color: #8b919b;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.booking-checklist li { display: inline-flex; align-items: center; gap: 5px; }
+.booking-checklist li svg { color: #cfd4dc; }
+.booking-checklist li.done { color: #2c7a4d; }
+.booking-checklist li.done svg { color: #2c7a4d; }
+
+.booking-basket li i { color: var(--blue); font-size: 11px; font-style: normal; font-weight: 900; }
+
+/* 사용 후 사진과 함께 남은 시간을 돌려주는 자리. */
+.reservation-giveback {
+  margin: 10px 0 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #4c5360;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.reservation-giveback input { margin-top: 2px; width: 17px; height: 17px; flex: 0 0 auto; }
+
+.reservation-status.expired { color: #6b7280; background: #eef0f3; }
+
+@media (max-width: 900px) {
+  .booking-choices { gap: 15px; }
+}
+
+@media (max-width: 680px) {
+  /* 스물네 칸이 요약을 900px 아래로 밀어내지 않게 상자 안에서 굴린다.
+     `dvh` 가 아니라 `svh` 인 것은, 사파리 주소창이 접힐 때 안쪽 상자가 따라
+     움직이면 고른 시간이 화면 밖으로 튀기 때문이다. */
+  .booking-schedule-section .booking-slots {
+    max-height: min(46svh, 380px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .slot-legend { font-size: 11px; gap: 5px 10px; }
+}
+
+@media (max-width: 430px) {
+  /* `.unit-switcher` 는 줄바꿈하면 마지막 줄만 짧아 들쭉날쭉해진다. 보기 수를
+     알고 있으므로 칸 수를 못박는다 — `auto-fit` 로 두면 390px 에서 네 개가
+     3+1 로 접혀 똑같이 들쭉날쭉해진다. */
+  .booking-choice .unit-switcher { display: grid; gap: 6px; }
+  .booking-choice[data-count="4"] .unit-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .booking-choice[data-count="3"] .unit-switcher { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .booking-choice[data-count="2"] .unit-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .booking-choice .unit-switcher button { min-height: 40px; }
+  .booking-schedule-section .booking-slots .slot-flag { font-size: 10px; }
+  .booking-week button { min-width: 46px; }
+}
+
+/* ==========================================================================
+   관리자 — 예약 심사, 정기 예약, 사용 통계
+   ========================================================================== */
+
+.reservation-tags { margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; list-style: none; }
+
+.reservation-tags li { padding: 4px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 800; }
+
+.purpose-chip { color: #34405a; background: #eef2f9; }
+.purpose-chip[data-kind="CONTEST"] { color: #1c3fbb; background: #e8eeff; }
+.purpose-chip[data-kind="SHAPE_UP"] { color: #a1400f; background: #fdeee6; }
+.purpose-chip[data-kind="EDUCATION"] { color: #0a6a52; background: #e6f5f1; }
+.purpose-chip[data-kind="OTHER"] { color: #74298e; background: #f6eafa; }
+
+.urgency-badge[data-level="HIGH"] { color: #fff; background: #b62446; }
+.urgency-badge[data-level="NORMAL"] { color: #fff; background: #243e78; }
+.urgency-badge[data-level="LOW"] { color: #fff; background: #6b7383; }
+
+.auto-chip { color: #4b525e; background: #eceff4; }
+.score-chip { color: #1c3fbb; background: #e8eeff; cursor: help; }
+
+/* 겹쳤을 때 운영진이 실제로 읽어야 하는 곳이라 눈에 띄게 둔다. */
+.reservation-note {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  color: #3b414c;
+  background: #f7f9fc;
+  border-left: 3px solid #ccd6ea;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  /* 부원이 적어 온 글이라 무엇이 들어올지 알 수 없다. 줄바꿈은 살리되(`pre-wrap`),
+     띄어쓰기 없이 긴 글이 와도 상자 밖으로 새지 않게 어디서든 끊는다. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reservation-requester {
+  margin: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: #6b727d;
+  font-size: 12.5px;
+}
+
+.reservation-requester .requester-name { max-width: 180px; font-weight: 800; color: #2a303a; }
+.reservation-requester i { font-style: normal; }
+.reservation-requester b { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+
+/* 시간이 겹친 신청 묶음. 사람이 반드시 봐야 하는 유일한 자리다. */
+.reservation-conflict-group {
+  margin: 0 0 20px;
+  padding: 14px;
+  background: #fffaf2;
+  border: 1px solid #f0dcbc;
+  border-radius: 14px;
+}
+
+.reservation-conflict-head {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 9px;
+  color: #7a4a09;
+}
+
+.reservation-conflict-head svg { flex: 0 0 auto; margin-top: 2px; }
+.reservation-conflict-head strong { display: block; font-size: 14px; }
+.reservation-conflict-head span { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.6; }
+
+/* 정기 예약 */
+.admin-recurring { margin-top: 26px; padding-top: 20px; border-top: 1px solid #e3e6eb; }
+.recurring-toggle { font-size: 13px; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; }
+.recurring-body { margin-top: 14px; display: grid; gap: 14px; }
+
+.recurring-weekdays { display: grid; gap: 8px; }
+.weekday-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+
+.weekday-grid button {
+  min-height: 42px;
+  color: #414855;
+  background: #fff;
+  border: 1px solid #dfe3ea;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.weekday-grid button.active { color: #fff; background: var(--blue); border-color: var(--blue); }
+
+.recurring-times { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+.recurring-preview {
+  padding: 12px 14px;
+  background: #f7f9fc;
+  border: 1px solid #e1e6ee;
+  border-radius: 12px;
+}
+
+.recurring-preview p { margin: 0 0 8px; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; }
+.recurring-preview p.warn { color: #b62446; }
+.recurring-preview ul { margin: 0; padding: 0; max-height: 190px; overflow-y: auto; display: grid; gap: 5px; list-style: none; }
+
+.recurring-preview li { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: #4c5360; }
+.recurring-preview li.clash { color: #a03a52; }
+.recurring-preview li i { font-style: normal; font-weight: 800; }
+
+/* 사용 통계
+   --------------------------------------------------------------------------
+   `.admin-form` 은 한 칸짜리 격자다(`globals.css` 313). 칸 폭이 `auto` 라 가장
+   넓은 자식의 min-content 로 정해지므로, 히트맵 표(24칸)가 들어오면 그 표의 본디
+   폭이 그대로 칸 폭이 되어 **관리자 화면 전체가 가로로 밀린다**(390px 에서
+   744px 가 됐다). 칸을 화면 폭에 묶어 두면 표가 자기 상자 안에서 굴러간다. */
+.usage-stats { grid-template-columns: minmax(0, 1fr); }
+.usage-stats > * { min-width: 0; }
+.usage-heatmap-wrap { max-width: 100%; }
+
+.usage-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+
+.usage-tiles > div {
+  padding: 16px;
+  display: grid;
+  gap: 4px;
+  background: #f7f9fc;
+  border: 1px solid #e3e7ee;
+  border-radius: 14px;
+}
+
+.usage-tiles span { color: #737984; font-size: 12px; font-weight: 800; }
+.usage-tiles strong { font-size: 26px; letter-spacing: -.03em; }
+.usage-tiles i { color: #868d98; font-size: 11.5px; font-style: normal; }
+
+.usage-range { display: flex; flex-wrap: wrap; gap: 12px; }
+.usage-block { margin-top: 26px; }
+.usage-block h3 { margin: 0 0 10px; font-size: 15px; }
+
+.usage-bars { margin: 0; padding: 0; display: grid; gap: 9px; list-style: none; }
+
+.usage-bars li {
+  display: grid;
+  grid-template-columns: minmax(84px, 150px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-track { height: 16px; background: #eef1f6; border-radius: 4px; overflow: hidden; }
+
+/* 값이 끝나는 자리만 둥글게 둔다. 시작은 축에 붙어 있어야 길이를 견줄 수 있다. */
+.usage-track i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+
+.usage-value { color: #4c5360; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
+.usage-value i { color: #868d98; font-style: normal; font-weight: 700; }
+
+.usage-heatmap-wrap { overflow-x: auto; border: 1px solid #e3e7ee; border-radius: 12px; }
+.usage-heatmap { border-collapse: separate; border-spacing: 2px; font-size: 10.5px; }
+.usage-heatmap caption { padding: 10px 12px 4px; color: #737984; font-size: 12px; text-align: left; }
+.usage-heatmap th { color: #7c838f; font-size: 10.5px; font-weight: 800; }
+.usage-heatmap thead th { padding: 4px 0; min-width: 26px; }
+
+/* 요일 칸은 가로로 굴려도 자리를 지켜야 어느 줄인지 알 수 있다. */
+.usage-heatmap tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 8px;
+  background: #fff;
+  text-align: right;
+}
+
+.usage-heatmap td {
+  min-width: 26px;
+  height: 24px;
+  border-radius: 4px;
+  color: #35404f;
+  text-align: center;
+  font-weight: 800;
+}
+
+.usage-heatmap td.strong { color: #fff; }
+
+/* 긴 반려 사유가 들어간 팝업이 360×640 에서 넘쳤다. 보이는 높이를 따라야 하므로
+   여기는 `svh` 가 아니라 `dvh` 다. */
+/* 제목이 오른쪽 위 닫기 단추 밑으로 들어가 글자가 가려졌다("사진 두 장을 잊지
+   마세요" 에서 '잊지' 가 사라졌다). 단추 자리만큼 비워 둔다. */
+.ask-dialog h3 { padding-right: 44px; }
+
+/* 가운데 단추가 늘 붉은 것은 "저장하지 않고 이동" 같은 되돌릴 수 없는 선택을
+   염두에 둔 색이다. 그저 다른 곳으로 가는 단추까지 경고처럼 보이면 안 된다. */
+.ask-dialog .button.ask-alt.plain { color: #243e78; border-color: #cfd8ea; }
+.ask-dialog .button.ask-alt.plain:hover { background: #f3f6fd; }
+
+.ask-dialog .ask-body .ask-lead { color: #1d2531; font-size: 15px; font-weight: 800; }
+
+.ask-dialog { max-height: 88dvh; }
+.ask-dialog form { max-height: 88dvh; overflow-y: auto; }
+.ask-dialog .ask-body { display: grid; gap: 10px; color: #4c5360; font-size: 13.5px; line-height: 1.65; }
+.ask-dialog .ask-body p { margin: 0; }
+.ask-dialog .ask-body ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+
+@media (max-width: 900px) {
+  .recurring-times { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .reservation-conflict-group { padding: 12px 10px; }
+  .reservation-requester { font-size: 12px; }
+  .reservation-requester .requester-name { max-width: 130px; }
+  .usage-tiles { grid-template-columns: 1fr; }
+  .usage-bars li { grid-template-columns: 1fr auto; }
+  .usage-track { grid-column: 1 / -1; }
+  .weekday-grid button { min-height: 40px; font-size: 12px; }
+}

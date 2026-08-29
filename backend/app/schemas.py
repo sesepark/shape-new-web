@@ -1,10 +1,17 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from app.models import EquipmentStatus, LinkVisibility, ReservationStatus, UserStatus
+from app.models import (
+    EquipmentStatus,
+    LinkVisibility,
+    ReservationPurpose,
+    ReservationStatus,
+    ReservationUrgency,
+    UserStatus,
+)
 from app.services.content import deliver_smaller
 
 PERMISSIONS = ("content", "news", "equipment", "reservations", "roadmap", "links", "notices")
@@ -247,13 +254,24 @@ class ReservationCreate(InputModel):
     equipment_unit_id: UUID
     starts_at: datetime
     ends_at: datetime
-    purpose: str = Field(min_length=3, max_length=2000)
+    # 세 칸 모두 기본값을 둡니다. 필수로 만들면 이 스키마를 쓰는 기존 호출이 전부
+    # 422 가 됩니다. 반드시 고르게 하는 일은 신청 화면이 맡습니다.
+    purpose_category: ReservationPurpose = ReservationPurpose.OTHER
+    urgency: ReservationUrgency = ReservationUrgency.NORMAL
+    note: str = Field(default="", max_length=2000)
     # 함께 쓰는 부원. 신청한 사람은 여기 넣지 않습니다(이미 신청자입니다).
     companion_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
-    @field_validator("ends_at")
+    @field_validator("starts_at", "ends_at")
     @classmethod
-    def end_must_be_on_half_hour(cls, value: datetime) -> datetime:
+    def times_must_be_on_half_hour(cls, value: datetime) -> datetime:
+        """시작과 끝 **양쪽 다** 30분 단위여야 합니다.
+
+        예전에는 끝만 봤습니다. 그래서 `17:00:30` 으로 시작하는 신청이 통과했고,
+        확정 슬롯이 `17:00:30`·`17:30:30` 으로 깔렸습니다. 이미 있는 `17:00:00`
+        슬롯과 초가 달라 겹침 검사에도, `uq_reservation_slot` 제약에도 걸리지
+        않습니다. 같은 장비 같은 시간에 확정 예약이 둘 생기는 길이었습니다.
+        """
         if value.minute not in {0, 30} or value.second or value.microsecond:
             raise ValueError("예약 시간은 30분 단위여야 합니다.")
         return value
@@ -265,13 +283,17 @@ class ReservationRead(ORMModel):
     user_id: UUID
     starts_at: datetime
     ends_at: datetime
-    purpose: str
+    note: str = ""
+    purpose_category: ReservationPurpose = ReservationPurpose.OTHER
+    urgency: ReservationUrgency = ReservationUrgency.NORMAL
     status: ReservationStatus
     rejection_reason: str | None = None
     before_photo_url: str | None = None
     after_photo_url: str | None = None
     equipment_name: str = ""
     unit_label: str = ""
+    # 사람이 아니라 시계가 정한 예약이면 그 시각. 화면에서 '자동 확정' 으로 보입니다.
+    auto_decided_at: datetime | None = None
     # 함께 쓰는 사람의 이름. 예약 현황과 마이페이지에 그대로 보입니다.
     companions: list[str] = []
 
@@ -280,15 +302,115 @@ class AdminReservationRead(ReservationRead):
     user_name: str = ""
     user_email: str = ""
     created_at: datetime | None = None
+    recurrence_group_id: UUID | None = None
+    # 이 대기 신청과 시간이 겹치는 **다른 대기 신청**. 승인된 예약은 이미 슬롯이
+    # 잠겨 있어 여기 오지 않습니다. 찾는 범위는 돌려준 목록 안입니다.
+    conflicts_with: list[UUID] = []
+    # 겹친 신청을 줄 세울 때 쓰는 점수와 그 근거. **추천일 뿐 결정이 아닙니다** —
+    # 자동 확정은 겹침이 있으면 아예 손대지 않습니다. 근거를 함께 돌려주는 이유는,
+    # 이유를 못 보여 주는 점수는 운영진이 믿을 수도 반박할 수도 없기 때문입니다.
+    priority: int = 0
+    priority_reasons: list[str] = []
 
 
 class ReservationPhotoWrite(InputModel):
     photo_url: str = Field(min_length=1, max_length=1000)
+    # 사용 후 사진을 올리며 남은 시간을 돌려줄지. 지금까지는 일찍 끝내도 확정
+    # 슬롯이 끝 시각까지 그대로 남아, 아무도 그 시간을 쓸 수 없었습니다.
+    release_remaining: bool = False
 
 
 class ReservationDecision(InputModel):
     approve: bool
     reason: str | None = Field(default=None, max_length=1000)
+
+
+class RecurringReservationCreate(InputModel):
+    """요일과 기간으로 정기 예약을 한 번에 잡습니다.
+
+    교육 트랙은 화·수·목이 학기 내내 고정인데, 지금까지는 같은 신청을 매주 손으로
+    되풀이해야 했습니다. 운영진만 쓰는 기능이라 일반 예약 화면은 그대로 둡니다.
+    """
+
+    equipment_unit_id: UUID
+    # 0 = 월요일. `datetime.weekday()` 와 같은 기준입니다.
+    weekdays: list[int] = Field(min_length=1, max_length=7)
+    start_time: str = Field(pattern=r"^([01]\d|2[0-3]):(00|30)$")
+    end_time: str = Field(pattern=r"^([01]\d|2[0-3]):(00|30)$|^24:00$")
+    from_date: date
+    until_date: date
+    purpose_category: ReservationPurpose = ReservationPurpose.EDUCATION
+    urgency: ReservationUrgency = ReservationUrgency.NORMAL
+    note: str = Field(default="", max_length=2000)
+    companion_ids: list[UUID] = Field(default_factory=list, max_length=10)
+
+    @field_validator("weekdays")
+    @classmethod
+    def weekdays_must_be_real(cls, value: list[int]) -> list[int]:
+        if any(day < 0 or day > 6 for day in value):
+            raise ValueError("요일은 0(월)부터 6(일) 사이여야 합니다.")
+        return sorted(set(value))
+
+
+class RecurringSkip(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    date: date
+    reason: str
+
+
+class RecurringReservationResult(BaseModel):
+    """만든 것과 건너뛴 것을 함께 돌려줍니다.
+
+    한 주가 겹친다고 학기 전체를 실패시키면, 운영진이 겹치는 주를 스스로 찾아내
+    기간을 쪼개 다시 넣어야 합니다. 겹친 날짜만 빼고 나머지는 만듭니다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    group_id: UUID
+    created: list[ReservationRead] = []
+    skipped: list[RecurringSkip] = []
+
+
+class RecurringGroupRead(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    group_id: UUID
+    equipment_name: str = ""
+    unit_label: str = ""
+    weekdays: list[int] = []
+    start_time: str = ""
+    end_time: str = ""
+    first_date: date | None = None
+    last_date: date | None = None
+    total: int = 0
+    upcoming: int = 0
+
+
+class UsageCount(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    key: str
+    label: str
+    count: int = 0
+    hours: float = 0.0
+    # 장비별 묶음에서만 채웁니다. 0~100.
+    utilisation: float | None = None
+
+
+class UsageStats(BaseModel):
+    """관리자 사용 통계. 모두 SQL 집계로 세고 예약 행을 끌어오지 않습니다."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    from_date: date
+    until_date: date
+    days: int = 0
+    total_count: int = 0
+    total_hours: float = 0.0
+    equipment: list[UsageCount] = []
+    purposes: list[UsageCount] = []
+    urgencies: list[UsageCount] = []
+    decisions: list[UsageCount] = []
+    people: list[UsageCount] = []
+    # 요일(0=월) × 시(0~23) 격자. 그 시간대에 걸쳐 있던 예약 수입니다.
+    heatmap: list[list[int]] = []
 
 
 class RoadmapRead(ORMModel):
@@ -419,7 +541,11 @@ class ReservationCalendarItem(ORMModel):
     equipment_name: str
     unit_label: str
     user_name: str
-    purpose: str = ""
+    # 덧붙인 말(`note`)은 여기 싣지 않습니다. 그것은 운영진에게 하는 말이라
+    # ("금요일이 대회 마감이라 오늘밖에 없습니다") 동아리 전체가 보는 달력에
+    # 뜨면 사람들이 솔직하게 쓰지 못합니다. 분류와 시급도만 보여 줍니다.
+    purpose_category: ReservationPurpose = ReservationPurpose.OTHER
+    urgency: ReservationUrgency = ReservationUrgency.NORMAL
     starts_at: datetime
     ends_at: datetime
     status: ReservationStatus

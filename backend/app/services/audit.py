@@ -112,9 +112,11 @@ NAMED_BY_PATH = {
     "users/owner": (User, "name"),
     "users/permissions": (User, "name"),
     "users/licenses": (User, "name"),
-    "reservations": (Reservation, "purpose"),
-    "reservations/decision": (Reservation, "purpose"),
-    "reservations/cancel": (Reservation, "purpose"),
+    # 예약에는 제목이 없습니다. 덧붙인 말(`note`)은 선택 입력이라 비어 있을 수
+    # 있으므로, 비면 아래 `_reservation_label` 이 장비와 시각으로 이름을 만듭니다.
+    "reservations": (Reservation, "audit_label"),
+    "reservations/decision": (Reservation, "audit_label"),
+    "reservations/cancel": (Reservation, "audit_label"),
 }
 
 

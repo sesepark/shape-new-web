@@ -41,7 +41,7 @@ _sweeps: set[asyncio.Task] = set()
 
 
 async def _sweep_reservation_alerts() -> None:
-    """때가 된 예약 알림을 보냅니다.
+    """때가 된 예약 알림을 보내고, 시계가 대신 누를 것을 누릅니다.
 
     따로 도는 시계(크론)를 두지 않는 이유는 무료 요금제 때문입니다. 주기적으로
     서버를 깨우면 깨어 있는 시간만큼 데이터베이스 시간을 쓰는데, 그 시간이 한 달
@@ -52,13 +52,21 @@ async def _sweep_reservation_alerts() -> None:
     """
     from app.database import SessionLocal
     from app.services.notifications import deliver_push
-    from app.services.reservation_alerts import sweep_due
+    from app.services.reservation_alerts import STAFF_URL, sweep_due
+    from app.services.reservation_sweeps import sweep_auto_decisions
 
     try:
         async with SessionLocal() as db:
+            # 같은 세션 안에서 이어 봅니다. 세션을 새로 열면 Neon 을 한 번 더
+            # 두드리는 셈이 됩니다. 알림이 먼저인 것도 일부러입니다 — 자동 확정이
+            # 만드는 알림까지 이번 차례에 함께 나가야 합니다.
             due = await sweep_due(db)
+            due += await sweep_auto_decisions(db)
         for title, body, devices in due:
-            await deliver_push(devices, title, body=body, path="/mypage")
+            # 운영진 독촉만 관리자 화면으로 보냅니다. 나머지는 신청한 본인에게
+            # 가는 알림이라 마이페이지가 맞습니다.
+            path = STAFF_URL if title.startswith("아직 승인하지 않은") else "/mypage"
+            await deliver_push(devices, title, body=body, path=path)
     except Exception as error:  # noqa: BLE001 - 알림 때문에 사이트가 흔들리면 안 된다
         logger.warning("예약 알림 확인 실패: %s", error)
 

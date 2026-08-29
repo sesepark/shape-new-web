@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Camera, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api";
+import { unitTitle } from "@/lib/booking";
 import { useSession } from "@/lib/session";
 import type { ReservationItem } from "@/lib/types";
 
@@ -84,9 +85,8 @@ export function ReservationNow() {
   if (!item || closed) return null;
   const running = item.status === "IN_USE";
   // 호기 이름이 이미 "OMY 2호기" 처럼 장비명을 품고 있으면 두 번 쓰지 않습니다.
-  const where = item.unitLabel?.startsWith(item.equipmentName)
-    ? item.unitLabel
-    : [item.equipmentName, item.unitLabel].filter(Boolean).join(" ");
+  // 같은 규칙을 마이페이지·관리자 화면도 쓰므로 `booking` 에 한 곳으로 두었습니다.
+  const where = unitTitle(item.equipmentName, item.unitLabel);
   return (
     <aside className="reservation-now" role="status">
       <Camera size={19} />

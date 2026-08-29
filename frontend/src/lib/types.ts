@@ -5,7 +5,12 @@ export type EquipmentStatus = "ACTIVE" | "MAINTENANCE" | "INACTIVE";
  * 이번 학기에는 활동하지 않는 인원(부원 카드의 '멤버')에게 줍니다.
  */
 export type MemberStatus = "PENDING" | "APPROVED" | "VIEWER" | "REJECTED" | "SUSPENDED";
-export type ReservationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "IN_USE" | "COMPLETED";
+/** `EXPIRED` 는 아무도 손대지 않은 채 사용 시간이 다 지나간 신청입니다. */
+export type ReservationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "IN_USE" | "COMPLETED" | "EXPIRED";
+/** 무엇을 위해 장비를 쓰는가. 시간이 겹쳤을 때 운영진이 보는 첫 기준입니다. */
+export type ReservationPurpose = "CONTEST" | "SHAPE_UP" | "EDUCATION" | "OTHER";
+/** 얼마나 급한가. 분류가 같을 때 순서를 가르는 두 번째 기준입니다. */
+export type ReservationUrgency = "HIGH" | "NORMAL" | "LOW";
 
 export interface SessionUser {
   id: string;
@@ -142,7 +147,21 @@ export interface EquipmentAvailability {
   reservationUnitMinutes: number;
   openHour: number;
   closeHour: number;
-  units: { id: string; label: string; reservedStarts: string[] }[];
+  units: {
+    id: string;
+    label: string;
+    /** 이미 확정된 30분 칸의 시작 시각(한국 시각 ISO). */
+    reservedStarts: string[];
+    /**
+     * 아직 승인되지 않은 신청이 잡고 있는 칸. 같은 시각이 여러 번 나오면 그만큼
+     * 겹친 것입니다.
+     *
+     * 없을 수도 있게(`?`) 둡니다. 프런트엔드와 백엔드는 서로 다른 곳에 배포되어
+     * 한쪽이 먼저 올라갑니다. 화면이 먼저 올라간 몇 분 동안 이 값이 없다고
+     * 깨지면 안 됩니다.
+     */
+    pendingStarts?: string[];
+  }[];
 }
 
 /** 장비를 함께 쓸 사람을 고를 때 보이는 최소한의 정보. 로그인한 회원에게만 옵니다. */
@@ -158,13 +177,22 @@ export interface ReservationItem {
   userId: string;
   startsAt: string;
   endsAt: string;
-  purpose: string;
+  /**
+   * 덧붙인 말. 예전 이름은 `purpose` 였고 '사용 목적 및 작업 내용' 을 받았습니다.
+   * 이제 목적은 `purposeCategory` 가 맡고, 이 칸은 '왜 하필 이 시간이어야
+   * 하는가' 를 적는 자리입니다.
+   */
+  note?: string;
+  purposeCategory?: ReservationPurpose;
+  urgency?: ReservationUrgency;
   status: ReservationStatus;
   rejectionReason?: string | null;
   beforePhotoUrl?: string | null;
   afterPhotoUrl?: string | null;
   equipmentName: string;
   unitLabel: string;
+  /** 사람이 아니라 시계가 확정한 예약이면 그 시각. */
+  autoDecidedAt?: string | null;
   /** 함께 쓰는 사람의 이름. 없으면 빈 목록입니다. */
   companions?: string[];
 }
@@ -173,6 +201,57 @@ export interface AdminReservationItem extends ReservationItem {
   userName: string;
   userEmail: string;
   createdAt?: string | null;
+  recurrenceGroupId?: string | null;
+  /** 시간이 겹치는 **다른 대기 신청**의 id. 겹치지 않으면 빈 목록입니다. */
+  conflictsWith?: string[];
+  /** 추천 점수와 그 근거. 추천일 뿐 결정이 아닙니다. */
+  priority?: number;
+  priorityReasons?: string[];
+}
+
+/** 정기 예약 묶음 하나. 관리자 화면에서만 씁니다. */
+export interface RecurringGroup {
+  groupId: string;
+  equipmentName: string;
+  unitLabel: string;
+  /** 0 = 월요일. */
+  weekdays: number[];
+  startTime: string;
+  endTime: string;
+  firstDate?: string | null;
+  lastDate?: string | null;
+  total: number;
+  upcoming: number;
+}
+
+export interface RecurringResult {
+  groupId: string;
+  created: ReservationItem[];
+  skipped: { date: string; reason: string }[];
+}
+
+/** 사용 통계의 한 줄. `utilisation` 은 장비별 묶음에서만 채워집니다. */
+export interface UsageCount {
+  key: string;
+  label: string;
+  count: number;
+  hours: number;
+  utilisation?: number | null;
+}
+
+export interface UsageStats {
+  fromDate: string;
+  untilDate: string;
+  days: number;
+  totalCount: number;
+  totalHours: number;
+  equipment: UsageCount[];
+  purposes: UsageCount[];
+  urgencies: UsageCount[];
+  decisions: UsageCount[];
+  people: UsageCount[];
+  /** 요일(0=월) × 시(0~23) 격자. */
+  heatmap: number[][];
 }
 
 export interface AdminUserItem {
@@ -310,7 +389,12 @@ export interface ReservationCalendarItem {
   equipmentName: string;
   unitLabel: string;
   userName: string;
-  purpose: string;
+  /**
+   * 덧붙인 말(`note`)은 여기 오지 않습니다. 그것은 운영진에게 하는 말이라
+   * 동아리 전체가 보는 달력에 뜨면 사람들이 솔직하게 쓰지 못합니다.
+   */
+  purposeCategory?: ReservationPurpose;
+  urgency?: ReservationUrgency;
   startsAt: string;
   endsAt: string;
   status: ReservationStatus;

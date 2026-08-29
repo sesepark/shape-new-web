@@ -161,12 +161,15 @@ def publish(
     starts_at: datetime,
     ends_at: datetime,
     purpose: str = "",
+    category: str = "",
     companions: list[str] | None = None,
 ) -> None:
     """확정된 예약을 캘린더에 올립니다. 기다리지 않고 보냅니다."""
     if not configured() or equipment_name != EQUIPMENT:
         return
-    lines = [f"사용 목적: {purpose.strip()}"] if purpose.strip() else []
+    lines = [f"분류: {category}"] if category else []
+    if purpose.strip():
+        lines.append(f"덧붙인 말: {purpose.strip()}")
     if companions:
         lines.append(f"함께 쓰는 사람: {', '.join(companions)}")
     lines.append(f"신청: {user_name}")

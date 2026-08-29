@@ -37,8 +37,10 @@ from app.models import (  # noqa: E402
     PermissionGrant,
     RelatedLink,
     Reservation,
+    ReservationPurpose,
     ReservationSlot,
     ReservationStatus,
+    ReservationUrgency,
     Resource,
     RoadmapItem,
     RoadmapMember,
@@ -282,41 +284,63 @@ async def main() -> None:
         ])
 
         # -------------------------------------------------------------- 예약
-        def book(unit_label: str, who: str, days: int, hours: int, purpose: str, status: ReservationStatus, hour: int = 10, starts: datetime | None = None, **extra):
+        def book(unit_label: str, who: str, days: int, hours: int, note: str, status: ReservationStatus, hour: int = 10, starts: datetime | None = None, **extra):
             starts = starts or seoul_at(days, hour)
             ends = starts + timedelta(hours=hours)
             reservation = Reservation(
                 equipment_unit_id=units[unit_label].id, user_id=people[who].id,
-                starts_at=starts, ends_at=ends, purpose=purpose, status=status, **extra,
+                starts_at=starts, ends_at=ends, note=note, status=status, **extra,
             )
             db.add(reservation)
             return reservation, starts, ends
 
         pending, _, _ = book("OMY 1호기", "오유하", 2, 2,
                              "그리퍼 파지 정책 데이터 수집. 물체 12종을 각 20회씩 반복 수집할 예정입니다.",
-                             ReservationStatus.PENDING)
+                             ReservationStatus.PENDING,
+                             purpose_category=ReservationPurpose.SHAPE_UP, urgency=ReservationUrgency.NORMAL)
         # 오유하 계정으로 사용 전/후 사진 등록 화면을 바로 볼 수 있게 둔다.
         ready, ready_start, ready_end = book("OMY 2호기", "오유하", 0, 2,
                                              "파지 실패 감지 실험. 손목 각도를 바꿔 가며 재현 데이터를 모읍니다.",
-                                             ReservationStatus.APPROVED, starts=next_half_hour())
+                                             ReservationStatus.APPROVED, starts=next_half_hour(),
+                                             purpose_category=ReservationPurpose.CONTEST, urgency=ReservationUrgency.HIGH)
         running, running_start, running_end = book("Tesollo Hand", "오유하", 0, 3,
                                                    "다관절 손 파지 실험. 사용 전 사진을 올려 시작한 상태입니다.",
-                                                   ReservationStatus.IN_USE, starts=next_half_hour(-90), before_photo_url=PHOTO)
+                                                   ReservationStatus.IN_USE, starts=next_half_hour(-90), before_photo_url=PHOTO,
+                                                   purpose_category=ReservationPurpose.EDUCATION)
         book("GPU 워크스테이션 1호기", "류이든", 3, 4,
              "Isaac Lab에서 보행 정책 학습. 야간까지 이어질 수 있어 넉넉히 잡았습니다.",
-             ReservationStatus.PENDING, hour=13)
+             ReservationStatus.PENDING, hour=13,
+             purpose_category=ReservationPurpose.CONTEST, urgency=ReservationUrgency.HIGH)
         approved_one, starts, ends = book("AI Worker 1호기", "조나윤", 1, 3,
                                           "양팔 teleoperation 데이터 수집 세션. 안전 담당 1명 동행합니다.",
-                                          ReservationStatus.APPROVED, hour=14)
+                                          ReservationStatus.APPROVED, hour=14,
+                                          purpose_category=ReservationPurpose.CONTEST)
         in_use, _, _ = book("SO-ARM 1호기", "전한별", 0, 2,
                             "모방학습 실습 준비. 조별 실습 전 동작 확인용입니다.",
-                            ReservationStatus.IN_USE, starts=next_half_hour(-60), before_photo_url=PHOTO)
+                            ReservationStatus.IN_USE, starts=next_half_hour(-60), before_photo_url=PHOTO,
+                            purpose_category=ReservationPurpose.EDUCATION)
         book("OMY 2호기", "강채아", -4, 2,
              "리더-팔로워 연동 테스트. 두 대를 동시에 사용했습니다.",
-             ReservationStatus.COMPLETED, hour=15, before_photo_url=PHOTO, after_photo_url=PHOTO)
+             ReservationStatus.COMPLETED, hour=15, before_photo_url=PHOTO, after_photo_url=PHOTO,
+             purpose_category=ReservationPurpose.SHAPE_UP)
         book("GPU 워크스테이션 2호기", "전한별", -2, 3,
              "비전 모델 파인튜닝.", ReservationStatus.REJECTED, hour=11,
              rejection_reason="같은 시간에 교육 트랙 실습이 예정되어 있어 다른 시간대로 부탁드립니다.")
+        # 위의 '오유하 · OMY 1호기' 대기 신청과 **같은 시간을 두고 다투는** 신청.
+        # 자동 확정이 멈추는 유일한 경우라, 관리자 화면의 겹침 묶음을 로컬에서도
+        # 바로 볼 수 있어야 한다.
+        #
+        # 신청자는 **OMY 의 필수 교육을 모두 이수한 사람**으로 골라야 한다. 승인은
+        # 자격을 다시 확인하므로(`approve` → `assert_eligible`), 자격 없는 사람으로
+        # 심어 두면 확정을 눌렀을 때 "필수 라이선스가 없습니다" 로 막힌다.
+        book("OMY 1호기", "최은서", 2, 2,
+             "대회 제출 마감이 이번 주 금요일이라 이 시간이 아니면 어렵습니다.",
+             ReservationStatus.PENDING, hour=10,
+             purpose_category=ReservationPurpose.CONTEST, urgency=ReservationUrgency.HIGH)
+        book("OMY 1호기", "조나윤", 2, 2,
+             "조별 실습 준비. 다른 시간대도 가능합니다.",
+             ReservationStatus.PENDING, hour=11,
+             purpose_category=ReservationPurpose.EDUCATION, urgency=ReservationUrgency.LOW)
         await db.flush()
         for reservation, first, last in (
             (approved_one, starts, ends),

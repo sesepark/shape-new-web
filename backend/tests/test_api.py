@@ -1,10 +1,13 @@
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
+from app import cache
 from app.middleware import CostGuardMiddleware, public_read
 from app.models import (
     Equipment,
@@ -14,6 +17,8 @@ from app.models import (
     License,
     Notice,
     Reservation,
+    ReservationPurpose,
+    ReservationSlot,
     ReservationStatus,
     UserLicense,
     UserStatus,
@@ -145,7 +150,7 @@ async def test_member_without_licence_cannot_reserve(client, session):
     http = login(client, manager)
     assert (await http.put(f"/api/v1/admin/equipment/{equipment.id}/licenses", json={"licenseIds": [str(licence.id)]})).status_code == 200
     starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
-    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "출력 테스트"}
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "출력 테스트"}
     http = login(client, member)
     assert (await http.post("/api/v1/reservations", json=payload)).status_code == 403
     http = login(client, manager)
@@ -163,6 +168,15 @@ def next_half_hour() -> datetime:
     return (now + timedelta(minutes=30 - now.minute % 30))
 
 
+def awaiting_half_hour() -> datetime:
+    """**사람이 승인해야 하는** 시각. 자동 확정 창(시작 1시간 전) 밖으로 잡는다.
+
+    `next_half_hour()` 는 언제나 30분 안쪽이라, 이제 신청과 동시에 자동 확정된다.
+    승인·반려처럼 사람이 누르는 길을 시험하려면 그 창 밖이어야 한다.
+    """
+    return next_half_hour() + timedelta(hours=3)
+
+
 async def test_reservation_lifecycle(client, session):
     officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
     member = await make_user(session, "member@example.com")
@@ -173,8 +187,8 @@ async def test_reservation_lifecycle(client, session):
     session.add(unit)
     await session.commit()
     # 사용 시작은 예약 시각 직전부터만 가능하므로, 다음 30분 경계로 잡는다.
-    starts = next_half_hour()
-    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "부품 출력"}
+    starts = awaiting_half_hour()
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "부품 출력"}
     http = login(client, member)
     reservation = (await http.post("/api/v1/reservations", json=payload)).json()
     assert reservation["status"] == "PENDING"
@@ -207,7 +221,7 @@ async def test_cancelling_a_reservation_frees_the_slot(client, session):
     session.add(unit)
     await session.commit()
     starts = (datetime.now(UTC) + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
-    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(minutes=30)).isoformat(), "purpose": "학습 실험"}
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(minutes=30)).isoformat(), "note": "학습 실험"}
     http = login(client, member)
     reservation = (await http.post("/api/v1/reservations", json=payload)).json()
     http = login(client, officer)
@@ -296,7 +310,7 @@ async def test_equipment_status_blocks_reservation(client, session):
     await session.commit()
     starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
     http = login(client, member)
-    blocked = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(minutes=30)).isoformat(), "purpose": "보행 실험"})
+    blocked = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(minutes=30)).isoformat(), "note": "보행 실험"})
     assert blocked.status_code == 409
     assert manager is not None
 
@@ -528,7 +542,7 @@ async def test_reservation_calendar_lists_a_whole_month(client, session):
     session.add(unit)
     await session.commit()
     starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
-    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "데이터 수집"}
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "데이터 수집"}
     http = login(client, member)
     reservation = (await http.post("/api/v1/reservations", json=payload)).json()
 
@@ -536,7 +550,7 @@ async def test_reservation_calendar_lists_a_whole_month(client, session):
     rows = (await http.get(f"/api/v1/reservations/calendar?month={month}")).json()
     assert [row["status"] for row in rows] == ["PENDING"]
     assert rows[0]["equipmentName"] == "OMY" and rows[0]["userName"] == "member"
-    assert rows[0]["purpose"] == "데이터 수집"
+    assert rows[0]["purposeCategory"] == "OTHER"
     assert rows[0]["beforePhotoUrl"] is None
 
     await login(client, officer).post(f"/api/v1/admin/reservations/{reservation['id']}/decision", json={"approve": True})
@@ -718,7 +732,7 @@ async def test_a_future_reservation_cannot_be_started_early(client, session):
     session.add(unit)
     await session.commit()
     starts = (datetime.now(UTC) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
-    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "아크릴 절단"}
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "아크릴 절단"}
     http = login(client, member)
     reservation = (await http.post("/api/v1/reservations", json=payload)).json()
     http = login(client, officer)
@@ -739,7 +753,7 @@ async def test_reservation_times_carry_a_timezone(client, session):
     session.add(unit)
     await session.commit()
     starts = (datetime.now(UTC) + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
-    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "목재 절단"}
+    payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "목재 절단"}
     http = login(client, member)
     created = (await http.post("/api/v1/reservations", json=payload)).json()
     assert datetime.fromisoformat(created["startsAt"]).tzinfo is not None
@@ -822,11 +836,11 @@ async def test_one_member_can_hold_two_machines_at_the_same_time(client, session
     session.add_all([arm_unit, gpu_unit])
     await session.commit()
 
-    starts = next_half_hour()
+    starts = awaiting_half_hour()
     window = {"startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=2)).isoformat()}
     http = login(client, member)
-    first = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "purpose": "데이터 수집", **window})
-    second = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(gpu_unit.id), "purpose": "정책 학습", **window})
+    first = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "note": "데이터 수집", **window})
+    second = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(gpu_unit.id), "note": "정책 학습", **window})
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text
 
@@ -842,7 +856,7 @@ async def test_one_member_can_hold_two_machines_at_the_same_time(client, session
     assert all(row["status"] == "APPROVED" for row in mine)
 
     # 반대로 같은 호기의 같은 시간은 여전히 막혀야 한다.
-    clash = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "purpose": "겹치는 신청", **window})
+    clash = await http.post("/api/v1/reservations", json={"equipmentUnitId": str(arm_unit.id), "note": "겹치는 신청", **window})
     assert clash.status_code == 409
 
 
@@ -1031,7 +1045,7 @@ async def test_a_viewer_can_read_but_not_write(client, session):
     blocked = {
         "글쓰기": await eyes.post("/api/v1/notices", json={"title": "쓰기", "category": "일반", "contentHtml": "<p>a</p>", "contentJson": {}, "isPinned": False}),
         "댓글": await eyes.post(f"/api/v1/notices/{notice_id}/comments", json={"body": "댓글"}),
-        "예약": await eyes.post("/api/v1/reservations", json={"equipmentUnitId": str(watcher.id), "startsAt": "2026-12-01T10:00:00+09:00", "endsAt": "2026-12-01T11:00:00+09:00", "purpose": "시도"}),
+        "예약": await eyes.post("/api/v1/reservations", json={"equipmentUnitId": str(watcher.id), "startsAt": "2026-12-01T10:00:00+09:00", "endsAt": "2026-12-01T11:00:00+09:00", "note": "시도"}),
         "자료 올리기": await eyes.post("/api/v1/resources", json={"title": "x", "description": "", "category": "기타", "fileUrl": None, "fileName": None, "fileSize": 0, "linkUrl": "https://example.com/a", "isPublic": True}),
         "SHAPE-UP": await eyes.post("/api/v1/shape-up", json={"title": "x", "summary": "", "cohort": "", "teamName": "", "teamMembers": [], "coverImage": None, "contentHtml": "", "contentJson": {}, "githubUrl": None, "videoUrl": None}),
     }
@@ -1279,7 +1293,7 @@ async def test_owners_are_told_about_a_new_reservation_request(client, session):
         "equipmentUnitId": str(unit.id),
         "startsAt": starts.isoformat(),
         "endsAt": (starts + timedelta(hours=1)).isoformat(),
-        "purpose": "실험 준비",
+        "note": "실험 준비",
     })
     assert made.status_code == 201, made.text
 
@@ -1297,7 +1311,7 @@ async def test_owners_are_told_about_a_new_reservation_request(client, session):
         "equipmentUnitId": str(unit.id),
         "startsAt": starts.isoformat(),
         "endsAt": (starts + timedelta(hours=1)).isoformat(),
-        "purpose": "실험 준비",
+        "note": "실험 준비",
     })
     assert again.status_code == 201
     assert len((await login(client, owner).get("/api/v1/notifications")).json()) == 1
@@ -1712,7 +1726,7 @@ async def test_the_requester_hears_about_approval_and_rejection(client, session)
 
     starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
     payload = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
-               "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "실험 준비"}
+               "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "실험 준비"}
     made = await login(client, member).post("/api/v1/reservations", json=payload)
     assert made.status_code == 201
     reservation_id = made.json()["id"]
@@ -1745,17 +1759,17 @@ async def test_due_reservations_ask_for_photos(client, session):
     await session.flush()
 
     now = datetime.now(UTC)
-    running = Reservation(equipment_unit_id=unit.id, user_id=member.id, purpose="사용 중",
+    running = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="사용 중",
                           starts_at=now - timedelta(minutes=5), ends_at=now + timedelta(hours=1),
                           status=ReservationStatus.APPROVED)
-    finished = Reservation(equipment_unit_id=unit.id, user_id=member.id, purpose="끝남",
+    finished = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="끝남",
                            starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=2),
                            status=ReservationStatus.IN_USE, start_notified_at=now)
     session.add_all([running, finished])
     await session.commit()
 
     # 시작한 지 30분이 지났는데 사용 전 사진이 없는 예약
-    stale = Reservation(equipment_unit_id=unit.id, user_id=member.id, purpose="사진 없음",
+    stale = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="사진 없음",
                         starts_at=now - timedelta(minutes=45), ends_at=now + timedelta(minutes=30),
                         status=ReservationStatus.APPROVED, start_notified_at=now)
     session.add(stale)
@@ -1810,7 +1824,7 @@ async def test_approval_license_and_maintenance_reach_the_member(client, session
     starts = (datetime.now(UTC) + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
     made = await login(client, member).post("/api/v1/reservations", json={
         "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
-        "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "실험 준비",
+        "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "실험 준비",
     })
     assert made.status_code == 201, made.text
     http = login(client, owner)
@@ -1846,7 +1860,7 @@ async def test_a_reservation_can_name_who_uses_it_together(client, session):
 
     starts = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
     body = {"equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
-            "endsAt": (starts + timedelta(hours=1)).isoformat(), "purpose": "함께 실험"}
+            "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "함께 실험"}
 
     http = login(client, asker)
     # 승인되지 않은 계정은 넣을 수 없다.
@@ -2101,7 +2115,7 @@ async def _reserve(client, session, equipment_name, member, officer):
         "equipment_unit_id": str(unit.id),
         "starts_at": starts.isoformat(),
         "ends_at": ends.isoformat(),
-        "purpose": "텔레오퍼레이션 시험",
+        "note": "텔레오퍼레이션 시험",
     })
     assert created.status_code == 201
     return created.json()["id"], starts, ends
@@ -2362,3 +2376,611 @@ async def test_a_top_level_create_is_not_mistaken_for_a_sub_action(client, sessi
     ]
     # 회원에게 준 기록은 '누구에게' 가 이름 자리에 와야 읽힌다.
     assert rows[1].target == member.name
+
+
+# ------------------------------------------------ 지금 칸·자동 확정·정기·통계
+
+
+async def _machine(session, name="OMY", *, unit_minutes=60, units=1):
+    """장비 하나와 호기를 만들어 (장비, 호기목록) 을 돌려준다."""
+    equipment = Equipment(name=name, category="로봇 팔", reservation_unit_minutes=unit_minutes)
+    session.add(equipment)
+    await session.flush()
+    made = [EquipmentUnit(equipment_id=equipment.id, label=f"{name} {index + 1}호기") for index in range(units)]
+    session.add_all(made)
+    await session.commit()
+    return equipment, made
+
+
+def _block_start(unit_minutes: int) -> datetime:
+    """지금이 들어 있는 예약 칸의 시작 시각. 서버가 쓰는 계산과 같은 것을 쓴다."""
+    from app.services.reservations import block_floor
+
+    return block_floor(datetime.now(UTC), unit_minutes)
+
+
+async def test_지금_돌고_있는_칸은_예약할_수_있다(client, session):
+    """17시 14분에 17~18시 칸을 잡을 수 있어야 한다.
+
+    예전에는 시작 시각이 조금이라도 지나면 막아서, 장비 앞에 서 있는 사람이 남은
+    46분을 쓰지 못하고 다음 정각을 기다려야 했다.
+    """
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY", unit_minutes=60)
+    http = login(client, member)
+    now_block = _block_start(60)
+
+    running = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": now_block.isoformat(),
+        "endsAt": (now_block + timedelta(hours=1)).isoformat(), "note": "지금 사용",
+    })
+    assert running.status_code == 201, running.text
+
+    # 지금 칸보다 앞선 칸은 막는다. 지나간 시간을 소급해 기록으로 남기는 일이다.
+    earlier = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": (now_block - timedelta(hours=1)).isoformat(),
+        "endsAt": (now_block + timedelta(hours=1)).isoformat(), "note": "소급",
+    })
+    assert earlier.status_code == 422
+    assert "지금 사용 중인 칸" in earlier.json()["detail"]
+
+    # 이미 끝난 칸도 막는다. 쓸 시간이 남아 있지 않다.
+    done = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": (now_block - timedelta(hours=2)).isoformat(),
+        "endsAt": (now_block - timedelta(hours=1)).isoformat(), "note": "지난 시간",
+    })
+    assert done.status_code == 422
+    assert "이미 지난 시간" in done.json()["detail"]
+
+
+async def test_두_시간_단위_장비도_지금_칸부터_잡힌다(client, session):
+    """예약 단위가 120분이면 '지금 칸' 도 두 시간짜리다."""
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "AI Worker", unit_minutes=120)
+    http = login(client, member)
+    now_block = _block_start(120)
+    created = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": now_block.isoformat(),
+        "endsAt": (now_block + timedelta(hours=2)).isoformat(), "note": "긴 실험",
+    })
+    assert created.status_code == 201, created.text
+    # 60분 단위였다면 허용됐을 30분 앞 칸은, 120분 장비에서는 같은 칸 안이라 통과한다.
+    assert _block_start(120) <= _block_start(60)
+
+
+async def test_이미_끝난_예약은_승인할_수_없다(client, session):
+    """끝난 시간을 승인하면 지나간 칸이 영원히 잠기고 헛된 사진 요청이 나간다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "레이저 커터")
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    stale = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="지난 신청",
+                        starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=2))
+    session.add(stale)
+    await session.commit()
+
+    http = login(client, officer)
+    decided = await http.post(f"/api/v1/admin/reservations/{stale.id}/decision", json={"approve": True})
+    assert decided.status_code == 409
+    assert "이미 끝난 시간" in decided.json()["detail"]
+    assert (await session.scalar(select(func.count()).select_from(ReservationSlot))) == 0
+
+
+async def test_예약은_분류와_시급도와_기타_내용을_함께_남긴다(client, session):
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "3D 프린터")
+    starts = awaiting_half_hour()
+    http = login(client, member)
+    created = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(),
+        "purposeCategory": "CONTEST", "urgency": "HIGH", "note": "금요일이 대회 마감입니다.",
+    })
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert (body["purposeCategory"], body["urgency"]) == ("CONTEST", "HIGH")
+    assert body["note"] == "금요일이 대회 마감입니다."
+
+    # 고르지 않으면 '기타'·'보통'. 옛 신청에 없던 값을 지어내지 않기 위한 기본값이다.
+    plain = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": (starts + timedelta(hours=2)).isoformat(),
+        "endsAt": (starts + timedelta(hours=3)).isoformat(),
+    })
+    assert plain.status_code == 201, plain.text
+    assert (plain.json()["purposeCategory"], plain.json()["urgency"], plain.json()["note"]) == ("OTHER", "NORMAL", "")
+
+
+async def test_시작_시각의_초는_거절한다(client, session):
+    """`17:00:30` 으로 시작하는 신청은 겹침 검사를 통째로 비껴 간다.
+
+    슬롯이 `17:00:30`·`17:30:30` 으로 깔려 이미 있는 `17:00:00` 과 초가 다르므로,
+    `uq_reservation_slot` 제약에도 걸리지 않고 같은 장비 같은 시간에 확정 예약이
+    둘 생긴다.
+    """
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    starts = awaiting_half_hour()
+    http = login(client, member)
+    sneaky = await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id),
+        "startsAt": starts.replace(second=30).isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "초를 섞은 신청",
+    })
+    assert sneaky.status_code == 422
+
+
+async def test_대기_신청은_예약_가능_시간에_보인다(client, session):
+    """같은 시간을 원하는 사람이 둘이라는 것이 신청하기 전에 보여야 한다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    equipment, (unit,) = await _machine(session, "OMY")
+    starts = awaiting_half_hour()
+    created = await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "데이터 수집",
+    })
+    assert created.status_code == 201, created.text
+
+    day = starts.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat()
+    cache.clear()
+    grid = (await logout(client).get(f"/api/v1/equipment/{equipment.id}/availability?date={day}")).json()
+    marks = grid["units"][0]
+    assert marks["reservedStarts"] == []
+    assert len(marks["pendingStarts"]) == 2  # 한 시간 = 30분 칸 둘
+
+    # 승인하면 대기에서 확정으로 옮겨 간다.
+    assert (await login(client, officer).post(
+        f"/api/v1/admin/reservations/{created.json()['id']}/decision", json={"approve": True})).status_code == 200
+    cache.clear()
+    grid = (await logout(client).get(f"/api/v1/equipment/{equipment.id}/availability?date={day}")).json()
+    assert len(grid["units"][0]["reservedStarts"]) == 2
+    assert grid["units"][0]["pendingStarts"] == []
+
+
+async def test_예약_가능_시간은_누가_신청했는지_말하지_않는다(client, session):
+    """이 응답은 공유 캐시를 탄다. 사람이 들어가면 남의 정보가 새어 나간다."""
+    member = await make_user(session, "member@example.com")
+    equipment, (unit,) = await _machine(session, "OMY")
+    starts = awaiting_half_hour()
+    await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "데이터 수집",
+    })
+    day = starts.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat()
+    cache.clear()
+    response = await logout(client).get(f"/api/v1/equipment/{equipment.id}/availability?date={day}")
+    raw = json.dumps(response.json())
+    assert str(member.id) not in raw
+    assert member.email not in raw and member.name not in raw
+    assert "s-maxage" in response.headers.get("cache-control", "")
+
+
+async def test_지금_시작하는_칸을_신청하면_바로_확정된다(client, session):
+    """장비 앞에 서서 지금 칸을 잡는 가장 흔한 경우. 운영진을 기다리지 않는다."""
+    await make_user(session, "officer@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY", unit_minutes=60)
+    now_block = _block_start(60)
+    created = await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": now_block.isoformat(),
+        "endsAt": (now_block + timedelta(hours=1)).isoformat(), "note": "지금 사용",
+    })
+    assert created.status_code == 201, created.text
+    assert created.json()["status"] == "APPROVED"
+    assert created.json()["autoDecidedAt"] is not None
+    assert (await session.scalar(select(func.count()).select_from(ReservationSlot))) == 2
+
+
+async def test_겹친_신청은_저절로_확정되지_않는다(client, session):
+    """자동으로 한쪽을 고르면 '늦게 누른 사람' 이 이기는 규칙이 된다."""
+    await make_user(session, "officer@example.com", owner=True)
+    first = await make_user(session, "first@example.com")
+    second = await make_user(session, "second@example.com")
+    _, (unit,) = await _machine(session, "OMY", unit_minutes=60)
+    starts = _block_start(60) + timedelta(minutes=30)
+    window = {"startsAt": starts.isoformat(), "endsAt": (starts + timedelta(minutes=30)).isoformat()}
+
+    one = await login(client, first).post("/api/v1/reservations", json={"equipmentUnitId": str(unit.id), "note": "먼저", **window})
+    assert one.status_code == 201, one.text
+    assert one.json()["status"] == "APPROVED"  # 다투는 상대가 아직 없다
+
+    # 확정된 칸과 겹치므로 두 번째는 신청 자체가 막힌다.
+    two = await login(client, second).post("/api/v1/reservations", json={"equipmentUnitId": str(unit.id), "note": "나중", **window})
+    assert two.status_code == 409
+
+
+async def test_대기끼리_겹치면_아무것도_확정되지_않는다(client, session):
+    """둘 다 아직 대기인 경우가 사람이 봐야 하는 유일한 경우다."""
+    from app.services.reservation_sweeps import sweep_auto_decisions
+
+    await make_user(session, "officer@example.com", owner=True)
+    first = await make_user(session, "first@example.com")
+    second = await make_user(session, "second@example.com")
+    _, (unit,) = await _machine(session, "OMY", unit_minutes=60)
+    starts = awaiting_half_hour()
+    window = {"startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat()}
+    one = await login(client, first).post("/api/v1/reservations", json={"equipmentUnitId": str(unit.id), "note": "먼저", **window})
+    two = await login(client, second).post("/api/v1/reservations", json={"equipmentUnitId": str(unit.id), "note": "나중", **window})
+    assert (one.status_code, two.status_code) == (201, 201)
+    assert {one.json()["status"], two.json()["status"]} == {"PENDING"}
+
+    # 시각을 자동 확정 창 안으로 끌어당겨도 겹침 때문에 그대로 대기다.
+    await session.execute(
+        update(Reservation).values(starts_at=datetime.now(UTC) + timedelta(minutes=20),
+                                   ends_at=datetime.now(UTC) + timedelta(minutes=80))
+    )
+    await session.commit()
+    assert await sweep_auto_decisions(session) == []
+    rows = (await session.scalars(select(Reservation))).all()
+    assert {row.status for row in rows} == {ReservationStatus.PENDING}
+
+
+async def test_충돌이_없는_신청은_한_시간_전에_저절로_확정된다(client, session):
+    from app.services.reservation_sweeps import sweep_auto_decisions
+
+    await make_user(session, "officer@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    starts = awaiting_half_hour()
+    created = await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(), "note": "실험",
+    })
+    assert created.json()["status"] == "PENDING"
+
+    reservation = await session.get(Reservation, UUID(created.json()["id"]))
+    reservation.starts_at = datetime.now(UTC) + timedelta(minutes=20)
+    reservation.ends_at = datetime.now(UTC) + timedelta(minutes=80)
+    await session.commit()
+
+    alerts = await sweep_auto_decisions(session)
+    assert any("자동으로 확정" in title for title, _, _ in alerts)
+    await session.refresh(reservation)
+    assert reservation.status == ReservationStatus.APPROVED
+    assert reservation.auto_decided_at is not None
+    # 두 번째 훑기는 할 일이 없다.
+    assert await sweep_auto_decisions(session) == []
+
+
+async def test_시간이_지난_대기_신청은_만료된다(client, session):
+    from app.services.reservation_sweeps import sweep_auto_decisions
+
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    now = datetime.now(UTC)
+    forgotten = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="잊힌 신청",
+                            starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=2))
+    session.add(forgotten)
+    await session.commit()
+
+    alerts = await sweep_auto_decisions(session)
+    assert any("만료" in title for title, _, _ in alerts)
+    await session.refresh(forgotten)
+    assert forgotten.status == ReservationStatus.EXPIRED
+    assert (await login(client, member).get("/api/v1/notifications")).json()[0]["title"].startswith("신청한 시간이 지나")
+    assert await sweep_auto_decisions(session) == []
+
+
+async def test_운영진은_두_시간_전에_한_번_더_듣는다(client, session):
+    from app.services.reservation_alerts import sweep_due
+
+    officer = await make_user(session, "officer@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    now = datetime.now(UTC)
+    waiting = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="대기 중",
+                          starts_at=now + timedelta(minutes=90), ends_at=now + timedelta(minutes=150),
+                          created_at=now - timedelta(days=1))
+    session.add(waiting)
+    await session.commit()
+
+    alerts = await sweep_due(session)
+    assert any("아직 승인하지 않은" in title for title, _, _ in alerts)
+    assert any("자동으로 확정됩니다" in body for _, body, _ in alerts)
+    assert (await login(client, officer).get("/api/v1/notifications")).json()[0]["title"].startswith("아직 승인하지 않은")
+    # 두 번 울리지 않는다.
+    assert not any("아직 승인하지 않은" in title for title, _, _ in await sweep_due(session))
+
+
+async def test_처음부터_임박해_들어온_신청은_독촉하지_않는다(client, session):
+    """접수 알림이 이미 독촉이었다. 같은 말을 두 번 하지 않는다."""
+    from app.services.reservation_alerts import sweep_due
+
+    await make_user(session, "officer@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    now = datetime.now(UTC)
+    fresh = Reservation(equipment_unit_id=unit.id, user_id=member.id, note="방금 신청",
+                        starts_at=now + timedelta(minutes=90), ends_at=now + timedelta(minutes=150),
+                        created_at=now)
+    session.add(fresh)
+    await session.commit()
+    assert not any("아직 승인하지 않은" in title for title, _, _ in await sweep_due(session))
+
+
+async def test_알림_훑기는_스스로_아무것도_결정하지_않는다(client, session):
+    """`sweep_due` 는 알림만 만든다. 상태를 바꾸는 것은 `sweep_auto_decisions` 다."""
+    from app.services.reservation_alerts import sweep_due
+
+    await make_user(session, "officer@example.com", owner=True)
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    now = datetime.now(UTC)
+    rows = [
+        Reservation(equipment_unit_id=unit.id, user_id=member.id, note="곧 시작",
+                    starts_at=now + timedelta(minutes=20), ends_at=now + timedelta(minutes=80),
+                    created_at=now - timedelta(days=1)),
+        Reservation(equipment_unit_id=unit.id, user_id=member.id, note="이미 지남",
+                    starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=2)),
+    ]
+    session.add_all(rows)
+    await session.commit()
+    await sweep_due(session)
+    for row in rows:
+        await session.refresh(row)
+        assert row.status == ReservationStatus.PENDING
+
+
+async def test_겹친_두_대기_신청은_서로를_가리킨다(client, session):
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    first = await make_user(session, "first@example.com")
+    second = await make_user(session, "second@example.com")
+    _, units = await _machine(session, "OMY", units=2)
+    starts = awaiting_half_hour()
+    window = {"startsAt": starts.isoformat(), "endsAt": (starts + timedelta(hours=1)).isoformat()}
+    await login(client, first).post("/api/v1/reservations", json={"equipmentUnitId": str(units[0].id), "note": "먼저", **window})
+    await login(client, second).post("/api/v1/reservations", json={"equipmentUnitId": str(units[0].id), "note": "나중", **window})
+    # 같은 시간이지만 다른 호기라 다투지 않는다.
+    await login(client, first).post("/api/v1/reservations", json={"equipmentUnitId": str(units[1].id), "note": "옆 호기", **window})
+
+    rows = (await login(client, officer).get("/api/v1/admin/reservations?status=PENDING")).json()
+    by_note = {row["note"]: row for row in rows}
+    assert by_note["먼저"]["conflictsWith"] == [by_note["나중"]["id"]]
+    assert by_note["나중"]["conflictsWith"] == [by_note["먼저"]["id"]]
+    assert by_note["옆 호기"]["conflictsWith"] == []
+
+
+async def test_관리자_목록은_시급도와_신청순으로_정렬된다(client, session):
+    """`HIGH, LOW, NORMAL` 은 알파벳 순이라 '낮음' 이 '보통' 위로 올라온다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    _, units = await _machine(session, "OMY", units=3)
+    starts = awaiting_half_hour()
+    http = login(client, member)
+    for unit, urgency, category in zip(units, ("LOW", "HIGH", "NORMAL"), ("OTHER", "CONTEST", "EDUCATION"), strict=True):
+        assert (await http.post("/api/v1/reservations", json={
+            "equipmentUnitId": str(unit.id), "startsAt": starts.isoformat(),
+            "endsAt": (starts + timedelta(hours=1)).isoformat(),
+            "urgency": urgency, "purposeCategory": category, "note": urgency,
+        })).status_code == 201
+
+    http = login(client, officer)
+    ordered = (await http.get("/api/v1/admin/reservations?status=PENDING&sort=urgency")).json()
+    assert [row["urgency"] for row in ordered] == ["HIGH", "NORMAL", "LOW"]
+
+    # 신청 시각은 같은 초에 몰려 있으면 순서가 정해지지 않는다. 실제 상황처럼
+    # 벌려 두고 확인한다.
+    base = datetime.now(UTC) - timedelta(hours=3)
+    for offset, note in enumerate(("LOW", "HIGH", "NORMAL")):
+        await session.execute(update(Reservation).where(Reservation.note == note)
+                              .values(created_at=base + timedelta(minutes=offset * 10)))
+    await session.commit()
+    by_created = (await http.get("/api/v1/admin/reservations?status=PENDING&sort=created")).json()
+    assert [row["note"] for row in by_created] == ["NORMAL", "HIGH", "LOW"]
+
+    only_urgent = (await http.get("/api/v1/admin/reservations?status=PENDING&urgency=HIGH")).json()
+    assert [row["note"] for row in only_urgent] == ["HIGH"]
+    assert (await http.get("/api/v1/admin/reservations?status=PENDING&category=CONTEST")).json()[0]["note"] == "HIGH"
+
+
+async def test_추천_순서는_이유를_함께_보여_준다(client, session):
+    """근거를 못 보여 주는 점수는 운영진이 믿을 수도 반박할 수도 없다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    _, units = await _machine(session, "OMY", units=2)
+    starts = awaiting_half_hour()
+    http = login(client, member)
+    await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(units[0].id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(),
+        "urgency": "LOW", "purposeCategory": "OTHER", "note": "느긋함"})
+    await http.post("/api/v1/reservations", json={
+        "equipmentUnitId": str(units[1].id), "startsAt": starts.isoformat(),
+        "endsAt": (starts + timedelta(hours=1)).isoformat(),
+        "urgency": "HIGH", "purposeCategory": "CONTEST", "note": "대회 마감"})
+
+    rows = (await login(client, officer).get("/api/v1/admin/reservations?status=PENDING&sort=priority")).json()
+    assert [row["note"] for row in rows] == ["대회 마감", "느긋함"]
+    assert rows[0]["priority"] == 70
+    assert "매우 시급 +40" in rows[0]["priorityReasons"]
+    assert "대회 +30" in rows[0]["priorityReasons"]
+
+
+async def test_사용을_일찍_마치면_남은_시간이_풀린다(client, session):
+    """예전에는 17~19시를 잡고 17시 10분에 끝내도 19시까지 아무도 못 썼다."""
+    member = await make_user(session, "member@example.com")
+    other = await make_user(session, "other@example.com")
+    _, (unit,) = await _machine(session, "OMY", unit_minutes=60)
+    now_block = _block_start(60)
+    created = await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": now_block.isoformat(),
+        "endsAt": (now_block + timedelta(hours=4)).isoformat(), "note": "긴 실험",
+    })
+    assert created.status_code == 201, created.text
+    reservation_id = created.json()["id"]
+
+    http = login(client, member)
+    assert (await http.post(f"/api/v1/reservations/{reservation_id}/before", json={"photoUrl": "https://x/before.webp"})).status_code == 200
+    done = await http.post(f"/api/v1/reservations/{reservation_id}/after",
+                           json={"photoUrl": "https://x/after.webp", "releaseRemaining": True})
+    assert done.status_code == 200, done.text
+    assert datetime.fromisoformat(done.json()["endsAt"]) < now_block + timedelta(hours=4)
+
+    # 반납한 시간은 다른 사람이 곧바로 쓸 수 있다.
+    later = now_block + timedelta(hours=2)
+    taken = await login(client, other).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": later.isoformat(),
+        "endsAt": (later + timedelta(hours=1)).isoformat(), "note": "이어서 사용",
+    })
+    assert taken.status_code == 201, taken.text
+
+
+async def test_반납하지_않으면_끝_시각이_그대로다(client, session):
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY", unit_minutes=60)
+    now_block = _block_start(60)
+    ends = now_block + timedelta(hours=4)
+    created = await login(client, member).post("/api/v1/reservations", json={
+        "equipmentUnitId": str(unit.id), "startsAt": now_block.isoformat(),
+        "endsAt": ends.isoformat(), "note": "긴 실험",
+    })
+    reservation_id = created.json()["id"]
+    http = login(client, member)
+    await http.post(f"/api/v1/reservations/{reservation_id}/before", json={"photoUrl": "https://x/b.webp"})
+    done = await http.post(f"/api/v1/reservations/{reservation_id}/after", json={"photoUrl": "https://x/a.webp"})
+    assert datetime.fromisoformat(done.json()["endsAt"]) == ends
+
+
+async def test_정기_예약은_요일마다_한_번에_잡힌다(client, session):
+    """교육 트랙은 화·수·목이 학기 내내 고정이다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    mate = await make_user(session, "mate@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    seoul = ZoneInfo("Asia/Seoul")
+    start_day = (datetime.now(seoul) + timedelta(days=1)).date()
+    http = login(client, officer)
+    created = await http.post("/api/v1/admin/reservations/recurring", json={
+        "equipmentUnitId": str(unit.id),
+        "weekdays": [start_day.weekday()],
+        "startTime": "18:00", "endTime": "20:00",
+        "fromDate": start_day.isoformat(),
+        "untilDate": (start_day + timedelta(days=21)).isoformat(),
+        "purposeCategory": "EDUCATION", "note": "교육 트랙",
+        "companionIds": [str(mate.id)],
+    })
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert len(body["created"]) == 4  # 4주치
+    assert all(row["status"] == "APPROVED" for row in body["created"])
+    assert body["created"][0]["companions"] == ["mate"]
+
+    groups = (await http.get("/api/v1/admin/reservations/recurring")).json()
+    assert groups[0]["total"] == 4
+    assert groups[0]["startTime"] == "18:00"
+    assert groups[0]["weekdays"] == [start_day.weekday()]
+
+    # 겹치는 주는 건너뛰고 알려 준다. 학기 전체를 실패시키지 않는다.
+    again = await http.post("/api/v1/admin/reservations/recurring", json={
+        "equipmentUnitId": str(unit.id),
+        "weekdays": [start_day.weekday()],
+        "startTime": "18:00", "endTime": "20:00",
+        "fromDate": start_day.isoformat(),
+        "untilDate": (start_day + timedelta(days=21)).isoformat(),
+    })
+    assert again.status_code == 201, again.text
+    assert again.json()["created"] == []
+    assert len(again.json()["skipped"]) == 4
+    assert again.json()["skipped"][0]["reason"] == "이미 확정된 예약이 있습니다."
+
+
+async def test_정기_예약_해제는_앞으로_것만_물린다(client, session):
+    """이미 지나간 것은 실제로 있었던 사용 기록이라 그대로 둔다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    _, (unit,) = await _machine(session, "OMY")
+    seoul = ZoneInfo("Asia/Seoul")
+    start_day = (datetime.now(seoul) + timedelta(days=1)).date()
+    http = login(client, officer)
+    created = await http.post("/api/v1/admin/reservations/recurring", json={
+        "equipmentUnitId": str(unit.id), "weekdays": [start_day.weekday()],
+        "startTime": "18:00", "endTime": "20:00",
+        "fromDate": start_day.isoformat(), "untilDate": (start_day + timedelta(days=14)).isoformat(),
+    })
+    group_id = created.json()["groupId"]
+    # 첫 건을 과거로 옮겨 '이미 지난 것' 으로 만든다.
+    oldest = (await session.scalars(select(Reservation).order_by(Reservation.starts_at))).first()
+    oldest.starts_at = datetime.now(UTC) - timedelta(days=2)
+    oldest.ends_at = datetime.now(UTC) - timedelta(days=2) + timedelta(hours=2)
+    await session.commit()
+
+    removed = await http.delete(f"/api/v1/admin/reservations/recurring/{group_id}")
+    assert removed.status_code == 200
+    assert removed.json()["cancelled"] == 2
+    await session.refresh(oldest)
+    assert oldest.status == ReservationStatus.APPROVED
+
+
+async def test_정기_예약은_한_번에_서른_건까지만(client, session):
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    _, (unit,) = await _machine(session, "OMY")
+    seoul = ZoneInfo("Asia/Seoul")
+    start_day = (datetime.now(seoul) + timedelta(days=1)).date()
+    body = {
+        "equipmentUnitId": str(unit.id), "weekdays": [0, 1, 2, 3, 4],
+        "startTime": "18:00", "endTime": "20:00",
+        "fromDate": start_day.isoformat(), "untilDate": (start_day + timedelta(days=120)).isoformat(),
+    }
+    refused = await login(client, officer).post("/api/v1/admin/reservations/recurring", json=body)
+    assert refused.status_code == 422
+    assert "30건" in refused.json()["detail"]
+
+
+async def test_사용_통계는_기간_안의_예약만_센다(client, session):
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    seoul = ZoneInfo("Asia/Seoul")
+    today = datetime.now(seoul).date()
+    # 정각에 맞춰 둔다. 히트맵은 예약이 걸쳐 있는 매 시간을 한 칸씩 채우므로,
+    # 10시 37분에 시작하는 두 시간짜리는 10·11·12시 세 칸을 건드린다.
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    session.add_all([
+        Reservation(equipment_unit_id=unit.id, user_id=member.id, note="안에 있음",
+                    starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=1),
+                    status=ReservationStatus.COMPLETED, purpose_category=ReservationPurpose.CONTEST),
+        Reservation(equipment_unit_id=unit.id, user_id=member.id, note="아주 예전",
+                    starts_at=now - timedelta(days=90), ends_at=now - timedelta(days=90) + timedelta(hours=2),
+                    status=ReservationStatus.COMPLETED),
+    ])
+    await session.commit()
+
+    http = login(client, officer)
+    window = f"from={(today - timedelta(days=1)).isoformat()}&to={(today + timedelta(days=1)).isoformat()}"
+    stats = (await http.get(f"/api/v1/admin/reservations/stats?{window}")).json()
+    assert stats["totalCount"] == 1
+    assert stats["totalHours"] == 2.0
+    assert stats["equipment"][0]["label"] == "OMY"
+    assert stats["purposes"][0]["label"] == "대회"
+    assert sum(sum(row) for row in stats["heatmap"]) == 2
+
+
+async def test_사용_통계는_자동_확정과_사람_승인을_나눈다(client, session):
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    _, (unit,) = await _machine(session, "OMY")
+    seoul = ZoneInfo("Asia/Seoul")
+    today = datetime.now(seoul).date()
+    now = datetime.now(UTC)
+    session.add_all([
+        Reservation(equipment_unit_id=unit.id, user_id=member.id, note="시계가 확정",
+                    starts_at=now - timedelta(hours=3), ends_at=now - timedelta(hours=2),
+                    status=ReservationStatus.COMPLETED, auto_decided_at=now),
+        Reservation(equipment_unit_id=unit.id, user_id=member.id, note="사람이 확정",
+                    starts_at=now - timedelta(hours=2), ends_at=now - timedelta(hours=1),
+                    status=ReservationStatus.COMPLETED),
+    ])
+    await session.commit()
+    window = f"from={(today - timedelta(days=1)).isoformat()}&to={(today + timedelta(days=1)).isoformat()}"
+    stats = (await login(client, officer).get(f"/api/v1/admin/reservations/stats?{window}")).json()
+    assert {row["label"]: row["count"] for row in stats["decisions"]} == {"자동 확정": 1, "운영진 승인": 1}
+
+
+async def test_사용_통계는_권한과_기간을_따진다(client, session):
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    member = await make_user(session, "member@example.com")
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    assert (await login(client, member).get(
+        f"/api/v1/admin/reservations/stats?from={today.isoformat()}&to={today.isoformat()}")).status_code == 403
+    too_long = await login(client, officer).get(
+        f"/api/v1/admin/reservations/stats?from={(today - timedelta(days=400)).isoformat()}&to={today.isoformat()}")
+    assert too_long.status_code == 422
+    assert "366일" in too_long.json()["detail"]

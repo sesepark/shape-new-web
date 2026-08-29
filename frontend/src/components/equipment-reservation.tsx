@@ -1,42 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Check, ChevronRight, CircleAlert, ClipboardPenLine, Lock, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, Check, ChevronRight, CircleAlert, ClipboardPenLine, Lock, Users, Wrench } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ASK_ALT, useAsk } from "@/components/ask-dialog";
+import { BookingRequestFields } from "@/components/booking-request-fields";
+import { BookingSlotGrid } from "@/components/booking-slot-grid";
+import { BookingWeekStrip } from "@/components/booking-week-strip";
 import { ScrollingName } from "@/components/scrolling-name";
 import { API_URL } from "@/lib/api";
+import {
+  RESERVATION_CLOSE_HOUR,
+  iso,
+  localDay,
+  pendingCounts,
+  purposeLabel,
+  slotLabels,
+  slotState,
+  timeLabel,
+  urgencyLabel,
+} from "@/lib/booking";
 import { useSession } from "@/lib/session";
 import { media, mediaSquare, optimizable } from "@/lib/media";
-import type { EquipmentAvailability, EquipmentItem, MemberPick } from "@/lib/types";
+import type {
+  EquipmentAvailability,
+  EquipmentItem,
+  MemberPick,
+  ReservationPurpose,
+  ReservationUrgency,
+} from "@/lib/types";
 
-function localDay() { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10); }
-const timeLabel = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 const dateLabel = (day: string) => new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", weekday: "short" }).format(new Date(`${day}T12:00:00`));
 
 const steps = [["장비 선택", Wrench], ["일정 선택", CalendarDays], ["신청 정보", ClipboardPenLine], ["예약 완료", Check]] as const;
-
-/** 지금 이후 몇 분 뒤부터 신청을 받을지. 서버도 시작 시각이 현재보다 앞이면 거절한다. */
-const LEAD_MINUTES = 5;
-
-/**
- * `HH:MM` 칸이 이미 지났는지 본다.
- *
- * 예전에는 오늘도 00:00~23:00 스물네 칸을 모두 눌릴 수 있게 두었다. 화면에서는
- * 멀쩡해 보이는데 신청하면 서버가 "지난 시간은 예약할 수 없습니다" 로 거절해,
- * 왜 안 되는지 알 수 없었다. 고를 수 없는 칸은 처음부터 잠근다.
- */
-function past(day: string, time: string): boolean {
-  const at = new Date(`${day}T${time}:00+09:00`);
-  return Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + LEAD_MINUTES * 60_000;
-}
-
-/** 하루를 예약 단위로 쪼갠 시작 시각 목록. 장비마다 단위가 달라 매번 새로 만든다. */
-function slotLabels(unitMinutes: number): string[] {
-  const count = Math.floor(((RESERVATION_CLOSE_HOUR - RESERVATION_OPEN_HOUR) * 60) / unitMinutes);
-  return Array.from({ length: Math.max(0, count) }, (_, index) => timeLabel(RESERVATION_OPEN_HOUR * 60 + index * unitMinutes));
-}
 
 /** 마이페이지와 같은 정보를 예약 화면에서도 미리 보여 주기 위한 응답 형태. */
 type EquipmentPermission = {
@@ -47,35 +45,43 @@ type EquipmentPermission = {
 };
 /** 예약 화면에서 지금 무엇을 할 수 있는지. `viewer` 는 보고만 갑니다. */
 type Access = "checking" | "guest" | "viewer" | "member";
-const RESERVATION_OPEN_HOUR = 0;
-const RESERVATION_CLOSE_HOUR = 24;
 
 export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[] }) {
   const { session } = useSession();
   const search = useSearchParams();
+  const router = useRouter();
+  const { ask, dialogNode } = useAsk();
   const scheduleRef = useRef<HTMLDivElement>(null);
   const equipmentRef = useRef<HTMLElement>(null);
+  const requestRef = useRef<HTMLElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const requested = search.get("equipment");
   const [chosenId, setChosenId] = useState(requested ?? equipment.find((item) => item.status === "ACTIVE")?.id ?? "");
+  const [today, setToday] = useState(localDay);
+  // 시계는 그릴 때마다 읽지 않고 여기 담아 둔다. 렌더마다 값이 달라지면 안 되고,
+  // 화면을 켜 둔 채로 두어도 지나간 칸이 스스로 잠겨야 한다.
+  const [now, setNow] = useState(0);
   const [day, setDay] = useState(localDay);
   const [availability, setAvailability] = useState<EquipmentAvailability | null>(null);
   const [unitId, setUnitId] = useState("");
   const [startHour, setStartHour] = useState("");
   const [endHour, setEndHour] = useState("");
-  const [purpose, setPurpose] = useState("");
+  const [purposeCategory, setPurposeCategory] = useState<ReservationPurpose | "">("");
+  const [urgency, setUrgency] = useState<ReservationUrgency>("NORMAL");
+  const [note, setNote] = useState("");
   // 장비 하나를 여럿이 함께 쓰는 경우. 이름이 남아야 사고나 파손이 있을 때
   // 물어볼 곳이 있고, 함께 오는 사람도 알림을 받습니다.
   const [companions, setCompanions] = useState<MemberPick[]>([]);
   const [people, setPeople] = useState<MemberPick[]>([]);
   const [mateQuery, setMateQuery] = useState("");
-  const [stage, setStage] = useState(1);
+  const [submitted, setSubmitted] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(Boolean(equipment.length));
   const [permissions, setPermissions] = useState<Record<string, EquipmentPermission>>({});
   // 이번에 앉은 자리에서 신청한 예약들. 실험 하나에 로봇 팔과 GPU 를 함께 쓰는 일이
   // 흔한데, 예전에는 한 건을 넣고 나면 버튼이 잠겨 새로고침을 해야 다음 장비를
   // 신청할 수 있었다. 무엇을 이미 넣었는지 보여 주고 곧바로 다음 장비로 넘어간다.
-  const [booked, setBooked] = useState<{ id: string; name: string; unit: string; span: string }[]>([]);
+  const [booked, setBooked] = useState<{ id: string; name: string; unit: string; span: string; auto: boolean }[]>([]);
   // 로그인 여부는 머리글이 이미 읽어 둔 세션에서 그대로 읽습니다.
   const access: Access =
     session === undefined ? "checking"
@@ -89,10 +95,17 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     (lockedByDefault ? equipment.find((item) => permissions[item.id]?.eligible)?.id : undefined) ?? chosenId;
   const selected = equipment.find((item) => item.id === equipmentId);
 
+  // 자정을 넘겨 화면을 켜 둔 채로 두면 '오늘' 이 어제로 남는다. 날짜 띠의 오늘
+  // 표시와 날짜 입력의 하한이 함께 어긋난다.
+  useEffect(() => {
+    const tick = () => { setToday(localDay()); setNow(Date.now()); };
+    tick();
+    const timer = window.setInterval(tick, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // 신청 버튼을 누르고 나서야 "필수 라이선스가 없습니다"를 만나면 앞의 세 단계가
   // 모두 헛수고가 된다. 마이페이지와 같은 자격 정보를 미리 읽어 카드에 표시한다.
-  // 세션은 머리글이 이미 한 번 읽어 두므로 여기서 다시 요청하지 않고, 로그인하지
-  // 않은 방문자에게는 아예 물어보지 않는다.
   useEffect(() => {
     if (access !== "member") return;
     const controller = new AbortController();
@@ -125,13 +138,13 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   }, [people, companions, mateQuery]);
 
   /** 이 장비를 지금 신청할 수 있는지와, 안 되는 이유 한 줄. */
-  function eligibility(item: EquipmentItem) {
+  const eligibility = useCallback((item: EquipmentItem) => {
     if (item.status !== "ACTIVE") return { ok: false, reason: item.status === "MAINTENANCE" ? "점검 중" : "예약 불가" };
     const permission = permissions[item.id];
     if (!permission) return { ok: true, reason: "" };
     if (permission.eligible) return { ok: true, reason: "" };
     return { ok: false, reason: `교육 필요: ${permission.missingLicenses.join(", ")}` };
-  }
+  }, [permissions]);
 
   useEffect(() => {
     if (!equipmentId || !day) return;
@@ -145,7 +158,8 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         setUnitId(unit?.id ?? "");
         // 앞 장비에서 들고 온 시간이 이 장비에서도 쓸 수 있는지 여기서 본다.
         // 예약 단위가 다르거나(60분 대 120분) 그 시간이 이미 확정되어 있으면
-        // 지우고 다시 고르게 한다.
+        // 지우고 다시 고르게 한다. 대기 중인 신청은 지우지 않는다 — 같은 시간에
+        // 함께 신청하는 것은 막지 않기 때문이다.
         if (!startHour || !endHour) return;
         const grid = slotLabels(data.reservationUnitMinutes);
         const taken = new Set(unit?.reservedStarts.map((value) => value.slice(11, 16)) ?? []);
@@ -153,7 +167,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         const to = grid.indexOf(endHour);
         const range = grid.slice(from, to === -1 ? grid.length : to);
         if (from === -1 || range.length === 0 || range.some((time) => taken.has(time))) {
-          setStartHour(""); setEndHour(""); setStage(2);
+          setStartHour(""); setEndHour("");
           setMessage("이 장비는 그 시간을 쓸 수 없습니다. 시간을 다시 선택해 주세요.");
         }
       })
@@ -172,19 +186,39 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   const times = useMemo(() => (availability ? slotLabels(availability.reservationUnitMinutes) : []), [availability]);
   const selectedUnit = availability?.units.find((unit) => unit.id === unitId);
   const reserved = useMemo(() => new Set(selectedUnit?.reservedStarts.map((value) => value.slice(11, 16)) ?? []), [selectedUnit]);
+  const pending = useMemo(() => pendingCounts(selectedUnit?.pendingStarts), [selectedUnit]);
 
+  /** 그 칸의 끝 시각. 마지막 칸은 자정으로 닫는다. */
+  const endOf = useCallback((index: number) => times[index + 1] ?? timeLabel(RESERVATION_CLOSE_HOUR * 60), [times]);
+  // 화면이 붙기 전(`now === 0`)에는 시계를 모른다. 그때 서버 시계로 그려 두면
+  // 브라우저의 첫 그림과 달라져 하이드레이션이 어긋난다(실제로 어긋났다).
+  // 시계를 모르는 동안에는 모든 칸을 '빈 시간' 으로 두고, 붙은 직후 30초 시계가
+  // 돌면서 지난 칸과 지금 칸이 제자리를 찾는다.
+  const stateOf = useCallback(
+    (time: string, index: number) => slotState(day, time, endOf(index), reserved, pending, now),
+    [day, endOf, reserved, pending, now],
+  );
+
+  /** 고른 구간에 걸려 있는 남의 대기 신청 수. 0 이면 다투는 사람이 없다. */
+  const contested = useMemo(() => {
+    if (!startHour || !endHour) return 0;
+    return times
+      .filter((time) => time >= startHour && time < endHour)
+      .reduce((total, time) => total + (pending.get(time) ?? 0), 0);
+  }, [times, startHour, endHour, pending]);
+
+  // 단계 표시는 상태를 따로 들지 않고 지금 고른 것에서 끌어낸다. 예전에는 여섯
+  // 군데서 `setStage` 를 불렀는데, 한 군데만 빠뜨려도 화면과 실제가 어긋났다.
+  const stage = submitted ? 4 : (startHour && endHour) ? 3 : equipmentId ? 2 : 1;
 
   function chooseEquipment(id: string) {
     // 이어서 신청하는 중이면 앞서 고른 시간을 들고 간다. 그 시간이 새 장비의
-    // 시간표에 없으면 아래 검사가 지우고 다시 고르라고 알려 준다.
+    // 시간표에 없으면 위 검사가 지우고 다시 고르라고 알려 준다.
     const keepTime = booked.length > 0 && Boolean(startHour && endHour);
     setLoading(true); setMessage(""); setChosenId(id);
     if (!keepTime) { setStartHour(""); setEndHour(""); }
-    setStage(2);
     window.setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
   }
-  /** 그 칸의 끝 시각. 마지막 칸은 자정으로 닫는다. */
-  const endOf = (index: number) => times[index + 1] ?? timeLabel(RESERVATION_CLOSE_HOUR * 60);
 
   /**
    * 한 번 누르면 그 한 칸이 잡히고, 뒤쪽 칸을 다시 누르면 거기까지 늘어난다.
@@ -193,19 +227,33 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
    * 두 칸을 눌러야 했고 그러면 두 시간이 잡혔다. 무엇이 잡혔는지도 보이지 않았다.
    */
   function chooseSlot(time: string, index: number) {
-    if (past(day, time)) { setMessage("이미 지난 시간은 예약할 수 없습니다."); return; }
+    const state = stateOf(time, index);
+    if (!state.selectable) {
+      setMessage(state.kind === "past" ? "이미 끝난 시간입니다." : "이미 확정된 예약이 있는 시간입니다.");
+      return;
+    }
     const startIndex = times.indexOf(startHour);
     // 아직 아무것도 없거나, 시작보다 앞을 누르면 그 칸 하나로 다시 시작한다.
     if (!startHour || time <= startHour) {
-      setStartHour(time); setEndHour(endOf(index)); setStage(3); setMessage("");
+      setStartHour(time); setEndHour(endOf(index)); setMessage("");
       return;
     }
-    if (times.slice(startIndex, index + 1).some((item) => reserved.has(item))) {
-      setMessage("예약된 시간대를 건너뛸 수 없습니다.");
+    // 사이에 고를 수 없는 칸이 하나라도 있으면 건너뛸 수 없다. 남이 신청만 해 둔
+    // 칸은 건너뛰는 것이 아니라 함께 신청하는 것이므로 여기서 막지 않는다.
+    if (times.slice(startIndex, index + 1).some((item, offset) => !stateOf(item, startIndex + offset).selectable)) {
+      setMessage("확정된 예약이나 지난 시간을 건너뛸 수 없습니다.");
       return;
     }
-    setEndHour(endOf(index)); setStage(3); setMessage("");
+    setEndHour(endOf(index)); setMessage("");
   }
+
+  /** 아직 채우지 못한 것. 제출 검사와 아래 체크리스트가 같은 목록을 씁니다. */
+  const checklist = [
+    { label: "장비와 호기", done: Boolean(unitId) },
+    { label: "사용 날짜와 시간", done: Boolean(startHour && endHour) },
+    { label: "사용 목적", done: Boolean(purposeCategory) },
+  ];
+
   async function submit() {
     if (access === "viewer") { setMessage("보기 전용 계정이라 예약을 신청할 수 없습니다. 예약 현황은 그대로 보실 수 있습니다."); return; }
     if (access === "guest") { setMessage("로그인 후 승인된 회원만 예약을 신청할 수 있습니다."); return; }
@@ -213,23 +261,77 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
       const { ok, reason } = eligibility(selected);
       if (!ok) { setMessage(`${selected.name}은(는) 지금 신청할 수 없습니다. ${reason}`); return; }
     }
-    if (!unitId || !startHour || !endHour || purpose.trim().length < 3) { setMessage("예약할 시간 범위와 사용 목적을 모두 입력해 주세요."); return; }
+    const missing = checklist.find((item) => !item.done);
+    if (missing) {
+      setMessage(`${missing.label}을(를) 먼저 정해 주세요.`);
+      if (missing.label === "사용 목적") requestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     setLoading(true); setMessage("");
-    const iso = (time: string) => new Date(`${day}T${time}:00+09:00`).toISOString();
+    let created: { id: string; auto: boolean } | null = null;
     try {
-      const response = await fetch(`${API_URL}/reservations`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ equipmentUnitId: unitId, startsAt: iso(startHour), endsAt: iso(endHour), purpose: purpose.trim(), companionIds: companions.map((mate) => mate.id) }) });
+      const response = await fetch(`${API_URL}/reservations`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({
+          equipmentUnitId: unitId,
+          startsAt: iso(day, startHour),
+          endsAt: iso(day, endHour),
+          purposeCategory,
+          urgency,
+          note: note.trim(),
+          companionIds: companions.map((mate) => mate.id),
+        }),
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setMessage(data.detail ?? "예약을 신청하지 못했습니다."); return; }
+      const auto = data.status === "APPROVED";
+      created = { id: String(data.id ?? unitId), auto };
       setBooked((current) => [...current, {
-        id: String(data.id ?? unitId),
+        id: created!.id,
         name: selected?.name ?? "",
         unit: selectedUnit?.label ?? "",
         span: `${dateLabel(day)} ${startHour}–${endHour}`,
+        auto,
       }]);
-      setStage(4); setMessage("예약 신청이 접수되었습니다. 운영진 승인 후 확정됩니다.");
+      setSubmitted(true);
+      setMessage(auto
+        ? "예약이 바로 확정되었습니다. 사용 전 사진을 올리고 시작해 주세요."
+        : "예약 신청이 접수되었습니다. 운영진 승인 후 확정됩니다.");
     } catch { setMessage("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
     finally { setLoading(false); }
+
+    // 팝업은 `finally` 밖에서 기다린다. 안에서 기다리면 단추가 팝업이 닫힐
+    // 때까지 "확인 중" 에 묶인다.
+    if (!created) return;
+    const answer = await ask({
+      title: created.auto ? "예약이 확정되었습니다" : "예약을 신청했습니다",
+      description: (
+        <>
+          <p className="ask-lead">사진 두 장을 잊지 마세요.</p>
+          <p>
+            <b>사용 전 사진을 올려야 사용이 시작되고, 사용 후 사진을 올려야 사용이 완료됩니다.</b>{" "}
+            사진은 장비 상태를 남기는 유일한 기록이라, 빠지면 다음 사람이 이전 상태를 확인할 수 없습니다.
+          </p>
+          <ul>
+            <li><b>마이페이지</b> — 내 예약 카드에서 바로 올립니다.</li>
+            <li><b>장비 예약 현황</b> — 달력에서 내 예약을 누르면 뜨는 창에서도 올릴 수 있습니다.</li>
+            <li>사용 시각이 되면 <b>화면 왼쪽 아래에 띠</b>가 떠서 그 자리에서 바로 갈 수 있습니다.</li>
+          </ul>
+          <p>사용을 일찍 마치면 사진을 올릴 때 <b>남은 시간을 반납</b>할 수 있습니다. 다른 부원이 그 시간을 바로 쓸 수 있습니다.</p>
+        </>
+      ),
+      confirmLabel: "알겠습니다",
+      altLabel: "마이페이지에서 확인",
+      altTone: "plain",
+      cancelLabel: "닫기",
+    });
+    // 취소(닫기·Esc·바깥 누름)에는 아무 동작도 걸지 않는다. 잘못 눌렀다고 방금
+    // 채운 신청서가 날아가면 안 된다.
+    if (answer === ASK_ALT) router.push("/mypage");
   }
+
   /**
    * 방금 고른 날짜·시간·목적을 그대로 두고 장비 선택으로 돌아간다.
    * 겹침을 막는 기준은 사람이 아니라 호기이므로, 다른 장비라면 같은 시간에
@@ -239,21 +341,93 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
     setChosenId("");
     setUnitId("");
     setAvailability(null);
-    setStage(1);
+    setSubmitted(false);
     setMessage("");
     window.setTimeout(() => equipmentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
   }
 
+  function goToStep(index: number) {
+    const target = index === 1 ? equipmentRef : index === 2 ? scheduleRef : requestRef;
+    target.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   if (equipment.length === 0) return <div className="empty-state"><h2>예약 가능한 장비가 없습니다</h2><p>운영진이 장비와 개별 사용 단위를 등록하면 예약할 수 있습니다.</p></div>;
 
+  const stepValue = [
+    selected?.name ?? "고르는 중",
+    startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "고르는 중",
+    purposeCategory ? `${purposeLabel(purposeCategory)} · ${urgencyLabel(urgency)}` : "고르는 중",
+    submitted ? "신청함" : "아직",
+  ];
+
   return <div className="booking-app">
-    <ol className="reservation-steps" aria-label="장비 예약 진행 단계">{steps.map(([label, Icon], index) => <li className={stage === index + 1 ? "active" : stage > index + 1 ? "done" : ""} key={label}><span>{label}</span><Icon size={23} />{index < steps.length - 1 && <ChevronRight className="step-arrow" size={19} />}</li>)}</ol>
-    <div className="booking-guidance"><strong>장비사용 예약 신청 순서</strong><p>장비 모델과 사용 날짜·시간을 선택한 후, 작업 목적을 작성해 예약을 신청합니다.</p><small><CircleAlert size={15} />승인된 예약만 달력과 시간표에서 다른 회원에게 표시됩니다.</small></div>
+    <ol className="reservation-steps" aria-label="장비 예약 진행 단계">
+      {steps.map(([label, Icon], index) => (
+        <li className={stage === index + 1 ? "active" : stage > index + 1 ? "done" : ""} key={label}>
+          <button type="button" onClick={() => goToStep(index + 1)} aria-current={stage === index + 1 ? "step" : undefined}>
+            <span>{label}</span>
+            <Icon size={23} aria-hidden="true" />
+            <i className="step-state">{stepValue[index]}</i>
+          </button>
+          {index < steps.length - 1 && <ChevronRight className="step-arrow" size={19} aria-hidden="true" />}
+        </li>
+      ))}
+    </ol>
+    <div className="booking-guidance">
+      <strong>장비사용 예약 신청 순서</strong>
+      <p>장비와 사용 날짜·시간을 고른 뒤, 사용 목적과 시급도를 골라 신청합니다.</p>
+      <small><CircleAlert size={15} aria-hidden="true" />시작까지 한 시간 안으로 남았고 같은 시간에 다른 신청이 없으면 <b>운영진을 기다리지 않고 바로 확정</b>됩니다.</small>
+    </div>
     {access === "guest" && <p className="booking-signin" role="status"><Lock size={15} />예약 신청은 승인된 회원만 할 수 있습니다. 예약 가능 시간은 로그인 없이도 확인할 수 있습니다. <Link href="/login">로그인하기</Link></p>}
     {access === "viewer" && <p className="booking-signin" role="status"><Lock size={15} />보기 전용 계정입니다. 예약 현황은 확인하실 수 있지만 신청은 활동 중인 회원만 할 수 있습니다.</p>}
-    <section className="booking-equipment" ref={equipmentRef} aria-labelledby="equipment-choice-title"><div className="booking-section-head"><p className="meta">01. EQUIPMENT</p><h3 id="equipment-choice-title">장비 선택</h3><span>예약할 장비와 개별 호기를 먼저 선택하세요.</span></div><div className="booking-equipment-grid">{equipment.map((item) => { const { ok, reason } = eligibility(item); return <button className={`booking-equipment-card${item.id === equipmentId ? " selected" : ""}${ok ? "" : " disabled"}`} type="button" disabled={!ok} onClick={() => chooseEquipment(item.id)} key={item.id}>{item.imageUrl ? <Image src={mediaSquare(item.imageUrl, 800)} sizes="(max-width: 900px) 45vw, 340px" quality={88} alt="" width={640} height={360} unoptimized={!optimizable(item.imageUrl)} /> : <span className="booking-device-icon"><Wrench size={34} /></span>}<span className="booking-card-category">{item.category}</span><strong>{item.name}</strong><small>{item.availableUnits}개 호기 · {ok ? "예약 가능" : reason}</small>{!ok && reason.startsWith("교육 필요") && <span className="booking-card-lock"><Lock size={13} /> 교육 이수 후 신청할 수 있습니다</span>}</button>; })}</div></section>
-    <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title"><div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div><div className="booking-schedule-grid"><article className="booking-date-card"><h4>예약 날짜</h4><label><span>예약 가능 날짜</span><input type="date" min={localDay()} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }}  /></label><p><CalendarDays size={16} />{dateLabel(day)}</p></article><article className="booking-time-card" aria-busy={loading}><h4>예약 시간</h4><div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div><p className="slot-help">한 칸을 누르면 그 시간이 잡히고, 뒤쪽 칸을 다시 누르면 거기까지 늘어납니다. <i>회색은 이미 승인된 예약이거나 지난 시간입니다.</i></p><div className="booking-slots">{times.map((time, index) => { const inRange = Boolean(startHour && endHour && time >= startHour && time < endHour); const gone = past(day, time); return <button type="button" disabled={reserved.has(time) || gone} title={gone ? "이미 지난 시간입니다" : undefined} className={`${startHour === time ? "start" : ""}${inRange ? " range" : ""}${gone ? " gone" : ""}`} onClick={() => chooseSlot(time, index)} key={time}>{time} - {endOf(index)}</button>; })}</div>{!availability && <p className="form-note">{loading ? "예약 현황을 불러오는 중입니다." : "예약 현황이 없습니다."}</p>}</article></div></section>
-    <section className="booking-request" aria-labelledby="request-title"><div className="booking-section-head"><p className="meta">03. REQUEST</p><h3 id="request-title">신청 정보</h3><span>신청자 정보는 로그인한 계정으로 자동 기록됩니다.</span></div><div className="booking-summary"><div><span>선택 장비</span><strong>{selected?.name ?? "장비를 선택해 주세요"}</strong></div><div><span>선택 일정</span><strong>{startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "시간을 선택해 주세요"}</strong></div><div><span>선택 호기</span><strong>{selectedUnit?.label ?? "호기를 선택해 주세요"}</strong></div></div>
+
+    <section className="booking-equipment" ref={equipmentRef} aria-labelledby="equipment-choice-title">
+      <div className="booking-section-head"><p className="meta">01. EQUIPMENT</p><h3 id="equipment-choice-title">장비 선택</h3><span>예약할 장비와 개별 호기를 먼저 선택하세요.</span></div>
+      <div className="booking-equipment-grid">{equipment.map((item) => { const { ok, reason } = eligibility(item); return <button className={`booking-equipment-card${item.id === equipmentId ? " selected" : ""}${ok ? "" : " disabled"}`} type="button" disabled={!ok} onClick={() => chooseEquipment(item.id)} key={item.id}>{item.imageUrl ? <Image src={mediaSquare(item.imageUrl, 800)} sizes="(max-width: 900px) 45vw, 340px" quality={88} alt="" width={640} height={360} unoptimized={!optimizable(item.imageUrl)} /> : <span className="booking-device-icon"><Wrench size={34} /></span>}<span className="booking-card-category">{item.category}</span><strong>{item.name}</strong><small>{item.availableUnits}개 호기 · {ok ? "예약 가능" : reason}</small>{!ok && reason.startsWith("교육 필요") && <span className="booking-card-lock"><Lock size={13} /> 교육 이수 후 신청할 수 있습니다</span>}</button>; })}</div>
+    </section>
+
+    <section className="booking-schedule-section" ref={scheduleRef} aria-labelledby="schedule-title">
+      <div className="booking-section-head"><p className="meta">02. SCHEDULE</p><h3 id="schedule-title">일정 선택</h3><span>{selected ? `${selected.name}의 ${dateLabel(day)} 예약 현황` : "장비를 선택해 주세요."}</span></div>
+      <BookingWeekStrip day={day} today={today} onPick={(next) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(next); }} />
+      <div className="booking-schedule-grid">
+        <article className="booking-date-card">
+          <h4>예약 날짜</h4>
+          <label><span>다른 날짜 고르기</span><input type="date" min={today} value={day} onChange={(event) => { setLoading(true); setMessage(""); setStartHour(""); setEndHour(""); setDay(event.target.value); }} /></label>
+          <p><CalendarDays size={16} aria-hidden="true" />{dateLabel(day)}</p>
+        </article>
+        <article className="booking-time-card" aria-busy={loading}>
+          <h4>예약 시간</h4>
+          <div className="unit-switcher">{availability?.units.map((unit) => <button type="button" className={unit.id === unitId ? "active" : ""} onClick={() => { setUnitId(unit.id); setStartHour(""); setEndHour(""); }} key={unit.id}>{unit.label.replace(`${selected?.name} `, "NO.")}</button>)}</div>
+          <BookingSlotGrid times={times} endOf={endOf} stateOf={stateOf} startHour={startHour} endHour={endHour} onPick={chooseSlot} />
+          {contested > 0 && (
+            <p className="booking-contest-note" role="status">
+              <Users size={16} aria-hidden="true" />
+              <span>
+                이 시간에 이미 <b>{contested}건</b>의 신청이 있습니다. 함께 신청할 수 있지만 운영진이 한 건만 확정합니다.
+                <button type="button" className="text-button" onClick={() => { requestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); window.setTimeout(() => noteRef.current?.focus(), 400); }}>
+                  왜 이 시간이어야 하는지 적기
+                </button>
+              </span>
+            </p>
+          )}
+          {!availability && <p className="form-note">{loading ? "예약 현황을 불러오는 중입니다." : "예약 현황이 없습니다."}</p>}
+        </article>
+      </div>
+    </section>
+
+    <section className="booking-request" ref={requestRef} aria-labelledby="request-title">
+      <div className="booking-section-head"><p className="meta">03. REQUEST</p><h3 id="request-title">신청 정보</h3><span>신청자 정보는 로그인한 계정으로 자동 기록됩니다.</span></div>
+      <div className="booking-summary">
+        <div><span>선택 장비</span><strong>{selected?.name ?? "장비를 선택해 주세요"}</strong></div>
+        <div><span>선택 일정</span><strong>{startHour && endHour ? `${dateLabel(day)} ${startHour}–${endHour}` : "시간을 선택해 주세요"}</strong></div>
+        <div><span>선택 호기</span><strong>{selectedUnit?.label ?? "호기를 선택해 주세요"}</strong></div>
+      </div>
+      <ul className="booking-summary-strip">
+        <li>{purposeCategory ? purposeLabel(purposeCategory) : "목적 미정"}</li>
+        <li data-level={urgency}>{urgencyLabel(urgency)}</li>
+        {companions.length > 0 && <li>함께 쓰는 부원 {companions.length}명</li>}
+        {contested > 0 && <li className="warn">같은 시간 신청 {contested}건</li>}
+      </ul>
       {/* 이 장비는 확정되면 동아리가 함께 쓰는 구글 캘린더에도 올라갑니다. 그
           캘린더는 SHAPE 만 보는 곳이 아니라 장비를 같이 쓰는 다른 분들도 보므로,
           신청하기 전에 알고 있어야 합니다. 어떤 장비가 그런지는 서버가 알려
@@ -263,13 +437,22 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         <p className="booking-calendar-note">
           <CalendarDays size={16} aria-hidden="true" />
           <span>
-            <strong>운영진이 확정하면 동아리 공유 캘린더 ‘휴머노이드 운용’ 에 일정이 자동으로 올라갑니다.</strong>
+            <strong>확정되면 동아리 공유 캘린더 ‘휴머노이드 운용’ 에 일정이 자동으로 올라갑니다.</strong>
             {" "}제목은 <i>SHAPE: 이름 {selected.name.toUpperCase()} 시간</i> 모양이고, 예약을 취소하면 그 일정도 함께 지워집니다.
-            대기 중인 신청은 올라가지 않습니다.
+            올라가는 것은 <b>분류까지</b>이고, 기타 내용은 올라가지 않습니다. 대기 중인 신청도 올라가지 않습니다.
           </span>
         </p>
       )}
-      <label className="booking-purpose"><span>사용 목적 및 작업 내용</span><textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={2000} placeholder="예: 휴머노이드 로봇 외장 부품 시제품 제작 / 사용 재료와 안전 유의사항" /></label>
+      <BookingRequestFields
+        purposeCategory={purposeCategory}
+        urgency={urgency}
+        note={note}
+        disabled={access !== "member"}
+        noteRef={noteRef}
+        onPurposeChange={setPurposeCategory}
+        onUrgencyChange={setUrgency}
+        onNoteChange={setNote}
+      />
       {/* 장비 하나를 여럿이 함께 쓰는 경우. 이름이 남아야 사고나 파손이 있을 때
           물어볼 곳이 있고, 함께 오는 사람도 알림을 받습니다. */}
       <div className="booking-companions">
@@ -321,7 +504,24 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
           함께 장비를 쓰는 부원을 넣어 주세요. 넣은 사람에게도 알림이 갑니다.
           <b> 신청자 본인은 넣지 않아도 됩니다.</b> 필수 교육은 신청자에게만 따집니다.
         </small>
-      </div><div className="booking-submit-row"><p>신청 후 운영진이 검토합니다. 승인 전에는 예약이 확정되지 않습니다. 여러 장비를 같은 시간에 함께 쓸 수 있습니다.</p><div className="booking-submit-buttons">{stage === 4 && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}<button className="button" type="button" disabled={loading || stage === 4} onClick={submit}>{stage === 4 ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button></div></div>{booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}</section>
-    {message && <p className={`booking-message${stage === 4 ? " success" : ""}`} role="status">{message}</p>}
+      </div>
+      <ul className="booking-checklist" aria-label="신청 전 확인">
+        {checklist.map((item) => (
+          <li key={item.label} className={item.done ? "done" : ""}>
+            <Check size={14} aria-hidden="true" />{item.label}
+          </li>
+        ))}
+      </ul>
+      <div className="booking-submit-row">
+        <p>같은 시간에 여러 장비를 함께 쓸 수 있습니다. 겹치는 신청이 있으면 운영진이 직접 한 건을 확정합니다.</p>
+        <div className="booking-submit-buttons">
+          {submitted && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}
+          <button className="button" type="button" disabled={loading || submitted} onClick={submit}>{submitted ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button>
+        </div>
+      </div>
+      {booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span><i>{row.auto ? "확정" : "대기"}</i></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}
+    </section>
+    {message && <p className={`booking-message${submitted ? " success" : ""}`} role="status">{message}</p>}
+    {dialogNode}
   </div>;
 }

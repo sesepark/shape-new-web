@@ -5,6 +5,7 @@ import Image from "next/image";
 import { media, optimizable } from "@/lib/media";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { board } from "@/lib/board";
+import { purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { useSession } from "@/lib/session";
 import type { ReservationCalendarItem, ReservationStatus } from "@/lib/types";
@@ -12,7 +13,7 @@ import type { ReservationCalendarItem, ReservationStatus } from "@/lib/types";
 const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
 const statusLabel: Record<ReservationStatus, string> = {
   PENDING: "승인 대기", APPROVED: "예약 확정", IN_USE: "사용 중",
-  COMPLETED: "사용 완료", REJECTED: "반려", CANCELLED: "취소",
+  COMPLETED: "사용 완료", REJECTED: "반려", CANCELLED: "취소", EXPIRED: "기간 지남",
 };
 const clock = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
 const fullDate = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
@@ -161,7 +162,7 @@ export function ReservationCalendarView() {
                   <ul>
                     {bookings.map((booking) => (
                       <li className={booking.status.toLowerCase()} data-tone={tone.get(booking.equipmentName) ?? 0} key={`${booking.id}-${day}`}>
-                        <button type="button" onClick={() => setActive(booking)} title={`${booking.equipmentName} ${booking.unitLabel} · ${booking.userName}${booking.companions?.length ? ` 외 ${booking.companions.length}명` : ""} · ${statusLabel[booking.status]}`}>
+                        <button type="button" onClick={() => setActive(booking)} title={`${unitTitle(booking.equipmentName, booking.unitLabel)} · ${booking.userName}${booking.companions?.length ? ` 외 ${booking.companions.length}명` : ""} · ${statusLabel[booking.status]}`}>
                           <b>{range(booking)}</b>
                           <span>{booking.unitLabel || booking.equipmentName}</span>
                           <i>{booking.userName}{booking.companions?.length ? ` 외 ${booking.companions.length}명` : ""}</i>
@@ -201,9 +202,15 @@ export function ReservationCalendarView() {
                 <div><dt><Users size={16} /> 함께 쓰는 부원</dt><dd>{active.companions.join(", ")}</dd></div>
               )}
             </dl>
+            {/* 덧붙인 말(`note`)은 여기 오지 않습니다. 그것은 운영진에게 하는
+                말이라 동아리 전체가 보는 달력에 뜨면 솔직하게 쓰지 못합니다.
+                무엇을 위한 예약이고 얼마나 급한지만 보여 줍니다. */}
             <section className="reservation-purpose-box">
               <h4>사용 목적</h4>
-              <p>{active.purpose || "신청 시 입력한 사용 목적이 없습니다."}</p>
+              <ul className="reservation-tags">
+                <li className="purpose-chip">{purposeLabel(active.purposeCategory)}</li>
+                <li className="urgency-badge" data-level={active.urgency ?? "NORMAL"}>{urgencyLabel(active.urgency)}</li>
+              </ul>
             </section>
             {session?.id === active.userId && (active.status === "APPROVED" || active.status === "IN_USE") && (
               <section className="reservation-mine">
