@@ -496,3 +496,19 @@ export interface MyUsage {
   firstUsedAt?: string | null;
   lastUsedAt?: string | null;
 }
+
+/**
+ * 예약 현황 달력에 함께 그리는 '막힌 시간' 한 칸.
+ *
+ * 요일 규칙은 **서버가 날짜마다 펼쳐서** 줍니다. 화면이 다시 펴게 하면 같은
+ * 계산이 두 곳에 생기고, 한쪽만 고쳐지는 날이 옵니다.
+ */
+export interface BlackoutSpan {
+  equipmentId: string;
+  equipmentName: string;
+  /** 비어 있으면 그 장비의 모든 호기가 막힌 것입니다. */
+  unitLabel: string;
+  reason: string;
+  startsAt: string;
+  endsAt: string;
+}

@@ -19,6 +19,7 @@ from app.models import (
     NewsPost,
     RelatedLink,
     Reservation,
+    ReservationBlackout,
     ReservationSlot,
     ReservationStatus,
     RoadmapItem,
@@ -33,6 +34,7 @@ from app.schemas import (
     MemberProject,
     NewsDetailRead,
     NewsRead,
+    PublicBlackout,
     PublicReservationPolicy,
     RoadmapRead,
 )
@@ -117,6 +119,66 @@ async def list_equipment(db: AsyncSession = Depends(get_db)):
         )
         for item in equipment
     ]
+
+
+# 한 달에 읽어 올 규칙 수. 운영진이 만드는 것이라 몇 건을 넘지 않지만, 규칙 하나가
+# 최대 31칸으로 펼쳐지므로 상한을 둡니다.
+BLACKOUT_RULES = 60
+
+
+@router.get("/equipment/blackouts", response_model=list[PublicBlackout])
+async def equipment_blackouts(
+    month: str = Query(pattern=r"^\d{4}-\d{2}$", description="조회할 달 (YYYY-MM)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """그 달에 운영진이 막아 둔 시간. 예약 현황 달력이 함께 그립니다.
+
+    막아 둔 시간이 달력에 없으면, 부원은 빈 칸을 보고 예약 화면까지 갔다가 거기서야
+    막혔다는 것을 알게 됩니다. 한 번 헛걸음하는 셈입니다.
+
+    **요일 규칙을 여기서 날짜별로 펼쳐 줍니다.** 화면이 다시 펴게 하면 같은 계산이
+    서버와 화면 두 곳에 생기고, 한쪽만 고쳐지는 날이 옵니다.
+
+    실리는 것은 장비·시각·사유뿐이라 누가 부르든 같은 응답입니다. 그래서 로그인
+    없이도 열리고 공개 읽기 캐시를 탑니다 — 예약 화면의 `blockedReasons` 도 이미
+    같은 내용을 공개하고 있습니다.
+
+    **이 주소는 `/equipment/{equipment_id}/availability` 와 겹치지 않습니다.** 조각
+    수가 달라서인데, 뒤에 `{equipment_id}` 하나짜리 창구를 새로 만들 일이 생기면
+    반드시 이 창구를 그보다 **먼저** 선언해야 합니다.
+    """
+    year, number = (int(part) for part in month.split("-"))
+    if not 1 <= number <= 12:
+        raise HTTPException(422, "조회할 달이 올바르지 않습니다.")
+    first = date_type(year, number, 1)
+    last = date_type(year + (number == 12), number % 12 + 1, 1) - timedelta(days=1)
+    rules = list((await db.scalars(
+        select(ReservationBlackout)
+        .where(ReservationBlackout.from_date <= last, ReservationBlackout.until_date >= first)
+        .order_by(ReservationBlackout.from_date)
+        .limit(BLACKOUT_RULES)
+    )).all())
+    if not rules:
+        return []
+    names = {row[0]: row[1] for row in (await db.execute(select(Equipment.id, Equipment.name))).all()}
+    units = {row[0]: row[1] for row in (await db.execute(select(EquipmentUnit.id, EquipmentUnit.label))).all()}
+
+    out: list[PublicBlackout] = []
+    for rule in rules:
+        for offset in range((last - first).days + 1):
+            window = blackouts.interval_on(rule, first + timedelta(days=offset))
+            if not window:
+                continue
+            out.append(PublicBlackout(
+                equipment_id=rule.equipment_id,
+                equipment_name=names.get(rule.equipment_id, "장비"),
+                unit_label=units.get(rule.equipment_unit_id, "") if rule.equipment_unit_id else "",
+                reason=rule.reason,
+                starts_at=window[0],
+                ends_at=window[1],
+            ))
+    out.sort(key=lambda row: (row.starts_at, row.equipment_name))
+    return out
 
 
 @router.get("/equipment/{equipment_id}/availability")

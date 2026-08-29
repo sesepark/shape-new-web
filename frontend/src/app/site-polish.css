@@ -1087,6 +1087,17 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
   overflow: hidden;
 }
 
+/* 가장 넓은 폭에서 제목이 두 줄이 되면 본문 칸이 카드보다 3.4px 높아진다
+   (48px 글자 × 줄높이 1.14 × 두 줄 = 109.44). 글이 가운데 정렬이라 그 여유가
+   안쪽 여백에 흡수돼 지금은 잘려 보이지 않지만, **상자가 카드 밖으로 나간
+   상태 자체**는 남아 있어 제목을 한 줄 더 늘리거나 글자를 키우는 날 곧바로
+   잘린다. 위아래 여백을 4px 씩 줄여 상자를 카드 안에 들인다 — 가운데 정렬이라
+   글이 놓이는 자리는 그대로다. 한 단으로 쌓이는 900px 아래는 카드 높이가
+   `auto` 라 애초에 이 문제가 없으므로 건드리지 않는다. */
+@media (min-width: 901px) {
+  .news-featured-copy { padding-block: 44px; }
+}
+
 @media (max-width: 900px) {
   /* 한 단으로 쌓이면 사진과 글이 위아래로 놓인다. 사진은 비율로 묶고, 글은
      두 줄까지만 보여 카드 높이를 맞춘다. */
@@ -1776,6 +1787,20 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
 @media (max-width: 1100px) {
   .home-fields { grid-template-columns: 1fr; }
   .home-fields li { padding: 13px 16px; }
+}
+
+/* 태블릿 세로(768×1024 등)에서는 다시 두 칸으로 돌린다.
+   1100px 아래에서 한 칸으로 접는 것은 좁은 휴대폰을 위한 것인데, 그 규칙이
+   태블릿까지 끌고 내려와 분야 목록이 552px, 다음 일정이 802px 로 길어졌다.
+   그러면 **한 장이 화면보다 높아진다**(실측 1151>1024, 1089>1024). 높이가
+   760px 를 넘는 화면은 아직 `mandatory` 스냅이라, 넘친 아랫부분을 읽으려 해도
+   위로 튕겨 올라간다. 680px 위에서는 두 칸이 충분히 넓다(칸마다 약 350px).
+   다음 일정의 타임라인만 한 줄을 다 쓴다 — 항목이 길어 두 칸에 나누면 오히려
+   더 높아진다. */
+@media (min-width: 681px) and (max-width: 1100px) {
+  .home-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-next-body { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 32px; }
+  .home-next-body > .home-timeline { grid-column: 1 / -1; }
 }
 
 @media (max-width: 900px) {
@@ -4797,6 +4822,32 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   font-weight: 800;
 }
 
+/* 예약 안내 팝업은 **넓어야 한다.**
+   `.ask-dialog` 의 기본 폭(430px)은 "이 예약을 확정할까요?" 같은 짧은 물음에
+   맞춘 값이다. 여섯 장짜리 설명을 그 폭에 넣으면 1920px 화면에서도 폭 430 ·
+   높이 867 짜리 좁고 긴 기둥이 되어, 화면이 넓은데도 스크롤로만 읽게 된다.
+   이 몸통을 가진 팝업만 넓힌다 — 다른 확인 물음의 폭은 그대로다. */
+.ask-dialog:has(.booking-guide-body) { width: min(720px, calc(100% - 32px)); }
+
+/* 안내는 길어서 팝업 안에서 굴러간다. 그러면 '알겠습니다' 가 스크롤 맨 끝에만
+   있어, 처음 온 사람은 닫는 방법을 찾아 한참 내려야 한다. 단추 줄을 바닥에
+   붙여 둔다. 굴러가지 않는 짧은 물음에서는 아무 차이가 없다. */
+.ask-dialog:has(.booking-guide-body) .ask-actions {
+  position: sticky;
+  bottom: -30px;
+  margin: 0 -30px -30px;
+  padding: 14px 30px 30px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0, #fff 14px);
+}
+
+@media (max-width: 680px) {
+  .ask-dialog:has(.booking-guide-body) .ask-actions {
+    bottom: -24px;
+    margin: 0 -20px -24px;
+    padding: 12px 20px 24px;
+  }
+}
+
 /* 안내 팝업 본문. 팝업 하나에 여섯 장이 들어가므로 안에서 굴러가야 한다. */
 .booking-guide-body { display: grid; gap: 16px; text-align: left; }
 .booking-guide-body section { display: grid; gap: 6px; }
@@ -4811,8 +4862,31 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 
 .booking-guide-body p { margin: 0; color: #4c5360; font-size: 13px; line-height: 1.7; }
 .booking-guide-body p.warn { color: #8a3a4e; }
-.booking-guide-body ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-.booking-guide-body li { color: #4c5360; font-size: 13px; line-height: 1.65; }
+
+/* 안내 팝업의 목록은 **글머리표를 되살려야 한다.** 두 가지가 겹쳐 지워지고 있다.
+   하나는 Tailwind preflight 의 `ol, ul, menu { list-style: none }`(위 1419줄 설명
+   참고), 다른 하나는 바로 위 `.ask-dialog .ask-body ul` 의 `display: grid` 다.
+   격자 칸이 되면 항목이 `list-item` 성질을 잃어 표식이 사라진다. 그러면
+   들여쓰기만 남아 무엇이 목록인지 알 수 없다(실제로 그랬다).
+
+   그래서 `.ask-body` 를 앞에 붙여 명시도를 넘기고, 표식을 직접 켜고, 간격은
+   격자 대신 항목의 바깥 여백으로 준다. */
+.ask-dialog .ask-body .booking-guide-body ul {
+  margin: 0;
+  padding-left: 19px;
+  display: block;
+  list-style: disc;
+}
+
+.ask-dialog .ask-body .booking-guide-body li {
+  margin: 0 0 4px;
+  color: #4c5360;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.booking-guide-body li::marker { color: #9aa2af; }
+.booking-guide-body li:last-child { margin-bottom: 0; }
 .booking-guide-body b { color: #101418; font-weight: 800; }
 
 /* 대기 중인 예약에 붙는 확정 예정 한 줄. 겹쳤을 때는 색을 바꿔 구분한다. */
@@ -5066,4 +5140,60 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   .my-usage .usage-tiles article { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; }
   .my-usage .usage-tiles article svg { grid-row: span 1; }
   .booking-outlook, .booking-blocked-note { font-size: 12.5px; }
+}
+
+/* ------------------------------------------------------------------------- */
+/* 예약 현황 달력 — 운영진이 막아 둔 시간                                       */
+/* ------------------------------------------------------------------------- */
+
+/* 예약 화면의 '사용 제한' 칸과 같은 빗금·같은 색이다. 두 화면이 같은 것을 다른
+   모양으로 그리면, 부원은 둘이 같은 것인 줄 모른다. */
+.calendar-legend-inline i.blocked {
+  background: repeating-linear-gradient(135deg, #f7dde2 0 3px, #e8b7c2 3px 6px);
+}
+
+.calendar-blocked-lead {
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #8a3a4e;
+  background: #fdf3f5;
+  border: 1px solid #f0d2d9;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.calendar-blocked-lead svg { flex: 0 0 auto; margin-top: 2px; }
+
+.reservation-day li.blocked {
+  border-left-color: #d98ea0;
+  background: repeating-linear-gradient(135deg, #fdf1f3 0 5px, #f9e3e7 5px 10px);
+}
+
+.reservation-day li.blocked b,
+.reservation-day li.blocked span { color: #8a3a4e; }
+.reservation-day li.blocked i { color: #a5647a; }
+
+/* 예약 항목은 눌러서 자세히 볼 수 있지만 막힌 시간은 그럴 것이 없다. 자리는
+   같은 격자를 쓰고 누를 수 있다는 표시만 뺀다. */
+.reservation-day li > .blocked-body {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 5px;
+  text-align: left;
+}
+
+/* 사유는 **좁은 화면에서도 제 줄을 차지한다.** 예약 항목은 셋째 칸에 사람 이름을
+   붙이지만(짧다), 여기 들어오는 것은 "목요일 저녁 교육 트랙 정규 실습 — …" 같은
+   문장이라 옆에 붙이면 칸 밖으로 밀려난다. 넘치면 말줄임으로 자른다. */
+.reservation-day li > .blocked-body i {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

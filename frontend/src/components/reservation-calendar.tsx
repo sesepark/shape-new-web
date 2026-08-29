@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Camera, ChevronLeft, ChevronRight, Clock3, User, Users, Wrench, X } from "lucide-react";
+import { CalendarDays, Camera, ChevronLeft, ChevronRight, Clock3, ShieldAlert, User, Users, Wrench, X } from "lucide-react";
 import Image from "next/image";
 import { media, optimizable } from "@/lib/media";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +8,8 @@ import { board } from "@/lib/board";
 import { CLOCK_OPTIONS, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
 import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { useSession } from "@/lib/session";
-import type { ReservationCalendarItem, ReservationStatus } from "@/lib/types";
+import { API_URL } from "@/lib/api";
+import type { BlackoutSpan, ReservationCalendarItem, ReservationStatus } from "@/lib/types";
 
 const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
 const statusLabel: Record<ReservationStatus, string> = {
@@ -18,14 +19,14 @@ const statusLabel: Record<ReservationStatus, string> = {
 // 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
 const clock = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
 const fullDate = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
-const range = (item: ReservationCalendarItem) => `${clock.format(new Date(item.startsAt))} – ${clock.format(new Date(item.endsAt))}`;
+const range = (item: { startsAt: string; endsAt: string }) => `${clock.format(new Date(item.startsAt))} – ${clock.format(new Date(item.endsAt))}`;
 
 function monthKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 /** Every day the booking touches, so a multi-day reservation shows on each one. */
-function daysCovered(item: ReservationCalendarItem) {
+function daysCovered(item: { startsAt: string; endsAt: string }) {
   const days: string[] = [];
   const cursor = new Date(item.startsAt);
   cursor.setHours(0, 0, 0, 0);
@@ -41,6 +42,10 @@ export function ReservationCalendarView() {
   const { session } = useSession();
   const [month, setMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [items, setItems] = useState<ReservationCalendarItem[] | null>(null);
+  // 운영진이 막아 둔 시간. 예약과 따로 받습니다 — 로그인 없이도 열리는 공개
+  // 창구이고, 예약 목록의 응답 모양을 바꾸면 배포 중 한쪽만 올라간 순간에
+  // 달력이 통째로 깨집니다.
+  const [blocked, setBlocked] = useState<BlackoutSpan[]>([]);
   const [message, setMessage] = useState("");
   const [active, setActive] = useState<ReservationCalendarItem | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -56,7 +61,12 @@ export function ReservationCalendarView() {
 
   const load = useCallback(async () => {
     setItems(null);
+    // 막힌 시간은 못 받아 와도 달력은 그립니다. 예약이 본문이고 이것은 덧붙임입니다.
+    const blocking = fetch(`${API_URL}/equipment/blackouts?month=${monthKey(month)}`)
+      .then(async (answer) => (answer.ok ? ((await answer.json()) as BlackoutSpan[]) : []))
+      .catch(() => [] as BlackoutSpan[]);
     const response = await board(`/reservations/calendar?month=${monthKey(month)}`);
+    setBlocked(await blocking);
     if (!response.ok) {
       setMessage(response.status === 401 || response.status === 403 ? "승인된 회원만 예약 현황을 볼 수 있습니다." : "예약 현황을 불러오지 못했습니다.");
       setItems([]);
@@ -104,6 +114,19 @@ export function ReservationCalendarView() {
     return map;
   }, [items]);
 
+  /** 날짜별 막힌 시간. 예약과 같은 열쇠를 써서 한 칸 안에 나란히 놓습니다. */
+  const blockedByDay = useMemo(() => {
+    const map = new Map<string, BlackoutSpan[]>();
+    for (const span of blocked) {
+      for (const day of daysCovered(span)) map.set(day, [...(map.get(day) ?? []), span]);
+    }
+    for (const [day, rows] of map) {
+      map.set(day, [...rows].sort((a, b) =>
+        Date.parse(a.startsAt) - Date.parse(b.startsAt) || a.equipmentName.localeCompare(b.equipmentName, "ko")));
+    }
+    return map;
+  }, [blocked]);
+
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const total = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const cells = [
@@ -118,6 +141,12 @@ export function ReservationCalendarView() {
       <p className="lead">
         모든 장비의 예약 내역을 한 달 단위로 확인합니다. <b>색은 장비</b>를, <b>선 모양은 상태</b>를 나타냅니다. 승인 대기 중인 신청은 점선으로 함께 표시되니, 겹치는 시간을 미리 피해 신청하실 수 있습니다.
       </p>
+      {blocked.length > 0 && (
+        <p className="calendar-blocked-lead" role="status">
+          <ShieldAlert size={16} aria-hidden="true" />
+          <span>운영진이 막아 둔 시간은 <b>빗금</b>으로 표시됩니다. 그 시간에는 예약을 신청할 수 없습니다.</span>
+        </p>
+      )}
       <div className="calendar-toolbar">
         <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="이전 달">
           <ChevronLeft size={18} />
@@ -128,7 +157,7 @@ export function ReservationCalendarView() {
         </button>
         {/* 상태는 색이 아니라 선 모양으로 알려 줍니다. 색은 아래 장비 범례가 씁니다. */}
         <span className="calendar-legend-inline" aria-label="예약 상태 표시">
-          <i className="pending" /> 대기 <i className="approved" /> 확정 <i className="in-use" /> 사용 중 <i className="completed" /> 완료
+          <i className="pending" /> 대기 <i className="approved" /> 확정 <i className="in-use" /> 사용 중 <i className="completed" /> 완료 <i className="blocked" /> 사용 제한
         </span>
       </div>
       {tone.size > 0 && (
@@ -148,9 +177,10 @@ export function ReservationCalendarView() {
             if (day === null) return <div className="reservation-day empty" key={`blank-${index}`} aria-hidden="true" />;
             const key = `${month.getFullYear()}-${month.getMonth()}-${day}`;
             const bookings = byDay.get(key) ?? [];
+            const blocks = blockedByDay.get(key) ?? [];
             return (
               <div
-                className={`reservation-day${isThisMonth && today.getDate() === day ? " today" : ""}${bookings.length ? "" : " no-bookings"}`}
+                className={`reservation-day${isThisMonth && today.getDate() === day ? " today" : ""}${bookings.length || blocks.length ? "" : " no-bookings"}`}
                 role="cell"
                 key={key}
               >
@@ -159,8 +189,19 @@ export function ReservationCalendarView() {
                   {/* 좁은 화면에서는 요일 머리글이 사라지므로 날짜를 풀어 씁니다. */}
                   <em>{month.getMonth() + 1}월 {day}일 ({weekdays[new Date(month.getFullYear(), month.getMonth(), day).getDay()]})</em>
                 </span>
-                {items === null ? null : bookings.length ? (
+                {items === null ? null : bookings.length || blocks.length ? (
                   <ul>
+                    {/* 막아 둔 시간을 위에 둡니다. 그 날 무엇을 할 수 있는지의
+                        테두리를 먼저 읽어야, 아래 예약들이 이해됩니다. */}
+                    {blocks.map((span, order) => (
+                      <li className="blocked" key={`blocked-${span.equipmentId}-${span.startsAt}-${order}`}>
+                        <div className="blocked-body" title={`${span.unitLabel || `${span.equipmentName} 전체 호기`} · 사용 제한${span.reason ? ` · ${span.reason}` : ""}`}>
+                          <b>{range(span)}</b>
+                          <span>{span.unitLabel || `${span.equipmentName} 전체`}</span>
+                          <i>사용 제한{span.reason ? ` · ${span.reason}` : ""}</i>
+                        </div>
+                      </li>
+                    ))}
                     {bookings.map((booking) => (
                       <li className={booking.status.toLowerCase()} data-tone={tone.get(booking.equipmentName) ?? 0} key={`${booking.id}-${day}`}>
                         <button type="button" onClick={() => setActive(booking)} title={`${unitTitle(booking.equipmentName, booking.unitLabel)} · ${booking.userName}${booking.companions?.length ? ` 외 ${booking.companions.length}명` : ""} · ${statusLabel[booking.status]}`}>
@@ -177,7 +218,7 @@ export function ReservationCalendarView() {
           })}
         </div>
       </div>
-      {items !== null && items.length === 0 && !message && (
+      {items !== null && items.length === 0 && blocked.length === 0 && !message && (
         <p className="empty-inline">이 달에는 등록된 예약이 없습니다.</p>
       )}
 

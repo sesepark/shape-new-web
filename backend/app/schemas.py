@@ -522,6 +522,27 @@ class ReservationPolicyWrite(InputModel):
     recurring_max: int = Field(ge=1, le=100)
 
 
+class PublicBlackout(BaseModel):
+    """예약 현황 달력에 얹는 '막힌 시간' 한 칸.
+
+    규칙(요일 + 시각 + 기간)을 그대로 주지 않고 **그 달의 날짜마다 펼쳐서** 줍니다.
+    달력은 날짜 칸에 무엇을 그릴지만 알면 되므로, 요일 규칙을 화면이 다시 펴게
+    하면 서버와 화면 두 곳에 같은 계산이 생깁니다.
+
+    누가 무엇을 예약했는지는 들어가지 않습니다 — 장비와 시각과 사유뿐이라
+    공개 읽기 캐시를 그대로 씁니다. 사유는 이미 예약 화면에서도 공개됩니다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    equipment_id: UUID
+    equipment_name: str = ""
+    # 비어 있으면 그 장비의 **모든 호기**가 막힌 것입니다.
+    unit_label: str = ""
+    reason: str = ""
+    starts_at: datetime
+    ends_at: datetime
+
+
 class PublicReservationPolicy(BaseModel):
     """부원 화면이 읽는 부분.
 

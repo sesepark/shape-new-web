@@ -13,7 +13,8 @@
  *   off-screen         가로로 화면 밖에 나간 글(가로 스크롤 상자 안은 뺀다)
  *   clipped            넘치는데 감춰서 글자가 잘리는 곳(줄 수 제한·말줄임은 뺀다)
  *   spills-out         제 칸 밖으로 삐져나온 곳
- *   taller-than-screen 홈에서 한 장이 화면 높이를 넘은 곳
+ *   taller-than-screen 홈에서 한 장이 화면 높이를 넘은 곳(스냅이 mandatory 인
+ *                      높이, 즉 창 높이 760px 초과에서만 본다)
  *
  * 환경 변수
  *   BROWSER=chromium|firefox|webkit   기본 chromium. firefox·webkit 은
@@ -95,10 +96,21 @@ const probe = () => {
       }
     }
   }
-  // 4) 홈은 한 장이 화면 높이를 넘으면 안 된다
-  for (const s of document.querySelectorAll(".shape-home > section")) {
-    const r = s.getBoundingClientRect();
-    if (r.height > window.innerHeight + 2) out.push({ kind: "taller-than-screen", sel: "#" + (s.id || "?"), info: `${Math.round(r.height)}>${window.innerHeight}` });
+  // 4) 홈은 한 장이 화면 높이를 넘으면 안 된다 — **스냅이 mandatory 인 높이에서만.**
+  //
+  // `site-polish.css` 는 창이 760px 보다 낮으면 스냅을 `proximity` 로 낮춘다.
+  // 노트북에 도구 모음을 여러 줄 띄웠거나 세로로 화면을 나눠 쓰는 경우, 다음
+  // 일정 장(플랫폼·대회·타임라인)은 어떤 여백을 줄여도 640px 안에 들어가지
+  // 않는다. 그런 높이에서 mandatory 로 두면 넘친 아랫부분이 늘 위로 튕겨
+  // 올라가므로, 스냅을 낮춰 읽을 수 있게 하는 것이 그 화면에서의 정답이다.
+  //
+  // 그래서 여기서도 같은 경계를 쓴다. 낮은 창까지 보고하면 고칠 수도, 고쳐서도
+  // 안 되는 지적이 늘 네 건씩 남아 사람이 이 도구의 출력을 읽지 않게 된다.
+  if (window.innerHeight > 760) {
+    for (const s of document.querySelectorAll(".shape-home > section")) {
+      const r = s.getBoundingClientRect();
+      if (r.height > window.innerHeight + 2) out.push({ kind: "taller-than-screen", sel: "#" + (s.id || "?"), info: `${Math.round(r.height)}>${window.innerHeight}` });
+    }
   }
   return out;
 };

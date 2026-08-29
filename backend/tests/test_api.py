@@ -3348,3 +3348,52 @@ async def test_라이선스_일괄_부여는_어느_교육인지_남는다(clien
     assert row.area == "라이선스"
     assert row.action == "members"
     assert row.target == "OMY 운용 교육"
+
+
+async def test_예약_현황_달력은_막아_둔_시간도_알려_준다(client, session):
+    """달력에 없으면 부원이 빈 칸을 보고 예약 화면까지 갔다가 거기서야 막힌 것을 안다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    equipment, _ = await make_gear(session, units=("1호기", "2호기"))
+    day = (datetime.now(SEOUL_TZ) + timedelta(days=1)).date()
+    assert (await login(client, officer).post("/api/v1/admin/blackouts", json=blackout_body(
+        equipment, day=day, start="19:00", end="22:00"))).status_code == 201
+
+    cache.clear()
+    # 로그인 없이도 열린다. 장비·시각·사유뿐이라 누구의 정보도 실리지 않는다.
+    rows = (await logout(client).get(f"/api/v1/equipment/blackouts?month={day.strftime('%Y-%m')}")).json()
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "정기 점검"
+    assert rows[0]["equipmentName"] == "OMY"
+    # 호기를 고르지 않았으므로 장비 전체가 막힌 것이고, 호기 이름은 비어 있다.
+    assert rows[0]["unitLabel"] == ""
+    # 예약 항목과 같은 기준(UTC)으로 나갑니다. 달력은 브라우저에서 한국 시각으로 읽습니다.
+    seoul = datetime.fromisoformat(rows[0]["startsAt"].replace("Z", "+00:00")).astimezone(SEOUL_TZ)
+    assert (seoul.date(), seoul.strftime("%H:%M")) == (day, "19:00")
+
+    other = (await logout(client).get("/api/v1/equipment/blackouts?month=2020-01")).json()
+    assert other == []
+
+
+async def test_달력의_막힌_시간은_요일마다_펼쳐진다(client, session):
+    """요일 규칙을 화면이 다시 펴게 하면 같은 계산이 두 곳에 생긴다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    equipment, _ = await make_gear(session)
+    today = datetime.now(SEOUL_TZ).date()
+    first = today.replace(day=1)
+    last_day = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    body = blackout_body(equipment, day=first)
+    body.update(weekdays=[2], fromDate=first.isoformat(), untilDate=last_day.isoformat(),
+                startTime="19:00", endTime="21:00")
+    assert (await login(client, officer).post("/api/v1/admin/blackouts", json=body)).status_code == 201
+
+    cache.clear()
+    rows = (await logout(client).get(f"/api/v1/equipment/blackouts?month={first.strftime('%Y-%m')}")).json()
+    wednesdays = sum(1 for offset in range((last_day - first).days + 1)
+                     if (first + timedelta(days=offset)).weekday() == 2)
+    assert len(rows) == wednesdays
+    def at(value: str) -> str:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(SEOUL_TZ).strftime("%H:%M")
+
+    assert all(at(row["startsAt"]) == "19:00" and at(row["endsAt"]) == "21:00" for row in rows)
+    assert all(datetime.fromisoformat(row["startsAt"].replace("Z", "+00:00")).astimezone(SEOUL_TZ).weekday() == 2
+               for row in rows)

@@ -31,7 +31,7 @@ PUBLIC_EXACT = ("/equipment", "/roadmap", "/reservation-policy")
 # 늘려 놓고 화면은 한 시간이라고 말하는 상태가 긴 캐시만큼 이어집니다. 응답이
 # 아주 작고 서버 쪽에도 1분짜리 캐시가 따로 있어(`services/reservation_policy.py`)
 # 짧게 두는 값이 거의 들지 않습니다.
-VOLATILE_READS = ("/availability", "/reservation-policy")
+VOLATILE_READS = ("/availability", "/reservation-policy", "/blackouts")
 
 
 logger = logging.getLogger(__name__)
