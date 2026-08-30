@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import (
     AuditLog,
+    ContactMessage,
     ContentPage,
     Equipment,
     EquipmentLicenseRequirement,
@@ -40,6 +41,8 @@ from app.models import (
 from app.schemas import (
     PERMISSIONS,
     AdminAuditPage,
+    AdminContactPage,
+    AdminContactRead,
     AdminEquipmentRead,
     AdminLinkRead,
     AdminNewsRead,
@@ -52,6 +55,7 @@ from app.schemas import (
     BlackoutPreview,
     BlackoutRead,
     BlackoutWrite,
+    ContactMark,
     DirectoryUser,
     EquipmentLicenseWrite,
     EquipmentUnitRead,
@@ -112,6 +116,9 @@ from app.services.reservations import (
     unit_context,
 )
 from app.services.revalidate import refresh
+
+# 예약 기간 거르개와 정기 예약이 모두 서울 벽시계 날짜로 셈합니다.
+SEOUL = ZoneInfo("Asia/Seoul")
 
 # 관리자 창구의 쓰기는 빠짐없이 수정 내역에 남습니다. 창구마다 부르지 않고
 # 라우터 전체에 걸어 두는 이유는 `app/services/audit.py` 에 적어 두었습니다.
@@ -610,6 +617,11 @@ async def list_reservations(
     # 기본은 그대로 시작 시각 역순. 바꾸면 지금 화면의 차례가 말없이 뒤집힌다.
     sort: Literal["start", "created", "urgency", "priority"] = Query(default="start"),
     limit: int = Query(default=100, ge=1, le=300),
+    # 아래 넷은 부원이 백 명이 되면 목록이 길어져 눈으로 못 찾기 때문에 둡니다.
+    equipment_id: UUID | None = Query(default=None, alias="equipmentId"),
+    from_date: date_type | None = Query(default=None, alias="from"),
+    to_date: date_type | None = Query(default=None, alias="to"),
+    keyword: str | None = Query(default=None, max_length=80, alias="q"),
     _: User = Depends(require_permission("reservations:manage")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -627,6 +639,24 @@ async def list_reservations(
         query = query.where(Reservation.urgency == urgency)
     if category:
         query = query.where(Reservation.purpose_category == category)
+    if equipment_id:
+        # 호기가 아니라 장비로 거릅니다. 운영진이 찾을 때 떠올리는 것은
+        # "OMY 예약" 이지 "OMY 2호기 예약" 이 아닙니다.
+        query = query.where(Reservation.equipment_unit_id.in_(
+            select(EquipmentUnit.id).where(EquipmentUnit.equipment_id == equipment_id)))
+    # 기간은 **서울 벽시계 날짜**로 받습니다. 화면의 날짜 칸이 그렇게 보이고,
+    # UTC 로 끊으면 저녁 예약이 하루 밀려 다른 날에 잡힙니다.
+    if from_date:
+        query = query.where(Reservation.starts_at >= datetime.combine(from_date, time_type.min, SEOUL))
+    if to_date:
+        query = query.where(Reservation.starts_at < datetime.combine(to_date, time_type.min, SEOUL) + timedelta(days=1))
+    if keyword and (needle := keyword.strip()):
+        # 이름과 메일로 찾습니다. 신청자는 다른 표에 있으므로 하위 질의로 좁힙니다.
+        # 메모(`note`)까지 넣지 않는 이유는, 그 칸이 길고 자유서술이라 훑는 값이
+        # 붙는 데 비해 "누구 것" 을 찾는 실제 쓰임에 도움이 적기 때문입니다.
+        like = f"%{needle}%"
+        query = query.where(Reservation.user_id.in_(
+            select(User.id).where(User.name.ilike(like) | User.email.ilike(like))))
     if sort == "created":
         query = query.order_by(Reservation.created_at.desc())
     elif sort == "urgency":
@@ -697,7 +727,6 @@ async def reservation_cancel(reservation_id: UUID, payload: ReservationDecision 
 
 # ------------------------------------------------------- recurring reservations
 
-SEOUL = ZoneInfo("Asia/Seoul")
 # 한 번에 만들 수 있는 최대 **기간**. 건수 상한은 관리자 화면에서 정한다
 # (`services/reservation_policy.py`). 기간은 코드에 그대로 둔다 — 화면에서 늘릴
 # 이유가 없고, 늘리면 등록 전 미리보기 목록이 감당하지 못한다.
@@ -1634,3 +1663,75 @@ async def admin_audit(
         actors.sort(key=lambda person: person.name)
         areas.sort()
     return AdminAuditPage(items=items, actors=actors, areas=areas)
+
+
+# 문의 한 쪽에 담는 수. 화면의 `PAGE` 와 같아야 합니다.
+CONTACT_PAGE = 30
+
+
+@router.get("/contact", response_model=AdminContactPage)
+async def list_contact(
+    before: datetime | None = Query(default=None, description="이 시각보다 앞선 문의부터 이어 받습니다."),
+    limit: int = Query(default=CONTACT_PAGE, ge=1, le=CONTACT_PAGE),
+    unread_only: bool = Query(default=False, alias="unreadOnly"),
+    _: User = Depends(require_permission("contact:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """`/contact` 로 들어온 문의. 최신순으로 끊어 돌려줍니다.
+
+    안 읽은 수는 이 쪽에 실린 것이 아니라 **전체**를 셉니다. 탭 이름 옆 숫자가
+    거짓말을 하면 안 되기 때문입니다(`ix_contact_unread_recent` 가 받칩니다).
+    """
+    query = select(ContactMessage).order_by(ContactMessage.created_at.desc()).limit(limit)
+    if before:
+        query = query.where(ContactMessage.created_at < before)
+    if unread_only:
+        query = query.where(ContactMessage.is_read.is_(False))
+    items = (await db.scalars(query)).all()
+    unread = await db.scalar(
+        select(func.count()).select_from(ContactMessage).where(ContactMessage.is_read.is_(False))
+    )
+    return AdminContactPage(items=items, unread=int(unread or 0))
+
+
+@router.patch("/contact/{message_id}", response_model=AdminContactRead)
+async def mark_contact(
+    message_id: UUID,
+    payload: ContactMark,
+    request: Request,
+    user: User = Depends(require_permission("contact:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """문의 한 건을 읽음·처리로 표시합니다. 준 것만 바뀝니다.
+
+    읽음과 처리를 따로 두는 이유는 **'읽었지만 아직 답을 못 한 것'** 이 운영진이
+    실제로 챙겨야 하는 상태이기 때문입니다. 읽었다고 사라지면 그것이 묻힙니다.
+    """
+    item = await db.get(ContactMessage, message_id)
+    if not item:
+        raise HTTPException(404, "문의를 찾을 수 없습니다.")
+    if payload.is_read is not None:
+        item.is_read = payload.is_read
+    if payload.handled is not None:
+        item.handled_at = datetime.now(UTC) if payload.handled else None
+        item.handled_by = user.id if payload.handled else None
+    audit.note(request, target=item.audit_label,
+               detail="답변 완료" if item.handled_at else ("읽음" if item.is_read else "안 읽음"))
+    await db.commit(); await db.refresh(item)
+    return item
+
+
+@router.delete("/contact/{message_id}", status_code=204)
+async def remove_contact(
+    message_id: UUID,
+    request: Request,
+    _: User = Depends(require_permission("contact:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """문의를 지웁니다. 스팸이 들어왔을 때 쓰는 길입니다."""
+    item = await db.get(ContactMessage, message_id)
+    if not item:
+        raise HTTPException(404, "문의를 찾을 수 없습니다.")
+    audit.note(request, target=item.audit_label)
+    await db.delete(item)
+    await db.commit()

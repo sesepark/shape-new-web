@@ -6,7 +6,7 @@ import type { RoadmapItem } from "@/lib/types";
 export async function RoadmapView({
   category,
 }: {
-  category?: "SHAPE-UP" | "대회" | "교육";
+  category?: "SHAPE-UP" | "대회" | "교육" | "기타";
 }) {
   const items = await listOrEmpty(api.roadmap());
   const visible = category

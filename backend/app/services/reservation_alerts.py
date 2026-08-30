@@ -17,6 +17,7 @@
 """
 
 from datetime import UTC, datetime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -40,7 +41,12 @@ SEOUL = ZoneInfo("Asia/Seoul")
 # 독촉을 자동 확정보다 앞에 두는 뜻은 그대로입니다 — 시계가 대신 누르기 전에
 # 운영진이 직접 볼 틈을 남깁니다.
 # 운영진 알림을 누르면 가는 곳.
-STAFF_URL = "/admin"
+# 운영진 알림이 도착하는 곳.
+#
+# 예전에는 `/admin` 이었습니다. 관리자 화면의 탭이 주소에 남지 않아서, "승인해
+# 주세요" 를 누르면 **맨 첫 탭(히어로 편집)** 이 열렸고 거기서 장비 예약 →
+# 장비예약 관리를 다시 눌러야 했습니다. 하루에 여러 번 밟는 길이었습니다.
+STAFF_URL = "/admin?tab=" + quote("장비예약 관리")
 # 예약 알림을 누르면 가는 곳. 신청한 사람은 마이페이지에서 자기 예약을 봅니다.
 MEMBER_URL = "/mypage"
 

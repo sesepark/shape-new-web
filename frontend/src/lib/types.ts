@@ -512,3 +512,22 @@ export interface BlackoutSpan {
   startsAt: string;
   endsAt: string;
 }
+
+
+/** 관리자 화면의 '받은 문의' 한 건. `/contact` 폼으로 들어옵니다. */
+export type AdminContactItem = {
+  id: string;
+  name: string;
+  replyTo: string;
+  subject: string;
+  message: string;
+  isRead: boolean;
+  handledAt: string | null;
+  createdAt: string;
+};
+
+/** 문의 한 쪽과 **전체** 안 읽은 수. 탭 이름 옆 숫자가 이 값을 씁니다. */
+export type AdminContactPage = {
+  items: AdminContactItem[];
+  unread: number;
+};

@@ -18,7 +18,9 @@ const statusLabel: Record<ReservationStatus, string> = {
 };
 // 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
 const clock = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
-const fullDate = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+// 달력의 날짜 머리글도 서울 기준입니다. 예약은 301동 109호에 있는 장비의
+// 시각이라 보는 사람이 어디 있든 옮기면 안 됩니다.
+const fullDate = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "long", day: "numeric", weekday: "short" });
 const range = (item: { startsAt: string; endsAt: string }) => `${clock.format(new Date(item.startsAt))} – ${clock.format(new Date(item.endsAt))}`;
 
 function monthKey(date: Date) {

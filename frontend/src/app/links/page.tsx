@@ -2,7 +2,10 @@ import { LinkCards } from "@/components/link-cards";
 import { PageShell } from "@/components/page-shell";
 import { api, listOrEmpty } from "@/lib/api";
 
-export const metadata = { title: "관련 링크" };
+export const metadata = {
+  title: "관련 링크",
+  description: "SHAPE의 GitHub, 인스타그램 등 외부 채널 바로가기입니다.",
+};
 
 export default async function LinksPage() {
   // 쿠키 없이 부르므로 여기서 오는 것은 전체 공개 링크뿐입니다. 부원·운영진

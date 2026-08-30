@@ -95,3 +95,37 @@ export function rejectionDraft(winner: AdminReservationItem, loser: AdminReserva
     "다른 시간대로 다시 신청해 주세요. 비어 있는 시간은 장비 예약 화면에서 바로 확인할 수 있습니다.",
   ].join(" ");
 }
+
+
+/**
+ * 목록을 **서울 벽시계 날짜**로 묶습니다.
+ *
+ * 예전에는 카드가 9월 3일에서 9월 2일로 넘어가는데 사이에 아무 표시가 없었고,
+ * 카드마다 "9월 3일 00:34 – 02:34" 처럼 날짜가 되풀이됐습니다. 날짜별로
+ * 처리하는 일이라 어디서 날이 바뀌는지가 먼저 보여야 합니다.
+ *
+ * 날짜를 UTC 로 끊으면 저녁 예약이 하루 밀립니다. 서버의 기간 거르개도 서울
+ * 벽시계로 끊으므로 같은 잣대를 씁니다.
+ */
+const SEOUL_DAY = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+});
+const SEOUL_LABEL = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul", month: "long", day: "numeric", weekday: "short",
+});
+
+export function byDay(rows: AdminReservationItem[]): { key: string; label: string; rows: AdminReservationItem[] }[] {
+  const out: { key: string; label: string; rows: AdminReservationItem[] }[] = [];
+  for (const row of rows) {
+    const when = new Date(row.startsAt);
+    // 시각을 못 읽는 행이 들어와도 목록 전체가 무너지면 안 됩니다.
+    if (Number.isNaN(when.getTime())) continue;
+    const key = SEOUL_DAY.format(when);
+    const last = out[out.length - 1];
+    // 이미 정렬된 목록을 그대로 훑습니다. 여기서 다시 정렬하면 화면이 고른
+    // 차례(시급도순·추천순 …)를 덮어써 버립니다.
+    if (last && last.key === key) last.rows.push(row);
+    else out.push({ key, label: SEOUL_LABEL.format(when), rows: [row] });
+  }
+  return out;
+}

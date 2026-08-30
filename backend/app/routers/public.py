@@ -1,3 +1,5 @@
+import time as clock
+from collections import deque
 from datetime import UTC, datetime, time, timedelta
 from datetime import date as date_type
 from uuid import UUID
@@ -9,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import (
+    ContactMessage,
     ContentPage,
     Equipment,
     EquipmentLicenseRequirement,
@@ -27,6 +30,7 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    ContactWrite,
     ContentPageRead,
     EquipmentRead,
     LinkRead,
@@ -378,3 +382,47 @@ async def member_profiles(db: AsyncSession = Depends(get_db)):
         )
         for user in users
     ]
+
+
+# 문의 창구가 한 시간에 받는 총량.
+#
+# `CostGuardMiddleware` 의 쓰기 한도는 **보내는 쪽 하나**를 셉니다. 그것만으로는
+# 여러 곳에서 나눠 보내는 자동 프로그램을 못 막고, 무료 티어에서는 표가 부는
+# 것보다 **Neon 이 깨어 있는 시간**이 먼저 아픕니다. 그래서 창구 전체가 한 시간에
+# 받을 양을 따로 셉니다. 사람이 보내는 문의는 하루 몇 건이라 걸릴 일이 없습니다.
+CONTACT_PER_HOUR = 30
+_contact_hits: deque[float] = deque()
+
+
+@router.post("/contact", status_code=201)
+async def submit_contact(payload: ContactWrite, db: AsyncSession = Depends(get_db)):
+    """문의를 받아 표에 담습니다. **사이트에서 유일하게 로그인 없이 쓰는 창구입니다.**
+
+    예전에는 화면이 `mailto:` 를 열었습니다. 메일 앱이 걸려 있지 않은 기기에서는
+    보내기를 눌러도 아무 일도 일어나지 않아서, 가입 문의가 조용히 사라졌습니다.
+
+    운영진에게 알림을 보내지 않습니다. 예약 알림에 섞이면 묻히고, 문의는 급한
+    일이 아니라 한곳에 모아 두고 훑는 편이 맞습니다. 관리자 화면의 '문의' 탭에서
+    안 읽은 수와 함께 봅니다.
+
+    막는 것 두 가지:
+    - 사람 눈에 안 보이는 `website` 칸이 채워져 있으면 자동 프로그램입니다.
+      **거절하지 않고 201 을 돌려줍니다.** 막혔다는 것을 알려 주면 상대가 칸을
+      비우고 다시 옵니다. 저장만 하지 않습니다.
+    - 창구 전체가 한 시간에 받는 양(`CONTACT_PER_HOUR`).
+    """
+    if payload.website:
+        return {"ok": True}
+    # `time` 은 이 파일에서 이미 `datetime.time` 입니다. 단조 시계는 `clock` 으로 부릅니다.
+    now = clock.monotonic()
+    while _contact_hits and _contact_hits[0] <= now - 3600:
+        _contact_hits.popleft()
+    if len(_contact_hits) >= CONTACT_PER_HOUR:
+        raise HTTPException(429, "문의가 한꺼번에 몰렸습니다. 잠시 후 다시 보내 주세요.")
+    _contact_hits.append(now)
+    db.add(ContactMessage(
+        name=payload.name, reply_to=payload.reply_to,
+        subject=payload.subject, message=payload.message,
+    ))
+    await db.commit()
+    return {"ok": True}

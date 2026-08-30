@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conflictGroups, rejectionDraft, sortReservations, withoutConflicts } from "@/lib/reservation-triage";
+import { byDay, conflictGroups, rejectionDraft, sortReservations, withoutConflicts } from "@/lib/reservation-triage";
 import type { AdminReservationItem } from "@/lib/types";
 
 const row = (
@@ -109,5 +109,40 @@ describe("반려 사유 초안", () => {
     expect(draft).toContain("대회");
     expect(draft).toContain("매우 시급");
     expect(draft).toContain("다시 신청해 주세요");
+  });
+});
+
+describe("byDay", () => {
+  const at = (iso: string, id: string): AdminReservationItem =>
+    ({ id, startsAt: iso, endsAt: iso, status: "PENDING" }) as AdminReservationItem;
+
+  it("서울 벽시계 날짜로 끊는다", () => {
+    // 09-02 23:00 KST 는 UTC 로 09-02 14:00 이다. UTC 로 끊으면 같은 날이지만
+    // 09-03 01:00 KST(= UTC 09-02 16:00)는 **다른 날**이어야 한다.
+    const groups = byDay([
+      at("2026-09-02T16:00:00Z", "a"), // 9월 3일 01:00 KST
+      at("2026-09-02T14:00:00Z", "b"), // 9월 2일 23:00 KST
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].rows.map((row) => row.id)).toEqual(["a"]);
+    expect(groups[1].rows.map((row) => row.id)).toEqual(["b"]);
+    expect(groups[0].label).toContain("9월 3일");
+  });
+
+  it("이미 정해진 차례를 다시 정렬하지 않는다", () => {
+    // 화면이 고른 차례(시급도순 따위)를 여기서 덮으면 안 된다.
+    const groups = byDay([
+      at("2026-09-02T01:00:00Z", "늦게"),
+      at("2026-09-02T00:00:00Z", "먼저"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((row) => row.id)).toEqual(["늦게", "먼저"]);
+    expect(groups[0].rows).toHaveLength(2);
+  });
+
+  it("읽을 수 없는 시각은 건너뛰고 나머지를 살린다", () => {
+    const groups = byDay([at("이건 시각이 아님", "깨진"), at("2026-09-02T00:00:00Z", "멀쩡")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((row) => row.id)).toEqual(["멀쩡"]);
   });
 });

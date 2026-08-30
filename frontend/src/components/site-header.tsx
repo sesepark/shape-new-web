@@ -8,6 +8,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { ScrollingName } from "@/components/scrolling-name";
 import { ShapeSymbol } from "@/components/shape-symbol";
 import { groupForPath, navigation } from "@/lib/navigation";
+import { useUnreadCount } from "@/lib/notifications";
 import { canManage, endSession, useSession } from "@/lib/session";
 
 /**
@@ -24,6 +25,9 @@ export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false);
   const activeGroup = groupForPath(pathname);
   const { session, setSession } = useSession();
+  // 안 읽은 알림이 있으면 계정 칩에 점을 띄웁니다. 예약 확정·반려·사진 요청이
+  // 전부 알림으로 가는데, 그동안 그 수는 마이페이지 안쪽에서만 보였습니다.
+  const unread = useUnreadCount(session);
   const router = useRouter();
 
   async function signOut() {
@@ -93,6 +97,11 @@ export function SiteHeader() {
           <div className="header-actions">
             <HoverPrefetchLink className="account-link" href={session ? "/mypage" : "/login"}>
               {session ? <ScrollingName name={session.name} className="account-name" /> : <span className="account-name">로그인</span>}
+              {unread > 0 && (
+                <span className="account-unread" aria-label={`안 읽은 알림 ${unread}건`}>
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
               <ArrowUpRight size={14} />
             </HoverPrefetchLink>
             {session && (
@@ -152,6 +161,7 @@ export function SiteHeader() {
           <section className="all-menu-utilities">
             <HoverPrefetchLink href={session ? "/mypage" : "/login"} onClick={() => setOpen(false)}>
               {session ? "마이페이지" : "로그인"}
+              {unread > 0 && <span className="account-unread">{unread > 99 ? "99+" : unread}</span>}
             </HoverPrefetchLink>
             {canManage(session) && (
               <HoverPrefetchLink href="/admin" onClick={() => setOpen(false)}>

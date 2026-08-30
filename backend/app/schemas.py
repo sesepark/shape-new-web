@@ -14,7 +14,7 @@ from app.models import (
 )
 from app.services.content import deliver_smaller
 
-PERMISSIONS = ("content", "news", "equipment", "reservations", "roadmap", "links", "notices")
+PERMISSIONS = ("content", "news", "equipment", "reservations", "roadmap", "links", "notices", "contact")
 PERMISSION_PATTERN = rf"^({'|'.join(PERMISSIONS)}):manage$"
 
 
@@ -933,3 +933,72 @@ class AdminAuditPage(BaseModel):
     items: list[AdminAuditRead]
     actors: list[AuditActor] = Field(default_factory=list)
     areas: list[str] = Field(default_factory=list)
+
+
+class ContactWrite(InputModel):
+    """`/contact` 로 들어오는 문의. **로그인 없이 쓰는 유일한 창구입니다.**
+
+    길이 상한은 화면의 `maxLength` 와 같은 값입니다. 화면만 믿으면 안 되므로
+    서버에서 한 번 더 자릅니다.
+    """
+
+    name: str = Field(min_length=1, max_length=80)
+    reply_to: str = Field(min_length=3, max_length=200)
+    subject: str = Field(min_length=1, max_length=160)
+    message: str = Field(min_length=1, max_length=3000)
+    # 사람 눈에는 안 보이는 칸. 자동 프로그램은 폼의 모든 칸을 채우므로, 여기에
+    # 무언가 들어오면 사람이 쓴 것이 아닙니다. 글자 확인(캡차)을 붙이지 않고
+    # 거르는 가장 가벼운 방법입니다.
+    website: str = Field(default="", max_length=200)
+
+    @field_validator("name", "reply_to", "subject", "message")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("빈칸은 보낼 수 없습니다.")
+        return trimmed
+
+    @field_validator("reply_to")
+    @classmethod
+    def _looks_like_email(cls, value: str) -> str:
+        # 정식 검사는 하지 않습니다. 답장을 보낼 주소이므로 사람이 눈으로 보고
+        # 판단하면 되고, 지나치게 깐깐하면 멀쩡한 주소가 막힙니다.
+        if "@" not in value or value.startswith("@") or value.endswith("@"):
+            raise ValueError("회신 이메일을 확인해 주세요.")
+        return value
+
+
+class AdminContactRead(ORMModel):
+    id: UUID
+    name: str
+    reply_to: str
+    subject: str
+    message: str
+    is_read: bool
+    handled_at: datetime | None = None
+    created_at: datetime
+
+
+class AdminContactPage(ORMModel):
+    """문의 한 쪽과 아직 안 읽은 수.
+
+    안 읽은 수를 목록과 함께 보내는 이유는, 관리자 화면의 탭 이름 옆 숫자가
+    **지금 쪽에 실린 것만이 아니라 전체**를 가리켜야 하기 때문입니다.
+    """
+
+    items: list[AdminContactRead]
+    unread: int = 0
+
+
+class ContactMark(InputModel):
+    """문의 한 건의 상태를 바꿉니다. 준 것만 바뀝니다."""
+
+    is_read: bool | None = None
+    handled: bool | None = None
+
+
+class UnreadCount(BaseModel):
+    """안 읽은 알림 수. 목록과 따로 세는 이유는 `models.Notification` 설명에."""
+
+    unread: int = 0

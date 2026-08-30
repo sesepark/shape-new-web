@@ -30,7 +30,8 @@
 .page-hero > * { position:relative; z-index:1; }
 .page-title { position:absolute; z-index:2; top:50%; right:20px; left:20px; margin:0; text-align:center; transform:translateY(-50%); }
 .page-title p { margin:0 0 15px; color:var(--blue); font-size:clamp(13px,1.5vw,20px); font-weight:900; }
-.page-title h1 { margin:0; font-size:clamp(30px,5vw,40px); font-weight:900; letter-spacing:-.06em; }
+.page-title h1,
+.page-title .page-hero-name { margin:0; font-size:clamp(30px,5vw,40px); font-weight:900; letter-spacing:-.06em; }
 .page-hero .scroll-orbit { position:absolute; right:5%; bottom:24px; }
 .page-content { width:min(calc(100% - 80px),1240px); min-height:48vh; margin:auto; padding:90px 0 140px; }
 
@@ -5196,4 +5197,236 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── 안 읽은 알림 배지 (2-1) ────────────────────────────────────────────────
+   예약 확정·반려·사진 요청이 모두 알림으로 가는데, 그 수가 보이는 곳이
+   마이페이지 안쪽뿐이었습니다. 계정 칩에 숫자를 답니다. 색으로만 알리지
+   않도록 숫자를 적고, 읽어 주는 기계에는 aria-label 로 뜻을 넘깁니다. */
+.account-unread {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:18px; height:18px; padding:0 5px; margin-left:2px;
+  border-radius:999px; background:#e0561f; color:#fff;
+  font-size:11px; font-weight:900; line-height:1; letter-spacing:0;
+}
+/* 계정 칩은 검은 알약이라 그 안에서 주황이 튑니다. 전체 메뉴 쪽은 흰 바탕이라
+   같은 색을 그대로 씁니다. */
+.all-menu-utilities .account-unread { margin-left:8px; vertical-align:middle; }
+
+/* 404 와 오류 화면의 단추 줄. 좁은 화면에서 줄바꿈하며 손가락 크기를 지킵니다. */
+.notfound-links {
+  display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:22px;
+}
+.notfound-links .button { min-height:44px; display:inline-flex; align-items:center; }
+
+/* ── 문의 폼 (2-3) ──────────────────────────────────────────────────────────
+   예전에는 `mailto:` 만 열고 끝이라 성공도 실패도 화면에 남지 않았습니다.
+   이제 세 가지 상태(보내는 중·보냄·실패)를 눈에 보이게 그립니다. */
+
+/* 사람 눈에 보이지 않는 덫. 숨기는 일은 `.sr-only` 가 합니다 — `display:none`
+   을 쓰지 않는 이유는 그것을 알아보고 건너뛰는 자동 프로그램이 있기 때문입니다.
+   여기서는 덫 안의 입력칸이 `.admin-form input` 같은 폭 규칙에 걸리지 않게만
+   막아 둡니다. */
+.contact-trap input { width:1px; }
+
+.contact-sent {
+  display:flex; flex-direction:column; align-items:flex-start; gap:14px;
+  padding:34px; border:1px solid #dbe0ea; border-radius:18px; background:#f7f9fc;
+}
+.contact-sent svg { color:#00916e; }
+.contact-sent h3 { margin:0; font-size:20px; letter-spacing:-.04em; }
+.contact-sent p { margin:0; color:#5b6270; line-height:1.75; }
+.contact-sent a { color:var(--blue); font-weight:700; }
+
+/* `.save-notice` 는 화면 아래에 떠 있는 알림입니다(관리자 저장용). 여기서는
+   **폼 안에 그대로 놓아야** 합니다 — 떠 있으면 입력칸을 덮고, 무엇 때문에 실패
+   했는지와 다시 보낼 단추가 폼에서 떨어져 나갑니다. `.admin-actions .save-notice`
+   가 같은 이유로 이미 흐름에 남아 있습니다. */
+.contact-failed {
+  position:static; transform:none; box-shadow:none; animation:none;
+  max-width:none; display:grid; gap:12px; margin-top:4px;
+}
+.contact-failed p { margin:0; line-height:1.7; }
+.contact-failed .inline-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.contact-failed .button { display:inline-flex; align-items:center; gap:6px; min-height:40px; }
+
+@media (max-width: 680px) {
+  .contact-sent { padding:24px; }
+  /* 좁은 화면에서 두 단추가 나란히 서면 글자가 잘립니다. 한 줄씩 놓습니다. */
+  .contact-failed .inline-actions { flex-direction:column; align-items:stretch; }
+  .contact-failed .button { justify-content:center; }
+}
+
+/* ── 게시판 제목 검색 (2-4) ────────────────────────────────────────────────
+   분류는 서버가 거르게 바뀌었지만, 글이 쌓이면 분류만으로는 못 찾습니다.
+   손가락으로 누를 자리를 지키려고 상자 높이를 44px 로 둡니다. */
+.board-search {
+  display:flex; align-items:center; gap:9px;
+  margin:0 0 18px; padding:0 14px; min-height:44px;
+  border:1px solid #dbe0ea; border-radius:999px; background:#fff;
+}
+.board-search:focus-within { border-color:var(--blue); }
+.board-search > svg { flex:none; color:#8a90a0; }
+.board-search input {
+  flex:1; min-width:0; border:0; outline:0; background:none;
+  font:inherit; font-size:14px; color:var(--ink);
+}
+/* 사파리·크롬이 붙이는 기본 지우기 단추를 끕니다. 우리 단추와 둘이 겹칩니다. */
+.board-search input::-webkit-search-cancel-button { display:none; }
+.board-search button {
+  flex:none; display:grid; place-items:center; width:26px; height:26px;
+  border:0; border-radius:50%; background:#eef1f6; color:#5b6270; cursor:pointer;
+}
+.board-search button:hover { background:#e2e7f0; }
+
+/* ── 관리자 화면을 매일 여는 도구로 (3-2 · 3-3) ────────────────────────────
+   `/admin` 은 방문자가 오는 곳이 아닌데 공개 페이지와 같은 히어로를 써서,
+   본문이 데스크톱 643px · 모바일 726px 아래에서 시작했습니다. 모바일에서는
+   관리 화면이 아예 첫 화면 밖에 있었습니다. 머리를 줄여 되찾습니다. */
+/* 제목을 **흐름 안에** 둡니다. 원래 히어로는 제목을 `top:50%` 로 가운데
+   띄워 두는데, 높이를 줄이면 그 가운데가 머리글(92px) 아래로 들어가 글자가
+   메뉴에 가립니다. 실제로 그렇게 겹쳤습니다. 흐름에 두면 높이를 얼마로
+   줄이든 겹칠 수 없고, 높이는 내용이 정합니다. */
+.shell-compact .page-hero { height:auto; padding:104px 20px 26px; }
+.shell-compact .page-hero .scroll-orbit { display:none; }
+.shell-compact .page-hero .page-title { position:static; transform:none; }
+/* 나타나는 움직임은 자리 이동 없이 밝기만으로. 위 규칙보다 뒤에 있어야
+   `.page-hero.hero-motion-visible .page-title` 의 transform 을 덮습니다. */
+.shell-compact .page-hero .page-title { opacity:0; transition:opacity .45s ease; }
+.shell-compact .page-hero.hero-motion-visible .page-title { opacity:1; transform:none; }
+.shell-compact .page-title .page-hero-name { font-size:clamp(22px,3vw,28px); }
+.shell-compact .page-content { min-height:0; padding:36px 0 90px; }
+.shell-compact .content-title { margin-bottom:26px; font-size:26px; }
+@media (prefers-reduced-motion:reduce) {
+  .shell-compact .page-hero .page-title { opacity:1; transform:none; transition:none; }
+}
+@media (max-width:680px) {
+  .shell-compact .page-hero { padding:100px 16px 20px; }
+  .shell-compact .page-content { padding:22px 0 70px; }
+  .shell-compact .content-title { margin-bottom:18px; font-size:22px; }
+}
+
+/* 탭 고르기. 좁은 화면에서만 씁니다. */
+.admin-tab-select { display:none; }
+.admin-tab-select select {
+  width:100%; min-height:44px; padding:0 12px;
+  border:1px solid #cbd3e2; border-radius:10px; background:#fff;
+  font:inherit; font-size:15px; font-weight:800; color:var(--ink);
+}
+@media (max-width:900px) {
+  .admin-tab-select { display:block; margin-bottom:4px; }
+  /* 선택 상자가 같은 일을 하므로 띠는 감춥니다. 두 개가 함께 있으면
+     같은 상태를 두 곳에서 그리게 되어 어긋날 자리가 생깁니다. */
+  .admin-tabs { display:none; }
+}
+
+/* 탭 이름 옆 안 읽은 문의 수. 문의는 알림을 보내지 않으므로 이 숫자가
+   운영진이 새 문의를 알아채는 유일한 자리입니다. */
+.admin-tab-count {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:18px; height:18px; padding:0 5px; margin-left:6px;
+  border-radius:999px; background:#e0561f; color:#fff;
+  font-size:11px; font-weight:900; line-height:1;
+}
+.admin-tab.active .admin-tab-count { background:#fff; color:var(--blue); }
+
+/* ── 받은 문의 (2-3) ────────────────────────────────────────────────────── */
+.contact-inbox { margin:0; padding:0; list-style:none; display:grid; gap:14px; }
+.contact-inbox > li {
+  padding:20px 22px; border:1px solid #e3e7ef; border-radius:14px; background:#fff;
+}
+/* 안 읽은 문의는 왼쪽에 굵은 선을 둡니다. 색만으로 알리지 않도록 아래
+   '읽음으로' 단추의 글자도 함께 바뀝니다. */
+.contact-inbox > li.unread { border-left:4px solid var(--blue); background:#f7f9ff; }
+.contact-inbox header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.contact-inbox header strong { display:block; font-size:16px; letter-spacing:-.03em; }
+.contact-inbox header span { display:block; margin-top:4px; color:#69717f; font-size:13px; }
+.contact-inbox header a { color:var(--blue); font-weight:700; }
+.contact-inbox header time { flex:none; color:#8a90a0; font-size:12px; white-space:nowrap; }
+.contact-body {
+  margin:14px 0 0; padding:12px 14px; border-radius:10px; background:#f4f6fa;
+  color:#3b4250; font-size:14px; line-height:1.75;
+  /* 사람이 자유롭게 적은 글이라 줄바꿈을 살리고, 붙여 쓴 긴 주소는 끊습니다. */
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
+.contact-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:14px; }
+.contact-actions .button { display:inline-flex; align-items:center; gap:6px; }
+.contact-actions .text-button { display:inline-flex; align-items:center; gap:5px; min-height:36px; }
+.contact-actions .text-button.done { color:#00916e; font-weight:800; }
+@media (max-width:680px) {
+  .contact-inbox > li { padding:16px; }
+  .contact-inbox header { flex-direction:column; gap:6px; }
+  .contact-inbox header time { align-self:flex-start; }
+  /* 좁은 화면에서 네 단추가 서로 붙으면 잘못 눌립니다. 손가락 크기를 지킵니다. */
+  .contact-actions { gap:6px; }
+  .contact-actions > * { min-height:40px; }
+}
+
+/* ── 예약 목록 찾기·날짜 구분 (3-4 · 3-5 · 3-6) ────────────────────────── */
+
+.admin-guide-toggle {
+  display:inline-flex; align-items:center; gap:6px;
+  margin:0 0 14px; min-height:36px;
+}
+.admin-guide { margin-bottom:6px; }
+
+.reservation-find {
+  display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+  margin:0 0 22px; padding-bottom:20px; border-bottom:1px solid #e6e9f0;
+}
+.reservation-find label { display:flex; align-items:center; gap:8px; margin:0; }
+.reservation-find-search {
+  flex:1 1 220px; min-width:0; padding:0 14px; min-height:42px;
+  border:1px solid #dbe0ea; border-radius:999px; background:#fff;
+}
+.reservation-find-search:focus-within { border-color:var(--blue); }
+.reservation-find-search > svg { flex:none; color:#8a90a0; }
+.reservation-find-search input {
+  flex:1; min-width:0; border:0; outline:0; background:none; font:inherit; font-size:14px;
+}
+.reservation-find-search input::-webkit-search-cancel-button { display:none; }
+.reservation-find select,
+.reservation-find input[type="date"] {
+  min-height:42px; padding:0 12px;
+  border:1px solid #dbe0ea; border-radius:10px; background:#fff;
+  font:inherit; font-size:14px; color:var(--ink);
+}
+/* 날짜 칸은 제 나름의 최소 폭을 갖고 있어 좁은 칸에서 줄어들지 않습니다.
+   `min-width:0` 이 없으면 여기서 가로 스크롤이 생깁니다(정기 예약에서 겪음). */
+.reservation-find input[type="date"] { min-width:0; }
+/* 기간 칸은 한 줄로 붙여 둡니다. 줄바꿈을 허용하면 '기간' 글자와 두 날짜가
+   제각기 줄을 차지해 줄이 세 겹으로 벌어집니다(실제로 그렇게 벌어졌습니다). */
+.reservation-find-span { flex:0 0 auto; flex-wrap:nowrap; gap:6px; }
+.reservation-find-span input[type="date"] { width:142px; }
+.reservation-find-span > span { color:#69717f; font-size:13px; font-weight:700; }
+.reservation-find-span i { color:#a4aab8; font-style:normal; }
+.reservation-find .text-button { display:inline-flex; align-items:center; gap:5px; min-height:38px; }
+
+.reservation-day + .reservation-day { margin-top:26px; }
+.reservation-day-head {
+  display:flex; align-items:center; gap:12px;
+  margin:0 0 12px; font-size:14px; font-weight:900; letter-spacing:-.02em; color:#3b4250;
+}
+.reservation-day-head::after {
+  content:""; flex:1; height:1px; background:#e3e7ef;
+}
+.reservation-day-head i { flex:none; order:3; color:#8a90a0; font-style:normal; font-size:12px; font-weight:700; }
+
+@media (max-width:680px) {
+  /* 좁은 화면에서 한 줄에 몰아넣으면 날짜 칸이 잘립니다. 한 줄씩 놓습니다. */
+  .reservation-find { flex-direction:column; align-items:stretch; }
+  .reservation-find label { width:100%; }
+  .reservation-find select { width:100%; }
+  /* **선택자 앞에 `.reservation-find` 를 반드시 붙입니다.** 위의
+     `.reservation-find label { display:flex }` 가 (0,2,0) 이라 `.reservation-find-span`
+     (0,1,0) 만으로는 집니다. 실제로 그래서 이 모바일 분기가 통째로 무시됐고,
+     한 줄로 붙어 있던 날짜 두 칸이 390px 에서 4px 를 넘겼습니다. */
+  .reservation-find .reservation-find-span {
+    display:grid; grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+    align-items:center; width:100%;
+  }
+  /* `min-width:0` 이 반드시 있어야 합니다. 날짜 칸은 제 나름의 최소 폭을
+     갖고 있어서 `1fr` 안에서도 줄어들지 않고, 그만큼 격자가 부모보다
+     넓어집니다. 정기 예약에서 겪은 것과 같은 원인이라 같은 방법으로 막습니다. */
+  .reservation-find .reservation-find-span input[type="date"] { width:100%; min-width:0; }
 }

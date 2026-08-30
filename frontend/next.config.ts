@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
     // 일주일 동안 옛 사진을 보여 주면서 뒤에서 새로 받아 옵니다.
     const daily = { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" };
     return [
+      // 글꼴 조각은 폴더 이름에 판 번호가 들어 있어 내용이 바뀔 일이 없습니다.
+      // `src/app/fonts.css` 머리말에 판을 올리는 법을 적어 두었습니다.
+      { source: "/fonts/:path*", headers: [forever] },
       { source: "/models/:path*.glb", headers: [forever] },
       { source: "/ai-worker-outline.png", headers: [forever] },
       { source: "/shape-symbol.:ext(png|svg)", headers: [forever] },

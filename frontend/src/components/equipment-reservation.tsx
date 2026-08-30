@@ -26,6 +26,7 @@ import {
   timeLabel,
   urgencyLabel,
 } from "@/lib/booking";
+import { loadPolicy } from "@/lib/policy";
 import { useSession } from "@/lib/session";
 import { media, mediaSquare, optimizable } from "@/lib/media";
 import type {
@@ -36,16 +37,6 @@ import type {
   ReservationPurpose,
   ReservationUrgency,
 } from "@/lib/types";
-
-/**
- * 규칙 값을 못 받아 왔을 때 쓰는 값. 서버 기본값과 같습니다.
- *
- * 안내가 조금 틀리는 것이 안내가 아예 없는 것보다 낫습니다. 다만 **신청 자체는
- * 서버가 판정**하므로, 이 값이 틀려도 잘못된 예약이 들어가지는 않습니다.
- */
-const FALLBACK_POLICY: PublicReservationPolicy = {
-  autoApproveMinutes: 60, startGraceMinutes: 10, maxHours: 12, bookingWindowDays: 180,
-};
 
 const dateLabel = (day: string) => new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", weekday: "short" }).format(new Date(`${day}T12:00:00`));
 
@@ -138,17 +129,12 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   }, [access]);
 
   // 규칙 값은 누구에게나 같으므로 로그인 여부와 상관없이 한 번만 읽습니다.
-  // 실패하면 화면이 코드의 기본값으로 안내합니다 — 안내가 없는 것보다 낫습니다.
+  // `lib/policy.ts` 가 진행 중인 요청 하나를 나눠 주므로, 떠 있는 '사진 올리기'
+  // 띠와 이 화면이 같은 응답을 두 번 받지 않습니다.
   useEffect(() => {
-    const controller = new AbortController();
-    fetch(`${API_URL}/reservation-policy`, { signal: controller.signal })
-      .then(async (response) => {
-        setPolicy(response.ok ? ((await response.json()) as PublicReservationPolicy) : FALLBACK_POLICY);
-      })
-      // 못 받아 왔더라도 기본값을 채웁니다. `null` 로 두면 안내 팝업이 값을
-      // 기다리느라 영영 뜨지 않습니다.
-      .catch((error: Error) => { if (error.name !== "AbortError") setPolicy(FALLBACK_POLICY); });
-    return () => controller.abort();
+    let alive = true;
+    void loadPolicy().then((value) => { if (alive) setPolicy(value); });
+    return () => { alive = false; };
   }, []);
 
   // 함께 쓸 사람을 고르려면 회원 목록이 필요합니다. 로그인한 회원에게만 옵니다.

@@ -143,7 +143,20 @@ export function unitTitle(equipmentName?: string, unitLabel?: string): string {
   return `${gear} · ${unit}`;
 }
 
-const dayStamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" });
+/**
+ * 화면에 적는 시각은 **언제나 한국 시각**입니다.
+ *
+ * 위의 `at()`·`iso()` 는 이미 KST 를 못 박아 두고 있는데, 정작 **적어 내는 쪽**은
+ * 보는 사람 컴퓨터의 시간대를 따르고 있었습니다. 같은 파일 안에서 들어오는 값과
+ * 나가는 값의 기준이 달랐던 셈입니다.
+ *
+ * 이것이 실제로 어긋나는 자리가 둘 있습니다. 방학에 해외에 나가 있는 부원이
+ * 예약 현황을 열면 14시 예약이 자기 시간대로 옮겨져 보이는데, 이 예약은
+ * **301동 109호에 있는 장비**의 시각이라 옮기면 안 됩니다. 그리고 시험이
+ * 돌리는 기계의 시간대에 따라 통과와 실패를 오갔습니다(CI 는 UTC 입니다).
+ */
+const SEOUL = "Asia/Seoul";
+const dayStamp = new Intl.DateTimeFormat("ko-KR", { timeZone: SEOUL, month: "long", day: "numeric" });
 /**
  * 예약 시각은 **어디서나 24시간제**로 적는다.
  *
@@ -156,6 +169,7 @@ const dayStamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric
  * 만들고 있어서, 한 곳만 고쳤을 때 같은 카드 안에서 두 형식이 섞였다.
  */
 export const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
+  timeZone: SEOUL,
   hour: "2-digit",
   minute: "2-digit",
   hourCycle: "h23",
@@ -164,16 +178,47 @@ export const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
 const timeStamp = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
 
 /**
+ * 예약 카드의 날짜 배지처럼 **날짜만** 적는 자리도 서울 기준이어야 합니다.
+ * 시각은 서울인데 날짜 배지가 보는 사람 현지 날짜면 한 카드가 스스로
+ * 모순됩니다(자정 근처 예약에서 하루가 어긋납니다).
+ */
+export const SEOUL_DATE_PARTS = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: SEOUL, month: "short", day: "numeric",
+});
+
+/** 서울 기준 "며칠" 숫자. 카드 배지의 큰 글씨에 씁니다. */
+export function seoulDayOfMonth(value: string | number | Date): string {
+  const moment = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(moment.getTime())) return "";
+  return SEOUL_DATE_PARTS.formatToParts(moment).find((part) => part.type === "day")?.value ?? "";
+}
+
+/** 서울 기준 "8월" 같은 짧은 달 이름. */
+export function seoulMonth(value: string | number | Date): string {
+  const moment = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(moment.getTime())) return "";
+  return SEOUL_DATE_PARTS.formatToParts(moment).find((part) => part.type === "month")?.value ?? "";
+}
+
+/**
  * 예약 구간 한 줄. 같은 날이면 날짜를 한 번만 적는다.
  *
  * "8월 31일 오전 10:00 — 8월 31일 오후 12:00" 은 같은 날짜를 두 번 읽게 한다.
  * 자정을 넘기는 예약만 양쪽 날짜를 적는다.
  */
-export function spanLabel(startsAt: string, endsAt: string): string {
+export function spanLabel(startsAt: string, endsAt: string, withDate = true): string {
   const from = new Date(startsAt);
   const to = new Date(endsAt);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return "";
   const sameDay = dayStamp.format(from) === dayStamp.format(to);
+  // 관리자 예약 목록은 날짜로 끊어 놓았으므로 카드마다 날짜를 되풀이하지
+  // 않습니다. 다만 **자정을 넘기는 예약**은 끝 날짜를 반드시 적어야 합니다 —
+  // 안 적으면 "22:00 – 02:00" 이 같은 날 안에서 거꾸로 간 것처럼 보입니다.
+  if (!withDate) {
+    return sameDay
+      ? `${timeStamp.format(from)} – ${timeStamp.format(to)}`
+      : `${timeStamp.format(from)} – ${dayStamp.format(to)} ${timeStamp.format(to)}`;
+  }
   return sameDay
     ? `${dayStamp.format(from)} ${timeStamp.format(from)} – ${timeStamp.format(to)}`
     : `${dayStamp.format(from)} ${timeStamp.format(from)} – ${dayStamp.format(to)} ${timeStamp.format(to)}`;

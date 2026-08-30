@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { AlertTriangle, Clock3, Users } from "lucide-react";
+import { AlertTriangle, Clock3, Info, Search, Users, X } from "lucide-react";
 import { useAsk } from "@/components/ask-dialog";
 import { ScrollingName } from "@/components/scrolling-name";
 import { useNotice } from "@/components/use-notice";
 import { adminFetch, adminSend } from "@/lib/admin-api";
 import { CLOCK_OPTIONS, purposeLabel, spanLabel, unitTitle, urgencyLabel } from "@/lib/booking";
-import { conflictGroups, rejectionDraft, sortReservations, withoutConflicts } from "@/lib/reservation-triage";
+import { byDay, conflictGroups, rejectionDraft, sortReservations, withoutConflicts } from "@/lib/reservation-triage";
 import { media, optimizable } from "@/lib/media";
 import type { AdminReservationItem } from "@/lib/types";
 
@@ -24,6 +24,11 @@ export const reservationStatusLabel: Record<string, string> = {
 
 // 예약 시각은 어디서나 24시간제입니다(`lib/booking.ts` 의 `CLOCK_OPTIONS`).
 const moment = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", ...CLOCK_OPTIONS });
+/** 한 번에 받아 오는 예약 수. 백엔드 `list_reservations` 의 기본값과 같습니다. */
+const RESERVATION_PAGE = 100;
+/** 서버가 한 번에 내주는 최대. 그 위로는 거르개로 좁혀야 합니다. */
+const RESERVATION_MAX = 300;
+
 const SORTS: [string, string][] = [
   ["start", "시작 시각순"],
   ["created", "신청순"],
@@ -42,6 +47,8 @@ function ReservationCard({
   row,
   group,
   sort,
+  /** 날짜 구분선 아래에 있으면 카드에는 시각만 적습니다. */
+  dateless = false,
   onDecide,
   onResolve,
   onCancel,
@@ -49,6 +56,7 @@ function ReservationCard({
   row: AdminReservationItem;
   group?: AdminReservationItem[];
   sort: string;
+  dateless?: boolean;
   onDecide: (row: AdminReservationItem, approve: boolean) => void;
   onResolve: (group: AdminReservationItem[], winner: AdminReservationItem) => void;
   onCancel: (row: AdminReservationItem) => void;
@@ -58,7 +66,7 @@ function ReservationCard({
       <header>
         <div>
           <strong>{unitTitle(row.equipmentName, row.unitLabel)}</strong>
-          <p><Clock3 size={14} aria-hidden="true" />{spanLabel(row.startsAt, row.endsAt)}</p>
+          <p><Clock3 size={14} aria-hidden="true" />{spanLabel(row.startsAt, row.endsAt, !dateless)}</p>
         </div>
         <span className={`reservation-status ${row.status.toLowerCase()}`}>{reservationStatusLabel[row.status] ?? row.status}</span>
       </header>
@@ -120,11 +128,55 @@ export function ReservationsPanel() {
   const [rows, setRows] = useState<AdminReservationItem[] | null>(null);
   const [filter, setFilter] = useState("PENDING");
   const [sort, setSort] = useState("start");
+  // 부원이 백 명이 되면 상태와 정렬만으로는 눈으로 못 찾습니다.
+  // 아래 넷은 서버가 걸러 줍니다(`admin.py` 의 `list_reservations`).
+  const [typed, setTyped] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [equipmentId, setEquipmentId] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [gear, setGear] = useState<{ id: string; name: string }[]>([]);
+  /**
+   * 한 번에 받아 오는 수. '더 보기' 를 누르면 늘어납니다.
+   *
+   * 게시판처럼 `before` 로 이어받지 않는 이유는 **정렬이 넷**이기 때문입니다
+   * (시작 시각순·신청순·시급도순·추천순). 이어받기는 정렬 열쇠 하나를 기준으로
+   * 끊는 것이라 정렬마다 다른 열쇠가 필요하고, 추천순은 아예 서버가 파이썬에서
+   * 다시 세우므로 열쇠가 없습니다. 상한을 올리는 쪽이 어느 정렬에서도 같은 뜻이고,
+   * 서버 상한(300)이 있어 끝없이 늘지 않습니다. 그만큼 받아도 무거운 화면이
+   * 아니고, 무엇보다 **위의 거르개로 좁히는 것이 먼저**입니다.
+   */
+  const [limit, setLimit] = useState(RESERVATION_PAGE);
+  // 안내 세 문단은 세 번째 방문부터는 읽지 않는데 자리는 계속 차지합니다.
+  const [guideOpen, setGuideOpen] = useState(false);
   const { say, node: notice } = useNotice();
 
+  // 글자마다 부르지 않도록 잠시 기다렸다가 묻습니다.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setKeyword(typed.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [typed]);
+
+  // 장비 거르개에 쓸 목록. 공개 창구라 한 번만 읽고 그대로 씁니다.
+  useEffect(() => {
+    const controller = new AbortController();
+    void adminFetch("/admin/equipment", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const items = (await response.json()) as { id: string; name: string }[];
+        setGear(items.map((item) => ({ id: item.id, name: item.name })));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   const reload = useCallback(async () => {
-    const query = new URLSearchParams({ sort });
+    const query = new URLSearchParams({ sort, limit: String(limit) });
     if (filter !== "ALL") query.set("status", filter);
+    if (keyword) query.set("q", keyword);
+    if (equipmentId) query.set("equipmentId", equipmentId);
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
     const response = await adminFetch(`/admin/reservations?${query}`).catch(() => null);
     if (!response) {
       say("백엔드 서버에 연결하지 못했습니다.", false);
@@ -139,14 +191,14 @@ export function ReservationsPanel() {
     // 여기서 알림을 지우지 않습니다. 승인·반려 직후에도 목록을 다시 읽는데,
     // 그때 지워 버리면 "승인했습니다" 가 떴다가 곧바로 사라집니다.
     setRows((await response.json()) as AdminReservationItem[]);
-  }, [filter, sort, say]);
+  }, [filter, sort, keyword, equipmentId, from, to, limit, say]);
 
   useEffect(() => {
     const load = async () => { await reload(); };
     void load();
   }, [reload]);
 
-  async function decide(row: AdminReservationItem, approve: boolean, draft?: string) {
+  async function decide(row: AdminReservationItem, approve: boolean, draft?: string, refresh = true) {
     let reason: string | null = null;
     if (approve) {
       const confirmed = await ask({
@@ -177,7 +229,9 @@ export function ReservationsPanel() {
     say(approve
       ? `${row.userName} 님의 ${row.equipmentName} 예약을 확정했습니다.`
       : `${row.userName} 님의 ${row.equipmentName} 예약을 반려했습니다.`);
-    await reload();
+    // 겹친 묶음을 정리할 때는 건마다 다시 읽지 않습니다. 확정 하나에 반려 둘이면
+    // 목록을 세 번 통째로 받아 오던 것이 마지막 한 번으로 줄어듭니다.
+    if (refresh) await reload();
     return true;
   }
 
@@ -204,12 +258,15 @@ export function ReservationsPanel() {
       confirmLabel: "확정하고 나머지 반려",
     });
     if (confirmed === null) return;
-    if (!(await decide(winner, true))) return;
+    // 마지막 한 번만 다시 읽습니다. 중간에 실패해도 그때까지의 결과를 보려면
+    // 읽어야 하므로, 빠져나가는 길에서도 부릅니다.
+    if (!(await decide(winner, true, undefined, false))) { await reload(); return; }
     for (const loser of losers) {
       // 한 건이라도 취소하면 거기서 멈춥니다. 남은 신청은 대기 상태로 남아
       // 다시 볼 수 있습니다.
-      if (!(await decide(loser, false, rejectionDraft(winner, loser)))) return;
+      if (!(await decide(loser, false, rejectionDraft(winner, loser), false))) { await reload(); return; }
     }
+    await reload();
   }
 
   async function cancel(row: AdminReservationItem) {
@@ -236,33 +293,85 @@ export function ReservationsPanel() {
 
   return (
     <div className="admin-form">
-      <p className="form-note">
-        같은 시간에 다투는 신청이 없으면 <b>정해 둔 시각에 저절로 확정</b>됩니다. 운영진이 먼저 확정해도 되고,
-        그냥 두어도 됩니다. <b>사람이 반드시 봐야 하는 것은 시간이 겹친 신청뿐</b>이라 맨 위에 따로 모아 둡니다.
-        확정 시점과 상한은 <b>관리자 장비예약</b> 탭의 예약 정책에서 바꿉니다.
-      </p>
-      <p className="form-note">
-        정기 예약과 사용 제한(정비·교육 실습으로 시간대를 막는 것)은 <b>관리자 장비예약</b> 탭으로 옮겼습니다.
-      </p>
-      {/* 승인 단추가 사이트 밖에도 무언가를 남긴다는 것을 운영진이 알아야 합니다.
-          그 캘린더는 SHAPE 만 보는 곳이 아니라 장비를 함께 쓰는 다른 분들도 봅니다. */}
-      <p className="form-note">
-        <strong>AI Worker</strong> 예약은 확정되는 순간 동아리 공유 캘린더 ‘휴머노이드 운용’ 에도 일정이 올라가고,
-        취소하면 그 일정이 지워집니다. 자동으로 확정된 예약도 같습니다. 반려한 예약은 올라간 적이 없습니다.
-      </p>
+      {/* 안내 세 문단은 이 화면을 매일 여는 사람에게는 세 번째부터 읽히지
+          않는데 자리는 계속 차지했습니다(약 150px). 접어 두고, 필요한 사람만
+          펼칩니다. 내용은 그대로입니다. */}
+      <button
+        type="button"
+        className="text-button admin-guide-toggle"
+        aria-expanded={guideOpen}
+        onClick={() => setGuideOpen((open) => !open)}
+      >
+        <Info size={14} aria-hidden="true" /> 이 화면 설명 {guideOpen ? "접기" : "보기"}
+      </button>
+      {guideOpen && (
+        <div className="admin-guide">
+          <p className="form-note">
+            같은 시간에 다투는 신청이 없으면 <b>정해 둔 시각에 저절로 확정</b>됩니다. 운영진이 먼저 확정해도 되고,
+            그냥 두어도 됩니다. <b>사람이 반드시 봐야 하는 것은 시간이 겹친 신청뿐</b>이라 맨 위에 따로 모아 둡니다.
+            확정 시점과 상한은 <b>관리자 장비예약</b> 탭의 예약 정책에서 바꿉니다.
+          </p>
+          <p className="form-note">
+            정기 예약과 사용 제한(정비·교육 실습으로 시간대를 막는 것)은 <b>관리자 장비예약</b> 탭으로 옮겼습니다.
+          </p>
+          {/* 승인 단추가 사이트 밖에도 무언가를 남긴다는 것을 운영진이 알아야 합니다.
+              그 캘린더는 SHAPE 만 보는 곳이 아니라 장비를 함께 쓰는 다른 분들도 봅니다. */}
+          <p className="form-note">
+            <strong>AI Worker</strong> 예약은 확정되는 순간 동아리 공유 캘린더 ‘휴머노이드 운용’ 에도 일정이 올라가고,
+            취소하면 그 일정이 지워집니다. 자동으로 확정된 예약도 같습니다. 반려한 예약은 올라간 적이 없습니다.
+          </p>
+        </div>
+      )}
       <div className="board-filter" aria-label="예약 상태 필터">
         {["PENDING", "APPROVED", "IN_USE", "COMPLETED", "EXPIRED", "ALL"].map((value) => (
-          <button type="button" key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>
+          <button type="button" key={value} className={filter === value ? "active" : ""} onClick={() => { setFilter(value); setLimit(RESERVATION_PAGE); }}>
             {value === "ALL" ? "전체" : reservationStatusLabel[value]}
           </button>
         ))}
       </div>
       <div className="board-filter" aria-label="정렬">
         {SORTS.map(([value, label]) => (
-          <button type="button" key={value} className={sort === value ? "active" : ""} onClick={() => setSort(value)}>
+          <button type="button" key={value} className={sort === value ? "active" : ""} onClick={() => { setSort(value); setLimit(RESERVATION_PAGE); }}>
             {label}
           </button>
         ))}
+      </div>
+      {/* 부원이 백 명이 되면 여기가 제일 아픕니다. 사람·장비·기간 셋을
+          서버가 걸러 줍니다. */}
+      <div className="reservation-find">
+        <label className="reservation-find-search">
+          <Search size={15} aria-hidden="true" />
+          <input
+            type="search"
+            value={typed}
+            placeholder="신청자 이름이나 이메일로 찾기"
+            aria-label="신청자 이름이나 이메일로 찾기"
+            maxLength={80}
+            onChange={(event) => setTyped(event.target.value)}
+          />
+        </label>
+        <label>
+          <span className="sr-only">장비</span>
+          <select value={equipmentId} onChange={(event) => setEquipmentId(event.target.value)}>
+            <option value="">장비 전체</option>
+            {gear.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <label className="reservation-find-span">
+          <span>기간</span>
+          <input type="date" value={from} max={to || undefined} aria-label="시작 날짜" onChange={(event) => setFrom(event.target.value)} />
+          <i aria-hidden="true">–</i>
+          <input type="date" value={to} min={from || undefined} aria-label="끝 날짜" onChange={(event) => setTo(event.target.value)} />
+        </label>
+        {(keyword || equipmentId || from || to) && (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => { setTyped(""); setEquipmentId(""); setFrom(""); setTo(""); }}
+          >
+            <X size={14} /> 조건 지우기
+          </button>
+        )}
       </div>
       {notice}
       {rows === null ? (
@@ -288,19 +397,42 @@ export function ReservationsPanel() {
               </div>
             </section>
           ))}
-          {plain.length > 0 && (
-            <div className="admin-reservations">
-              {plain.map((row) => (
-                <ReservationCard key={row.id} row={row} sort={sort} onDecide={decide} onResolve={resolveGroup} onCancel={cancel} />
-              ))}
-            </div>
-          )}
+          {/* 날짜로 끊어 놓습니다. 예전에는 9월 3일에서 9월 2일로 넘어가는데
+              사이에 아무 표시가 없었고, 카드마다 날짜가 되풀이됐습니다. */}
+          {byDay(plain).map((day) => (
+            <section className="reservation-day" key={day.key}>
+              <h4 className="reservation-day-head">
+                <span>{day.label}</span>
+                <i>{day.rows.length}건</i>
+              </h4>
+              <div className="admin-reservations">
+                {day.rows.map((row) => (
+                  <ReservationCard key={row.id} row={row} sort={sort} dateless onDecide={decide} onResolve={resolveGroup} onCancel={cancel} />
+                ))}
+              </div>
+            </section>
+          ))}
         </>
       ) : (
         <div className="empty-state">
           <h2>표시할 예약이 없습니다</h2>
           <p>필터를 바꾸면 지난 예약과 사용 기록도 확인할 수 있습니다.</p>
         </div>
+      )}
+      {/* 상한까지 받아 왔고 그만큼 꽉 찼으면 더 있을 수 있습니다. */}
+      {rows !== null && rows.length >= limit && limit < RESERVATION_MAX && (
+        <button
+          type="button"
+          className="button secondary board-more"
+          onClick={() => setLimit((now) => Math.min(RESERVATION_MAX, now + RESERVATION_PAGE))}
+        >
+          예약 더 보기 ({rows.length}건 보는 중)
+        </button>
+      )}
+      {rows !== null && rows.length >= RESERVATION_MAX && (
+        <p className="form-note">
+          한 번에 {RESERVATION_MAX}건까지 봅니다. 더 찾으시려면 위에서 <b>기간이나 신청자</b>로 좁혀 주세요.
+        </p>
       )}
       {dialogNode}
     </div>

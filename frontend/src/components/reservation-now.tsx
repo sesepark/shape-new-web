@@ -5,11 +5,21 @@ import { Camera, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api";
 import { CLOCK_OPTIONS, unitTitle } from "@/lib/booking";
+import { loadPolicy } from "@/lib/policy";
 import { useSession } from "@/lib/session";
 import type { ReservationItem } from "@/lib/types";
 
-/** 사용 시작을 누를 수 있게 열리는 시점. 백엔드의 허용 시각과 같습니다. */
-const START_GRACE_MINUTES = 10;
+/**
+ * 사용 시작을 누를 수 있게 열리는 시점의 **기본값**입니다.
+ *
+ * 예전에는 이 10분이 여기 박혀 있었습니다. 그런데 백엔드는 같은 값을 관리자
+ * 화면의 예약 정책에서 읽습니다. 그래서 '사용 시작 여유' 를 30분으로 바꾸면
+ * 서버는 30분 전부터 받아 주는데 이 띠는 10분 전에야 떴고, 장비 앞에 선
+ * 부원에게 20분 동안 아무 안내가 없었습니다.
+ *
+ * 이제 공개 창구에서 실제 값을 읽고, 못 받아 왔을 때만 이 값을 씁니다.
+ */
+const FALLBACK_GRACE_MINUTES = 10;
 /**
  * 이 띠 하나 때문에 회원이 새로고침할 때마다 예약 목록을 다시 조회하면,
  * 무료 티어에서 가장 자주 불리는 데이터베이스 질의가 됩니다. 예약은 자주 바뀌는
@@ -40,14 +50,14 @@ function remember(rows: ReservationItem[]) {
 }
 
 /** 지금 손을 써야 하는 예약. 사용 중이거나 곧 시작하는 것 하나. */
-function due(rows: ReservationItem[]): ReservationItem | null {
+function due(rows: ReservationItem[], graceMinutes: number): ReservationItem | null {
   const now = Date.now();
   return (
     rows.find((row) => {
       if (row.status === "IN_USE") return true;
       if (row.status !== "APPROVED") return false;
       const starts = new Date(row.startsAt).getTime();
-      return starts - START_GRACE_MINUTES * 60_000 <= now && now < new Date(row.endsAt).getTime();
+      return starts - graceMinutes * 60_000 <= now && now < new Date(row.endsAt).getTime();
     }) ?? null
   );
 }
@@ -69,16 +79,19 @@ export function ReservationNow() {
     if (!session || session.status !== "APPROVED") return;
     const controller = new AbortController();
     void (async () => {
+      // 서버가 실제로 쓰는 '사용 시작 여유' 를 읽습니다. 여기 숫자를 박아 두면
+      // 관리자가 정책을 바꿨을 때 이 띠만 옛 값으로 남습니다.
+      const grace = (await loadPolicy()).startGraceMinutes ?? FALLBACK_GRACE_MINUTES;
       const saved = cached();
       if (saved) {
-        setItem(due(saved));
+        setItem(due(saved, grace));
         return;
       }
       const response = await fetch(`${API_URL}/reservations/me`, { credentials: "include", cache: "no-store", signal: controller.signal }).catch(() => null);
       if (!response?.ok) return;
       const rows = (await response.json()) as ReservationItem[];
       remember(rows);
-      setItem(due(rows));
+      setItem(due(rows, grace));
     })();
     return () => controller.abort();
   }, [session]);

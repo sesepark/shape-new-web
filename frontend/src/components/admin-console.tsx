@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, ExternalLink, Eye, GripVertical, PencilLine, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLinkBlock } from "@/components/external-link-block";
 import { ImageUploadField } from "@/components/image-upload-field";
@@ -19,6 +19,7 @@ import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { ASK_ALT, useAsk } from "@/components/ask-dialog";
 import { useNotice } from "@/components/use-notice";
+import { AdminContact, CONTACT_UNREAD_EVENT } from "@/components/admin-contact";
 import { AdminEquipmentReservation } from "@/components/admin-equipment-reservation";
 import { AdminLicenseGrant } from "@/components/admin-license-grant";
 import { ReservationsPanel } from "@/components/admin-reservations-panel";
@@ -41,6 +42,7 @@ const groups = [
   { label: "소식", tabs: ["SHAPE 뉴스", "언론보도", "게시판"] },
   { label: "로드맵", tabs: ["전체 로드맵", "SHAPE-UP", "대회", "교육", "기타"] },
   { label: "바로가기", tabs: ["관련 링크"] },
+  { label: "문의", tabs: ["받은 문의"] },
   { label: "시스템", tabs: ["회원 및 권한", "수정 내역", "서버"] },
 ] as const;
 type Section = (typeof groups)[number]["tabs"][number];
@@ -71,6 +73,7 @@ const tabPermission: Record<Section, string> = {
   "교육": "roadmap:manage",
   "기타": "roadmap:manage",
   "관련 링크": "links:manage",
+  "받은 문의": "contact:manage",
   "회원 및 권한": "owner",
   "수정 내역": "owner",
   "서버": "owner",
@@ -207,6 +210,7 @@ const sectionGuide: Record<Section, { what: string; where: string; href?: string
   "대회": { what: "대회 일정만 따로 등록합니다.", where: "공개 페이지 로드맵 › 대회", href: "/roadmap/competition" },
   "교육": { what: "교육 일정만 따로 등록합니다.", where: "공개 페이지 로드맵 › 교육", href: "/roadmap/education" },
   "기타": { what: "세 트랙에 들어가지 않는 일정을 등록합니다.", where: "공개 페이지 로드맵 › 전체 로드맵", href: "/roadmap" },
+  "받은 문의": { what: "연락 페이지의 문의 폼으로 들어온 글을 읽고 답장할 곳을 정리합니다. 운영진 알림으로는 보내지 않고 여기에만 쌓입니다.", where: "공개 페이지 SHAPE › 연락", href: "/contact" },
   "관련 링크": { what: "Drive·Notion 같은 외부 링크를 카드로 등록합니다.", where: "공개 페이지 바로가기 › 관련 링크", href: "/links" },
   "회원 및 권한": { what: "가입 신청을 승인하고 운영진 권한과 장비 라이선스를 부여합니다.", where: "회원 로그인과 마이페이지" },
   "수정 내역": { what: "운영진이 관리자 화면에서 무엇을 언제 고쳤는지 봅니다. 관리자 창구의 저장·삭제는 빠짐없이 남고, 지운 것도 이름이 함께 남습니다.", where: "고치는 곳이 아니라 보는 곳입니다" },
@@ -315,9 +319,56 @@ export function AdminConsole({
   const visibleGroups = groups
     .map((group) => ({ label: group.label, tabs: (group.tabs as readonly Section[]).filter(allowed) }))
     .filter((group) => group.tabs.length);
-  const [tab, setTab] = useState<Section>(visibleGroups[0]?.tabs[0] ?? "인사말");
+  /**
+   * 지금 탭을 **주소에** 둡니다.
+   *
+   * 예전에는 `useState` 뿐이라 세 가지가 따라왔습니다. 새로 고치면 언제나 첫
+   * 탭(히어로 편집)으로 돌아갔고, 특정 탭을 즐겨찾기하거나 링크로 보낼 수
+   * 없었고, **예약 알림이 `/admin` 으로만 보내서** "승인해 주세요" 를 누르면
+   * 히어로 편집이 열렸습니다. 거기서 장비 예약 → 장비예약 관리를 다시 눌러야
+   * 했고, 그것이 하루에 여러 번 밟는 길이었습니다.
+   *
+   * `?tab=` 하나로 셋이 함께 풀리고 뒤로 가기도 덤으로 동작합니다. 주소에
+   * 없는 이름이나 볼 권한이 없는 탭이 적혀 있으면 첫 탭으로 떨어집니다.
+   */
+  const search = useSearchParams();
+  const fallback = visibleGroups[0]?.tabs[0] ?? "인사말";
+  const asked = search.get("tab");
+  const tab = (visibleGroups.some((group) => (group.tabs as readonly string[]).includes(asked ?? ""))
+    ? asked
+    : fallback) as Section;
   const { ask, dialogNode } = useAsk();
   const router = useRouter();
+
+  /**
+   * 안 읽은 문의 수. 탭 이름 옆에 답니다.
+   *
+   * 문의는 **운영진 알림으로 보내지 않기로** 했습니다(예약 알림에 섞이면
+   * 묻힙니다). 그러면 아무도 탭을 안 열어 보게 되므로, 관리자 화면을 열 때
+   * 한 번만 세어 숫자로 알립니다. 한 건만 받아 오므로(`limit=1`) 응답이
+   * 작고, 볼 권한이 없는 사람에게는 요청조차 보내지 않습니다.
+   */
+  const [waitingContact, setWaitingContact] = useState(0);
+  const mayReadContact = isOwner || permissions.includes("contact:manage");
+  useEffect(() => {
+    if (!mayReadContact || preview) return;
+    const controller = new AbortController();
+    void adminFetch("/admin/contact?limit=1", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const page = (await response.json()) as { unread?: number };
+        setWaitingContact(page.unread ?? 0);
+      })
+      .catch(() => undefined);
+    // 문의 탭에서 읽음 표시를 하면 그쪽이 새 값을 알려 줍니다. 알려 주지
+    // 않으면 다 읽었는데도 탭에 숫자가 남습니다.
+    const listen = (event: Event) => setWaitingContact((event as CustomEvent<number>).detail);
+    window.addEventListener(CONTACT_UNREAD_EVENT, listen);
+    return () => {
+      controller.abort();
+      window.removeEventListener(CONTACT_UNREAD_EVENT, listen);
+    };
+  }, [mayReadContact, preview]);
 
   /**
    * 여기서 나가도 되는지 묻습니다. 나가도 되면 참을 돌려줍니다.
@@ -350,7 +401,8 @@ export function AdminConsole({
   async function goTo(section: Section) {
     if (section === tab) return;
     if (!(await confirmLeave("탭을 옮기면"))) return;
-    setTab(section);
+    // `scroll: false` 가 없으면 탭을 옮길 때마다 화면이 맨 위로 튑니다.
+    router.push(`/admin?tab=${encodeURIComponent(section)}`, { scroll: false });
   }
 
   /**
@@ -401,6 +453,25 @@ export function AdminConsole({
               ? "Owner"
               : `${permissions.length}개 권한`}
         </span>
+        {/* 좁은 화면에서는 스물일곱 개 탭이 가로 스크롤 띠가 됩니다. 그룹
+            이름이 띠 안에 함께 흘러서 원하는 탭을 찾으려면 좌우로 훑어야
+            했습니다. 네이티브 선택 상자는 한 번 눌러 묶음까지 통째로 보여
+            주고, 화면 높이도 한 줄만 씁니다. 데스크톱에서는 CSS 가 감춥니다. */}
+        <label className="admin-tab-select">
+          <span className="sr-only">관리 항목 고르기</span>
+          <select value={tab} onChange={(event) => void goTo(event.target.value as Section)}>
+            {visibleGroups.map((group) => (
+              <optgroup label={group.label} key={group.label}>
+                {group.tabs.map((section) => (
+                  <option value={section} key={section}>
+                    {section}
+                    {section === "받은 문의" && waitingContact > 0 ? ` (${waitingContact})` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
         <div className="admin-tabs">
           {visibleGroups.map((group) => (
             <section className="admin-tab-group" key={group.label}>
@@ -412,6 +483,11 @@ export function AdminConsole({
                   onClick={() => void goTo(section)}
                 >
                   {section}
+                  {section === "받은 문의" && waitingContact > 0 && (
+                    <span className="admin-tab-count" aria-label={`안 읽은 문의 ${waitingContact}건`}>
+                      {waitingContact > 99 ? "99+" : waitingContact}
+                    </span>
+                  )}
                 </button>
               ))}
             </section>
@@ -483,6 +559,7 @@ function AdminSection({ tab, owner }: { tab: Section; owner: boolean }) {
     return (
       <RoadmapForm key={tab} fixedCategory={tab === "전체 로드맵" ? undefined : tab} />
     );
+  if (tab === "받은 문의") return <AdminContact />;
   if (tab === "관련 링크") return <LinkForm />;
   if (tab === "수정 내역") return <AuditTrail />;
   if (tab === "서버") return <ServerUsage />;

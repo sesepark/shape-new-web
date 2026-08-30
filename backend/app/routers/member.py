@@ -3,7 +3,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -48,6 +48,7 @@ from app.schemas import (
     ShapeUpDetailRead,
     ShapeUpRead,
     ShapeUpWrite,
+    UnreadCount,
 )
 from app.security import (
     READING_STATUSES,
@@ -60,7 +61,7 @@ from app.security import (
 from app.services import cloudinary, reservation_policy
 from app.services.content import sanitize_html
 from app.services.notifications import deliver_push, publish_notice_notifications, publish_owner_notifications
-from app.services.reservation_alerts import tell_owner, tell_user
+from app.services.reservation_alerts import STAFF_URL, tell_owner, tell_user
 from app.services.reservations import (
     PURPOSE_LABEL,
     as_utc,
@@ -146,6 +147,10 @@ async def notices(
     db: AsyncSession = Depends(get_db),
     before: datetime | None = Query(default=None, description="이 시각보다 앞선 글부터 이어 받습니다."),
     limit: int = Query(default=NOTICE_PAGE, ge=1, le=NOTICE_PAGE),
+    # 분류는 `MemberNoticeWrite` 와 같은 네 가지뿐입니다. 목록에서 거를 때도
+    # 같은 잣대를 써야, 없는 분류로 물어 온 요청이 조용히 전체를 돌려주지 않습니다.
+    category: str | None = Query(default=None, pattern=r"^(공지|질문|정보|일반)$"),
+    keyword: str | None = Query(default=None, max_length=60, alias="q"),
 ):
     """게시판 목록.
 
@@ -154,6 +159,12 @@ async def notices(
     응답이 나갔습니다. 지금은 한 번에 30개까지, 본문은 빼고 보냅니다.
     """
     query = select(Notice).where(Notice.is_published.is_(True))
+    if category:
+        query = query.where(Notice.category == category)
+    if keyword:
+        # 제목만 봅니다. 본문까지 훑으면 인덱스를 못 타고 표 전체를 읽습니다.
+        # 게시판에서 찾는 것은 대개 제목에 있고, 없으면 분류로 좁히면 됩니다.
+        query = query.where(Notice.title.ilike(f"%{keyword.strip()}%"))
     if before is not None:
         query = query.where(Notice.published_at < before)
     items = (await db.scalars(
@@ -276,9 +287,71 @@ async def remove_comment(comment_id: UUID, user: User = Depends(approved_user), 
     await db.commit()
 
 
+# 알림 한 쪽에 담는 수. 화면의 `PAGE` 와 같아야 합니다.
+NOTIFICATION_PAGE = 50
+
+
 @router.get("/notifications", response_model=list[NotificationRead])
-async def notifications(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
-    return (await db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(50))).all()
+async def notifications(
+    user: User = Depends(reading_user),
+    db: AsyncSession = Depends(get_db),
+    before: datetime | None = Query(default=None, description="이 시각보다 앞선 알림부터 이어 받습니다."),
+    before_id: UUID | None = Query(default=None, alias="beforeId", description="같은 시각일 때 어디까지 받았는지"),
+    limit: int = Query(default=NOTIFICATION_PAGE, ge=1, le=NOTIFICATION_PAGE),
+):
+    """받은 알림 목록.
+
+    예전에는 `limit(50)` 하나뿐이라 51건째부터는 받을 길이 없었습니다. 화면은
+    받아 온 만큼을 세어 "알림 50건 전체 보기" 라고 적었으니, 실제로 200건이
+    쌓여 있어도 **영영 50이라고 말했습니다.** 이어받기를 두어 '전체 보기' 가
+    진짜 전체가 되게 합니다. 안 읽은 수는 아래 `unread_notifications` 가 따로
+    셉니다 — 한 쪽 안에서 세면 같은 거짓말이 배지로 옮겨 갑니다.
+
+    ## 시각만으로는 이어받을 수 없습니다
+
+    `created_at` 이 `server_default=func.now()` 인데, Postgres 의 `now()` 는
+    **트랜잭션이 시작한 시각**입니다. 공지 하나를 올리면 회원 백 명의 알림이
+    한 트랜잭션에서 만들어져 **시각이 모두 같습니다.** 그 상태에서
+    `created_at < before` 로 이어받으면 경계에 걸린 같은 시각의 알림이 통째로
+    건너뛰어집니다 — 백 명짜리 공지 알림이 한 쪽 경계에 걸리면 그 공지가
+    누군가에게는 목록에서 사라집니다.
+
+    그래서 시각과 id 를 짝으로 봅니다. id 는 그 시각 안에서 순서를 갈라 주는
+    역할만 하므로 무슨 값이든 상관없고, 정렬도 같은 짝으로 맞춰 둡니다.
+    """
+    query = select(Notification).where(Notification.user_id == user.id)
+    if before is not None:
+        # 짝 비교를 `tuple_()` 로 쓰지 않는 이유: 그러면 왼쪽 칼럼의
+        # `UtcDateTime` 변환을 타지 않아 시각이 저장된 것과 다른 모양으로
+        # 묶입니다(실제로 SQLite 에서 거르개가 통째로 무시됐습니다).
+        # 칼럼마다 풀어 쓰면 각자의 타입으로 묶이고, 행 값 비교를 지원하지
+        # 않는 데이터베이스에서도 그대로 돕니다.
+        query = query.where(
+            or_(
+                Notification.created_at < before,
+                and_(Notification.created_at == before, Notification.id < before_id),
+            )
+            if before_id is not None
+            else Notification.created_at < before
+        )
+    return (await db.scalars(
+        query.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(limit)
+    )).all()
+
+
+@router.get("/notifications/unread", response_model=UnreadCount)
+async def unread_notifications(user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    """안 읽은 알림 수. 머리글의 배지가 쪽을 옮길 때마다 부릅니다.
+
+    목록을 받아 세지 않고 `COUNT` 로 세는 이유는 두 가지입니다. 세는 값이
+    한 쪽에 걸리지 않아야 하고, 배지 하나 때문에 알림 오십 건을 실어 보낼
+    이유가 없습니다. `ix_notifications_user_unread` 가 이 질의를 받칩니다.
+    """
+    total = await db.scalar(
+        select(func.count()).select_from(Notification)
+        .where(Notification.user_id == user.id, Notification.is_read.is_(False))
+    )
+    return UnreadCount(unread=int(total or 0))
 
 
 @router.post("/notifications/read", status_code=204)
@@ -487,7 +560,7 @@ async def request_reservation(payload: ReservationCreate, user: User = Depends(a
         staff_title = f"새 예약 신청 · {what}"
         staff_body = f"{user.name} 님이 예약을 신청했습니다. 승인해 주세요."
 
-    staff_devices = await publish_owner_notifications(db, staff_title, "/admin")
+    staff_devices = await publish_owner_notifications(db, staff_title, STAFF_URL)
 
     # 확정되었으면 신청한 본인에게도 남깁니다. 알림 상자에 기록이 남아야 나중에
     # "언제 확정됐지?" 를 화면에서 되짚을 수 있습니다.
@@ -504,7 +577,7 @@ async def request_reservation(payload: ReservationCreate, user: User = Depends(a
 
     await db.commit()
     # 푸시는 저장이 끝난 뒤에 보냅니다. 저장이 실패했는데 알림만 가는 일을 막습니다.
-    await deliver_push(staff_devices, staff_title, body=staff_body, path="/admin")
+    await deliver_push(staff_devices, staff_title, body=staff_body, path=STAFF_URL)
     if mate_devices:
         await deliver_push(mate_devices, mate_title, body=f"{user.name} 님이 신청했습니다.", path="/mypage")
     if mine_devices:

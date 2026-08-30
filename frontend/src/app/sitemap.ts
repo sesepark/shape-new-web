@@ -21,6 +21,7 @@ const staticRoutes = [
   "/roadmap/shape-up",
   "/roadmap/competition",
   "/roadmap/education",
+  "/roadmap/etc",
   "/links",
   "/resources",
 ];

@@ -13,8 +13,9 @@ import { ReservationPhotoStep } from "@/components/reservation-photo-step";
 import { LicenseCard } from "@/components/license-card";
 import { API_URL } from "@/lib/api";
 import { MyUsagePanel } from "@/components/my-usage";
-import { CLOCK_OPTIONS, confirmNotice, purposeLabel, unitTitle, urgencyLabel } from "@/lib/booking";
+import { CLOCK_OPTIONS, confirmNotice, purposeLabel, seoulDayOfMonth, seoulMonth, unitTitle, urgencyLabel } from "@/lib/booking";
 import { media, optimizable } from "@/lib/media";
+import { clearUnread } from "@/lib/notifications";
 import { loadSession, useSession } from "@/lib/session";
 import { appleDevice, currentSubscription, installedToHomeScreen, pushSupported, subscribeToNotices, unsubscribeFromNotices } from "@/lib/push";
 import type { MemberCardItem, MemberCardState, NotificationItem, ReservationItem, RoadmapItem, SessionUser } from "@/lib/types";
@@ -46,6 +47,8 @@ const clock = new Intl.DateTimeFormat("ko-KR", CLOCK_OPTIONS);
 const stamp = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", ...CLOCK_OPTIONS });
 /** 마이페이지에 바로 보여 주는 알림 수. 나머지는 '전체 보기' 팝업에서 봅니다. */
 const PREVIEW = 8;
+/** 서버가 한 쪽에 담아 주는 알림 수. 백엔드의 `NOTIFICATION_PAGE` 와 같아야 합니다. */
+const ALERT_PAGE = 50;
 
 const span = new Intl.DateTimeFormat("ko-KR", { year: "2-digit", month: "short", day: "numeric" });
 
@@ -107,8 +110,10 @@ function ReservationCard({ reservation, onChange }: { reservation: ReservationIt
   return (
     <article>
       <div className="reservation-date">
-        <strong>{starts.getDate()}</strong>
-        <span>{new Intl.DateTimeFormat("ko-KR", { month: "short" }).format(starts)}</span>
+        {/* 날짜 배지도 서울 기준입니다. 옆의 시각이 서울인데 이것만
+            현지 날짜면 자정 근처 예약에서 하루가 어긋납니다. */}
+        <strong>{seoulDayOfMonth(starts)}</strong>
+        <span>{seoulMonth(starts)}</span>
       </div>
       <div className="reservation-body">
         <h4>{unitTitle(reservation.equipmentName, reservation.unitLabel)}</h4>
@@ -385,6 +390,15 @@ function NoticeAlerts() {
   // 공지 알림은 활동 중인 회원에게만 갑니다.
   const readOnly = session?.status === "VIEWER";
   const [items, setItems] = useState<NotificationItem[] | null>(null);
+  /**
+   * 더 받아 올 것이 남았는지, 그리고 **전체가 몇 건인지.**
+   *
+   * 예전에는 받아 온 만큼을 세어 "알림 50건 전체 보기" 라고 적었습니다. 서버가
+   * 50건에서 끊었으므로 실제로 200건이 쌓여 있어도 **영영 50이라고
+   * 말했습니다.** 지금은 이어받기로 정말 전부를 받아 옵니다.
+   */
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [pushMessage, setPushMessage] = useState("");
   // 알림이 쌓여도 마이페이지가 길어지지 않도록, 앞의 몇 개만 놓고 나머지는 팝업에서 봅니다.
   const [allOpen, setAllOpen] = useState(false);
@@ -396,10 +410,37 @@ function NoticeAlerts() {
   useEffect(() => {
     const controller = new AbortController();
     void call("/notifications", { signal: controller.signal })
-      .then(async (response) => setItems(response.ok ? ((await response.json()) as NotificationItem[]) : []))
+      .then(async (response) => {
+        const rows = response.ok ? ((await response.json()) as NotificationItem[]) : [];
+        setItems(rows);
+        setMore(rows.length >= ALERT_PAGE);
+      })
       .catch(() => setItems([]));
     return () => controller.abort();
   }, []);
+
+  /**
+   * 다음 쪽을 이어 받습니다.
+   *
+   * 시각만으로 끊지 않고 `beforeId` 를 함께 보내는 것이 중요합니다. 공지 하나를
+   * 올리면 회원 전원의 알림이 한 트랜잭션에서 만들어져 **시각이 모두 같기**
+   * 때문에, 시각만으로 끊으면 그 경계의 알림이 통째로 사라집니다.
+   */
+  async function loadOlder() {
+    const last = items?.[items.length - 1];
+    if (!last) return;
+    setLoadingMore(true);
+    const query = new URLSearchParams({ before: last.createdAt, beforeId: last.id });
+    const response = await call(`/notifications?${query}`).catch(() => null);
+    setLoadingMore(false);
+    if (!response?.ok) return;
+    const rows = (await response.json()) as NotificationItem[];
+    setMore(rows.length >= ALERT_PAGE);
+    setItems((current) => {
+      const seen = new Set((current ?? []).map((item) => item.id));
+      return [...(current ?? []), ...rows.filter((item) => !seen.has(item.id))];
+    });
+  }
   useEffect(() => {
     let active = true;
     // `currentSubscription` already resolves to null where push is unsupported.
@@ -409,6 +450,9 @@ function NoticeAlerts() {
   async function markRead() {
     if (!(await call("/notifications/read", { method: "POST" }).catch(() => null))?.ok) return;
     setItems((current) => current?.map((item) => ({ ...item, isRead: true })) ?? current);
+    // 머리글의 배지도 그 자리에서 지웁니다. 이것이 없으면 세어 둔 값이
+    // 다음 창까지 남아, 다 읽었는데도 점이 계속 떠 있습니다.
+    clearUnread();
   }
   async function togglePush() {
     setPushMessage(subscribed ? await unsubscribeFromNotices() : await subscribeToNotices());
@@ -467,9 +511,9 @@ function NoticeAlerts() {
         </ul>
         {/* 알림이 쌓이면 이 자리에 다 담을 수 없습니다. 앞의 몇 개만 보여 주고
             나머지는 팝업에서 봅니다. */}
-        {items.length > PREVIEW && (
+        {(items.length > PREVIEW || more) && (
           <button type="button" className="text-button alert-more" onClick={() => setAllOpen(true)}>
-            알림 {items.length}건 전체 보기
+            알림 {items.length}{more ? "건 이상" : "건"} 전체 보기
           </button>
         )}
         </>
@@ -482,7 +526,9 @@ function NoticeAlerts() {
             <header>
               <div>
                 <p className="meta">NOTIFICATIONS</p>
-                <h3>받은 알림 {items.length}건</h3>
+                {/* 아직 더 받아 올 것이 남았으면 그렇다고 적습니다. 받아 온 만큼을
+                    "전부" 라고 말하면 그것이 곧 거짓말이 됩니다. */}
+                <h3>받은 알림 {items.length}건{more ? " 이상" : ""}</h3>
               </div>
               <button type="button" className="dialog-close" aria-label="닫기" onClick={() => allDialog.current?.close()}>
                 <X />
@@ -496,6 +542,11 @@ function NoticeAlerts() {
                 </li>
               ))}
             </ul>
+            {more && (
+              <button type="button" className="button secondary board-more" disabled={loadingMore} onClick={() => void loadOlder()}>
+                {loadingMore ? "불러오는 중…" : "이전 알림 더 보기"}
+              </button>
+            )}
           </article>
         </dialog>
       )}

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from urllib.parse import unquote
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,8 @@ from app.models import (
     UserLicense,
     UserStatus,
 )
+from app.routers.admin import MANAGEABLE_PERMISSIONS
+from app.services.reservation_alerts import STAFF_URL
 from tests.conftest import login, logout, make_user
 
 
@@ -982,10 +985,12 @@ async def test_an_owner_can_appoint_another_owner(client, session):
     http = login(client, first)
     promoted = await http.patch(f"/api/v1/admin/users/{successor.id}/owner", json={"isOwner": True})
     assert promoted.status_code == 200, promoted.text
-    # 지명하면 기능 권한도 함께 채우고, 승인 상태로 올린다.
-    assert len(promoted.json()["permissions"]) == 7
+    # 지명하면 기능 권한도 함께 채우고, 승인 상태로 올린다. 수를 박아 두지 않고
+    # 목록에서 세는 이유는, 권한이 하나 늘 때마다(문의 관리처럼) 이 시험이
+    # 함께 깨지면서 정작 무엇이 잘못됐는지는 말해 주지 않기 때문이다.
+    assert len(promoted.json()["permissions"]) == len(MANAGEABLE_PERMISSIONS)
     row = next(r for r in (await http.get("/api/v1/admin/users")).json() if r["email"] == "successor@example.com")
-    assert row["isOwner"] and row["status"] == "APPROVED" and len(row["permissions"]) == 7
+    assert row["isOwner"] and row["status"] == "APPROVED" and len(row["permissions"]) == len(MANAGEABLE_PERMISSIONS)
 
     # 새 owner 도 owner 전용 창구를 쓸 수 있다.
     theirs = login(client, successor)
@@ -1300,8 +1305,10 @@ async def test_owners_are_told_about_a_new_reservation_request(client, session):
     alerts = (await login(client, owner).get("/api/v1/notifications")).json()
     assert len(alerts) == 1, alerts
     assert equipment.name in alerts[0]["title"]
-    # 누르면 예약을 승인하는 화면으로 갑니다. 게시판 공지와 갈 곳이 다릅니다.
-    assert alerts[0]["url"] == "/admin"
+    # 누르면 **예약을 승인하는 탭이 열린 채로** 갑니다. 그냥 `/admin` 이면 맨 첫
+    # 탭(히어로 편집)이 열려서 거기서 다시 두 번을 눌러야 했습니다.
+    assert alerts[0]["url"] == STAFF_URL
+    assert "장비예약" in unquote(alerts[0]["url"])
 
     # 신청한 본인에게는 가지 않는다.
     assert (await login(client, other).get("/api/v1/notifications")).json() == []
@@ -3397,3 +3404,177 @@ async def test_달력의_막힌_시간은_요일마다_펼쳐진다(client, sess
     assert all(at(row["startsAt"]) == "19:00" and at(row["endsAt"]) == "21:00" for row in rows)
     assert all(datetime.fromisoformat(row["startsAt"].replace("Z", "+00:00")).astimezone(SEOUL_TZ).weekday() == 2
                for row in rows)
+
+
+# ── 문의 (2-3) ────────────────────────────────────────────────────────────────
+
+CONTACT = {"name": "김서울", "replyTo": "seoul@snu.ac.kr", "subject": "가입 문의",
+           "message": "2학기 모집이 언제인지 궁금합니다."}
+
+
+async def test_문의는_로그인_없이_보내고_관리자만_읽는다(client, session):
+    """`mailto:` 는 메일 앱이 없는 기기에서 아무 일도 하지 않았다. 표에 담는다."""
+    sent = await logout(client).post("/api/v1/contact", json=CONTACT)
+    assert sent.status_code == 201, sent.text
+
+    # 아무나 읽을 수 있으면 안 된다. 회신 이메일과 문의 내용이 들어 있다.
+    assert (await logout(client).get("/api/v1/admin/contact")).status_code == 401
+    member = await make_user(session, "member@example.com")
+    assert (await login(client, member).get("/api/v1/admin/contact")).status_code == 403
+
+    staff = await make_user(session, "staff@example.com", permissions=["contact:manage"])
+    page = (await login(client, staff).get("/api/v1/admin/contact")).json()
+    assert page["unread"] == 1
+    assert page["items"][0]["subject"] == "가입 문의"
+    assert page["items"][0]["replyTo"] == "seoul@snu.ac.kr"
+    assert page["items"][0]["isRead"] is False
+
+
+async def test_문의는_운영진에게_알림을_보내지_않는다(client, session):
+    """예약 알림에 섞이면 묻힌다. 관리자 화면의 문의 탭에서만 본다."""
+    owner = await make_user(session, "owner@example.com", owner=True)
+    assert (await logout(client).post("/api/v1/contact", json=CONTACT)).status_code == 201
+    assert (await login(client, owner).get("/api/v1/notifications")).json() == []
+
+
+async def test_사람이_안_보는_칸이_채워지면_담지_않는다(client, session):
+    """자동 프로그램은 폼의 모든 칸을 채운다. 막혔다고 알려 주지는 않는다."""
+    spam = {**CONTACT, "website": "http://spam.example"}
+    assert (await logout(client).post("/api/v1/contact", json=spam)).status_code == 201
+    staff = await make_user(session, "staff@example.com", permissions=["contact:manage"])
+    assert (await login(client, staff).get("/api/v1/admin/contact")).json()["items"] == []
+
+
+async def test_문의는_읽음과_답변_완료를_따로_센다(client, session):
+    """읽었다고 사라지면 '읽었지만 아직 답을 못 한 것' 이 묻힌다."""
+    staff = await make_user(session, "staff@example.com", permissions=["contact:manage"])
+    assert (await logout(client).post("/api/v1/contact", json=CONTACT)).status_code == 201
+    http = login(client, staff)
+    row = (await http.get("/api/v1/admin/contact")).json()["items"][0]
+
+    read = await http.patch(f"/api/v1/admin/contact/{row['id']}", json={"isRead": True})
+    assert read.status_code == 200 and read.json()["isRead"] is True and read.json()["handledAt"] is None
+    assert (await http.get("/api/v1/admin/contact")).json()["unread"] == 0
+
+    done = await http.patch(f"/api/v1/admin/contact/{row['id']}", json={"handled": True})
+    assert done.json()["handledAt"] is not None
+
+    assert (await http.delete(f"/api/v1/admin/contact/{row['id']}")).status_code == 204
+    assert (await http.get("/api/v1/admin/contact")).json()["items"] == []
+
+    # 수정 내역에 사람이 읽을 수 있는 이름으로 남는다. 지운 뒤에는 이름을 알아낼
+    # 길이 없으므로 창구가 지우기 전에 담아 둔다.
+    owner = await make_user(session, "owner@example.com", owner=True)
+    log = (await login(client, owner).get("/api/v1/admin/audit")).json()["items"]
+    ours = [entry for entry in log if entry["area"] == "문의"]
+    assert ours, log
+    assert all("가입 문의" in entry["target"] for entry in ours)
+    assert {entry["action"] for entry in ours} == {"update", "delete"}
+
+
+async def test_회신_이메일이_없으면_문의를_받지_않는다(client):
+    """답을 보낼 곳이 없는 문의는 받아 봐야 쓸 데가 없다."""
+    assert (await logout(client).post("/api/v1/contact", json={**CONTACT, "replyTo": "없음"})).status_code == 422
+    assert (await logout(client).post("/api/v1/contact", json={**CONTACT, "message": "   "})).status_code == 422
+
+
+# ── 알림 세기 (3-7) ──────────────────────────────────────────────────────────
+
+async def test_안_읽은_알림은_한_쪽이_아니라_전체를_센다(client, session):
+    """예전에는 앞의 50건만 받아 그 안에서 세어 51건째부터 영영 50이라고 말했다."""
+    from app.models import Notification
+
+    member = await make_user(session, "many@example.com")
+    # **일부러 시각을 모두 같게 둔다.** 공지 하나를 올리면 회원 전원의 알림이
+    # 한 트랜잭션에서 만들어져 `now()` 가 같은 값이 된다. 시각만으로 이어받으면
+    # 그 경계의 알림이 통째로 사라진다.
+    #
+    # `func.now()` 에 맡기지 않고 값을 박아 넣는 이유: SQLite 의
+    # `CURRENT_TIMESTAMP` 는 초 단위 문자열('… 04:04:25')로 저장되는데 파이썬
+    # datetime 은 소수점까지('… 04:04:25.000000') 묶여, 글자 비교에서 저장된
+    # 쪽이 언제나 작아진다. 그러면 거르개가 통째로 무시되어 **동점 상황을 아예
+    # 시험하지 못한다.** 운영 Postgres 에는 없는 현상이므로 시험이 그 함정에
+    # 빠지지 않게 양쪽 모양을 맞춘다.
+    same_moment = datetime.now(UTC) - timedelta(minutes=5)
+    session.add_all([
+        Notification(user_id=member.id, title=f"알림 {index}", created_at=same_moment, updated_at=same_moment)
+        for index in range(60)
+    ])
+    await session.commit()
+
+    http = login(client, member)
+    assert (await http.get("/api/v1/notifications/unread")).json()["unread"] == 60
+    first = (await http.get("/api/v1/notifications")).json()
+    assert len(first) == 50
+    older = (await http.get(
+        f"/api/v1/notifications?before={first[-1]['createdAt']}&beforeId={first[-1]['id']}")).json()
+    assert len(older) == 10
+    assert not ({row["id"] for row in first} & {row["id"] for row in older})
+    # 두 쪽을 합치면 하나도 빠지지 않는다.
+    assert len({row["id"] for row in first} | {row["id"] for row in older}) == 60
+
+    await http.post("/api/v1/notifications/read")
+    assert (await http.get("/api/v1/notifications/unread")).json()["unread"] == 0
+
+
+# ── 게시판 분류·검색 (2-4) ───────────────────────────────────────────────────
+
+async def test_게시판_분류는_서버가_거른다(client, session):
+    """화면에서 거르면 최근 30건 안에 없는 옛 질문 글을 영영 못 찾는다."""
+    from app.models import Notice
+
+    member = await make_user(session, "board@example.com")
+    now = datetime.now(UTC)
+    session.add_all([
+        Notice(title="로봇팔 캘리브레이션 물어봅니다", category="질문", is_published=True,
+               published_at=now - timedelta(days=400)),
+        Notice(title="이번 주 세미나 자료", category="정보", is_published=True, published_at=now),
+    ])
+    await session.commit()
+
+    http = login(client, member)
+    only = (await http.get("/api/v1/notices?category=질문")).json()
+    assert [row["title"] for row in only] == ["로봇팔 캘리브레이션 물어봅니다"]
+    # 분류 이름은 제목 검색에 섞이지 않는다. '정보' 분류 글이 있어도 제목에
+    # 그 말이 없으면 안 나온다.
+    assert (await http.get("/api/v1/notices?q=정보")).json() == []
+    assert [row["title"] for row in (await http.get("/api/v1/notices?q=세미나")).json()] == ["이번 주 세미나 자료"]
+    # 없는 분류로 물으면 조용히 전체를 돌려주지 않는다.
+    assert (await http.get("/api/v1/notices?category=없는분류")).status_code == 422
+
+
+# ── 예약 목록 거르개 (3-4) ───────────────────────────────────────────────────
+
+async def test_예약_목록은_사람과_기간과_장비로_좁힐_수_있다(client, session):
+    """부원이 백 명이 되면 눈으로 못 찾는다."""
+    officer = await make_user(session, "officer@example.com", permissions=["reservations:manage"])
+    mine, _ = await make_gear(session, name="OMY")
+    other, _ = await make_gear(session, name="AI Worker")
+    seeker = await make_user(session, "seeker@example.com")
+    stranger = await make_user(session, "stranger@example.com")
+
+    tomorrow = (datetime.now(SEOUL_TZ) + timedelta(days=1)).replace(hour=14, minute=0, second=0, microsecond=0)
+    async def book(user, equipment, when):
+        unit = await session.scalar(select(EquipmentUnit).where(EquipmentUnit.equipment_id == equipment.id))
+        body = {"equipmentUnitId": str(unit.id), "startsAt": when.astimezone(UTC).isoformat(),
+                "endsAt": (when + timedelta(hours=1)).astimezone(UTC).isoformat(), "purposeCategory": "OTHER"}
+        made = await login(client, user).post("/api/v1/reservations", json=body)
+        assert made.status_code == 201, made.text
+
+    await book(seeker, mine, tomorrow)
+    await book(stranger, other, tomorrow + timedelta(days=3))
+
+    http = login(client, officer)
+    everything = (await http.get("/api/v1/admin/reservations?status=ALL")).json() if False else (await http.get("/api/v1/admin/reservations")).json()
+    assert len(everything) == 2
+
+    by_person = (await http.get("/api/v1/admin/reservations?q=seeker")).json()
+    assert [row["userEmail"] for row in by_person] == ["seeker@example.com"]
+
+    by_gear = (await http.get(f"/api/v1/admin/reservations?equipmentId={mine.id}")).json()
+    assert [row["equipmentName"] for row in by_gear] == ["OMY"]
+
+    # 기간은 서울 벽시계 날짜로 끊는다. 그 날 하루가 통째로 들어와야 한다.
+    day = tomorrow.date().isoformat()
+    same_day = (await http.get(f"/api/v1/admin/reservations?from={day}&to={day}")).json()
+    assert [row["userEmail"] for row in same_day] == ["seeker@example.com"]

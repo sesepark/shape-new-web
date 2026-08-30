@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -475,7 +476,24 @@ class Resource(Base, Timestamped):
 
 
 class Notification(Base, Timestamped):
+    """회원 한 사람에게 남기는 알림.
+
+    ## 지우지 않습니다
+
+    `AuditLog` 와 같은 이유입니다. 한 줄이 400바이트 남짓이고, 부원 100명이
+    한 학기에 만드는 양이 대략 1.5만 줄(공지 알림 + 예약 알림)이라 1년에
+    12MB 정도입니다. Neon 무료 저장 0.5GB 의 2.4% 라 몇 해를 버팁니다.
+    지우는 코드를 두지 않으면 잘못 지울 위험도 없습니다.
+
+    쌓여도 화면이 무거워지지 않도록 목록은 이어받기로 끊어 읽고(`before`),
+    안 읽은 수는 목록과 따로 `COUNT` 로 셉니다 — 예전에는 앞의 50건만 받아
+    그 안에서 세어서, 51건이 넘어가면 **영영 50이라고 말했습니다.**
+    """
+
     __tablename__ = "notifications"
+    # 안 읽은 알림을 세는 질의가 그 사람 알림 전체를 훑지 않도록 함께 걸어 둡니다.
+    # 머리글의 배지가 쪽을 옮길 때마다 이 질의를 씁니다.
+    __table_args__ = (Index("ix_notifications_user_unread", "user_id", "is_read"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     notice_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("notices.id", ondelete="SET NULL"))
@@ -529,3 +547,48 @@ class AuditLog(Base):
     # 어느 창구였는지. 화면에는 안 보이지만 나중에 원인을 찾을 때 씁니다.
     method: Mapped[str] = mapped_column(String(10), default="")
     path: Mapped[str] = mapped_column(String(300), default="")
+
+
+class ContactMessage(Base, Timestamped):
+    """`/contact` 로 들어온 문의 한 건.
+
+    ## 왜 표에 담는가
+
+    예전에는 폼이 `mailto:` 를 열었습니다. 메일 앱이 걸려 있지 않은 기기 —
+    브라우저에서 Gmail 만 쓰는 학생 대부분 — 에서는 보내기를 눌러도 **아무 일도
+    일어나지 않았습니다.** 오류도 안내도 없이, 네 칸을 채운 사람은 보냈다고
+    생각하고 떠났습니다. 가입 문의가 들어오는 창구라 조용히 사라지는 것이 제일
+    곤란합니다.
+
+    ## 알림을 보내지 않습니다
+
+    운영진 알림으로 꽂으면 예약 알림에 섞여 묻힙니다. 문의는 급한 일이 아니고
+    한곳에 모아 두고 훑는 편이 맞아서, 관리자 화면의 '문의' 탭에서만 봅니다.
+    안 읽은 수는 탭 이름 옆에 숫자로 붙습니다.
+
+    ## 로그인 없이 쓰는 창구입니다
+
+    사이트에서 **유일하게 로그인 없이 쓰기가 열리는 곳**입니다. 그래서
+    `CostGuardMiddleware` 의 쓰기 한도(IP 당 분당 몇 건)에 더해, 창구 자체가
+    한 시간에 받을 수 있는 양을 따로 셉니다. 자세한 것은
+    `app/routers/public.py` 의 `submit_contact` 설명에 있습니다.
+    """
+
+    __tablename__ = "contact_messages"
+    # 관리자 화면이 '안 읽은 것 먼저, 최신 먼저' 로 읽습니다.
+    __table_args__ = (Index("ix_contact_unread_recent", "is_read", "created_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(80), default="")
+    # 회신할 곳. 이것이 없으면 답을 못 하므로 폼에서 필수입니다.
+    reply_to: Mapped[str] = mapped_column(String(200), default="")
+    subject: Mapped[str] = mapped_column(String(160), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 답을 보냈는지. 읽음과 따로 두는 이유는 '읽었지만 아직 답을 못 한 것' 이
+    # 운영진이 실제로 챙겨야 하는 상태이기 때문입니다.
+    handled_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    handled_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    @property
+    def audit_label(self) -> str:
+        return f"{self.name or '이름 없음'} · {self.subject or '제목 없음'}"

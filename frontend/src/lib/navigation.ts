@@ -58,6 +58,7 @@ export const navigation: readonly NavigationItem[] = [
       { label: "SHAPE-UP", href: "/roadmap/shape-up" },
       { label: "대회", href: "/roadmap/competition" },
       { label: "교육", href: "/roadmap/education" },
+      { label: "기타", href: "/roadmap/etc" },
     ],
   },
   {

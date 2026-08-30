@@ -223,3 +223,22 @@ describe("시각 한 줄", () => {
     expect(line).toContain("14:00");
   });
 });
+
+describe("spanLabel — 날짜를 뺀 모양", () => {
+  it("날짜 구분선 아래에서는 시각만 적는다", () => {
+    const label = spanLabel("2026-09-02T05:00:00Z", "2026-09-02T07:00:00Z", false);
+    expect(label).toBe("14:00 – 16:00");
+    expect(label).not.toContain("월");
+  });
+
+  it("자정을 넘기면 날짜를 빼도 끝 날짜는 남긴다", () => {
+    // 22:00 – 02:00 을 날짜 없이 적으면 같은 날 안에서 거꾸로 간 것처럼 보인다.
+    const label = spanLabel("2026-09-02T13:00:00Z", "2026-09-02T17:00:00Z", false);
+    expect(label).toContain("9월 3일");
+    expect(label).toBe("22:00 – 9월 3일 02:00");
+  });
+
+  it("기본은 지금까지처럼 날짜를 적는다", () => {
+    expect(spanLabel("2026-09-02T05:00:00Z", "2026-09-02T07:00:00Z")).toBe("9월 2일 14:00 – 16:00");
+  });
+});
