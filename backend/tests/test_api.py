@@ -694,10 +694,19 @@ async def test_shape_up_results_are_public_but_member_written(client, session):
         "cohort": "2026-2",
         "teamName": "워크온",
         "teamMembers": ["오유하", "류이든", " ", "전한별"],
-        "contentHtml": "<p>결과</p><script>alert(1)</script>",
-        "contentJson": {},
         "githubUrl": "https://github.com/snu-shape/walk-on",
         "videoUrl": "https://youtu.be/dQw4w9WgXcQ",
+        "slidesUrl": "https://drive.google.com/file/d/abc/view",
+        "abstract": "  시뮬레이터에서 학습한 정책을 실물 로봇으로 옮겼습니다.  ",
+        "problem": "sim-to-real 격차 때문에 실물에서 넘어졌습니다.",
+        "limitations": "거친 바닥은 아직 못 걷습니다.",
+        "methodBlocks": [
+            {"image": "https://res.cloudinary.com/demo/image/upload/v1/m1.webp", "caption": "  구조도  "},
+            {"image": None, "video": None, "caption": "   "},
+        ],
+        "resultBlocks": [
+            {"video": "https://youtu.be/abcdefghijk", "caption": "롤아웃"},
+        ],
     }
     assert (await logout(client).post("/api/v1/shape-up", json=body)).status_code == 401
 
@@ -706,15 +715,24 @@ async def test_shape_up_results_are_public_but_member_written(client, session):
     assert created.status_code == 201, created.text
     post = created.json()
     assert post["teamMembers"] == ["오유하", "류이든", "전한별"]  # 빈 이름은 걸러진다
-    assert "script" not in post["contentHtml"]
     assert post["authorName"] == "member" and post["canEdit"] is True
+    # 앞뒤 공백은 떼고, 아무것도 안 채운 덩이는 버린다. 화면에서 '블록 추가' 를
+    # 누르고 그냥 저장하는 일이 흔하다.
+    assert post["abstract"] == "시뮬레이터에서 학습한 정책을 실물 로봇으로 옮겼습니다."
+    assert len(post["methodBlocks"]) == 1
+    assert post["methodBlocks"][0]["caption"] == "구조도"
+    assert post["resultBlocks"][0]["video"] == "https://youtu.be/abcdefghijk"
 
     # 로그인하지 않아도 목록과 상세를 볼 수 있다.
     listed = (await logout(client).get("/api/v1/shape-up")).json()
     assert [row["title"] for row in listed] == ["보행 정책 sim-to-real 이전"]
     assert listed[0]["canEdit"] is False
+    # 목록에는 카드에 쓰이는 것만 실린다. 초록·덩이까지 실어 보내면 결과물이
+    # 쌓이는 만큼 목록을 여는 값이 함께 자란다.
+    assert "abstract" not in listed[0] and "methodBlocks" not in listed[0]
     detail = (await client.get(f"/api/v1/shape-up/{post['id']}")).json()
     assert detail["cohort"] == "2026-2" and detail["teamName"] == "워크온"
+    assert detail["problem"] and detail["limitations"] and detail["slidesUrl"]
 
     # 남의 글은 못 고치고, 콘텐츠 관리자는 고칠 수 있다.
     assert (await login(client, other).patch(f"/api/v1/shape-up/{post['id']}", json=body)).status_code == 403
@@ -1557,19 +1575,82 @@ async def test_growing_lists_are_cut_into_pages(client, session):
     logout(client)
 
 
-async def test_shape_up_detail_does_not_carry_the_editor_document(client, session):
-    """읽는 사람에게 쓰지도 않는 본문 사본이 함께 나가지 않는다."""
+async def test_shape_up_영상은_유튜브만_받는다(client, session):
+    """영상을 우리가 받아 두지 않는다. 까닭은 `models.ShapeUpPost` 설명에.
+
+    화면에서도 막지만 화면만 믿으면 안 되므로 서버가 한 번 더 본다.
+    """
+    member = await make_user(session, "video@example.com")
+    http = login(client, member)
+    base = {"title": "결과물", "summary": "요약"}
+
+    for bad in ("https://vimeo.com/12345", "https://example.com/demo.mp4"):
+        refused = await http.post("/api/v1/shape-up", json={**base, "videoUrl": bad})
+        assert refused.status_code == 422, bad
+
+    # 덩이 안의 영상도 같은 잣대를 받는다.
+    refused = await http.post("/api/v1/shape-up", json={
+        **base, "resultBlocks": [{"video": "https://vimeo.com/12345", "caption": "롤아웃"}]})
+    assert refused.status_code == 422
+
+    for good in ("https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"):
+        ok = await http.post("/api/v1/shape-up", json={**base, "videoUrl": good})
+        assert ok.status_code == 201, ok.text
+
+
+async def test_shape_up_그림_칸에_넣은_유튜브는_영상으로_옮긴다(client, session):
+    """한 덩이에 주소 칸이 둘이라 잘못 넣기 쉽다. 거절하지 말고 제자리로 옮긴다.
+
+    그대로 두면 화면이 유튜브 주소를 `<img>` 로 그려 **깨진 그림**이 된다.
+    실제로 눌러 보다가 그렇게 났다.
+    """
+    member = await make_user(session, "misplaced@example.com")
+    made = await login(client, member).post("/api/v1/shape-up", json={
+        "title": "결과물", "summary": "요약",
+        "coverImage": "https://youtu.be/dQw4w9WgXcQ",
+        "resultBlocks": [{"image": "https://youtu.be/abcdefghijk", "caption": "롤아웃"}],
+    })
+    assert made.status_code == 201, made.text
+    post = made.json()
+    # 덩이: 그림 자리는 비고 영상으로 옮겨간다.
+    assert post["resultBlocks"][0]["image"] is None
+    assert post["resultBlocks"][0]["video"] == "https://youtu.be/abcdefghijk"
+    # 대표 그림도 같다. 목록 카드의 미리보기가 유튜브에서 나와야 한다.
+    assert post["coverImage"] is None
+    assert post["videoUrl"] == "https://youtu.be/dQw4w9WgXcQ"
+
+    # 진짜 그림은 그대로 그림이다.
+    photo = "https://res.cloudinary.com/demo/image/upload/v1/plot.webp"
+    kept = await login(client, member).post("/api/v1/shape-up", json={
+        "title": "둘째", "summary": "요약", "coverImage": photo,
+        "resultBlocks": [{"image": photo, "caption": "그래프"}],
+    })
+    assert kept.json()["resultBlocks"][0]["image"] == photo
+    assert kept.json()["coverImage"] == photo
+
+
+async def test_shape_up_그림_주소는_고아_정리에서_살아남는다(client, session):
+    """덩이 안의 그림이 '아무도 안 쓰는 사진' 으로 판정되면 안 된다.
+
+    예전에는 본문(`content_html`)만 훑었다. 덩이로 바뀐 뒤에도 그대로 두었다면
+    **쓰이고 있는 그림이 전부 지워졌을 것이다.**
+    """
+    from sqlalchemy import select
+
     from app.models import ShapeUpPost
+    from app.services.media_sweep import _urls
 
-    author = await make_user(session, "shapeupbody@example.com")
-    post = ShapeUpPost(author_id=author.id, title="결과물", summary="", cohort="1기", team_name="가팀", content_html="<p>본문</p>", is_published=True)
-    session.add(post)
-    await session.commit()
+    member = await make_user(session, "orphan@example.com")
+    used = "https://res.cloudinary.com/demo/image/upload/v1/used.webp"
+    created = await login(client, member).post("/api/v1/shape-up", json={
+        "title": "결과물", "summary": "요약",
+        "methodBlocks": [{"image": used, "caption": "구조도"}],
+    })
+    assert created.status_code == 201, created.text
 
-    logout(client)
-    body = (await client.get(f"/api/v1/shape-up/{post.id}")).json()
-    assert body["contentHtml"] == "<p>본문</p>"
-    assert "contentJson" not in body
+    row = await session.scalar(select(ShapeUpPost))
+    # 고아 정리기가 읽는 칸들을 그대로 훑어 본다(SQLite 에서도 도는 파이썬 쪽 규칙).
+    assert used in _urls(row.cover_image, row.method_blocks, row.result_blocks)
 
 
 async def test_a_name_changed_on_shape_survives_the_next_login(client, session):

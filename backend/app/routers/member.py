@@ -49,6 +49,7 @@ from app.schemas import (
     ShapeUpRead,
     ShapeUpWrite,
     UnreadCount,
+    looks_like_youtube,
 )
 from app.security import (
     READING_STATUSES,
@@ -141,6 +142,11 @@ async def notice_reads(db: AsyncSession, notices: list[Notice], model=NoticeRead
 NOTICE_PAGE = 30
 
 
+def like_text(value: str) -> str:
+    """찾을 말을 패턴이 아니라 **글자 그대로** 보게 만듭니다."""
+    return value.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("/notices", response_model=list[NoticeRead])
 async def notices(
     _: User = Depends(reading_user),
@@ -164,7 +170,11 @@ async def notices(
     if keyword:
         # 제목만 봅니다. 본문까지 훑으면 인덱스를 못 타고 표 전체를 읽습니다.
         # 게시판에서 찾는 것은 대개 제목에 있고, 없으면 분류로 좁히면 됩니다.
-        query = query.where(Notice.title.ilike(f"%{keyword.strip()}%"))
+        #
+        # `%` 와 `_` 는 찾을 글자가 아니라 **패턴 기호**입니다. 그대로 넘기면
+        # `q=%_%_%_%` 같은 값 하나가 글 표를 통째로 훑게 만듭니다. 글이 쌓인 뒤에는
+        # 그 한 줄이 Neon 을 깨워 붙잡아 두는 값이 되므로 글자로 되돌립니다.
+        query = query.where(Notice.title.ilike(f"%{like_text(keyword)}%", escape="\\"))
     if before is not None:
         query = query.where(Notice.published_at < before)
     items = (await db.scalars(
@@ -236,6 +246,11 @@ async def remove_notice(notice_id: UUID, user: User = Depends(approved_user), db
 
 @router.get("/notices/{notice_id}/comments", response_model=list[CommentRead])
 async def list_comments(notice_id: UUID, user: User = Depends(reading_user), db: AsyncSession = Depends(get_db)):
+    # 글 자체를 먼저 봅니다. 이것이 없으면 아직 공개하지 않은 글의 댓글이
+    # 글 번호만 알면 열립니다 — 본문은 404 인데 댓글은 나가는 상태입니다.
+    notice = await db.get(Notice, notice_id)
+    if not notice or not notice.is_published:
+        raise HTTPException(404, "글을 찾을 수 없습니다.")
     rows = (await db.scalars(select(Comment).where(Comment.notice_id == notice_id).order_by(Comment.created_at))).all()
     names = {
         person.id: person.name
@@ -808,12 +823,52 @@ async def shape_up_detail(post_id: UUID, viewer: User | None = Depends(optional_
     return (await shape_up_reads(db, [item], member, manager, model=ShapeUpDetailRead))[0]
 
 
+def shape_up_blocks(blocks) -> list[dict]:
+    """방법·결과 덩이를 저장할 모양으로 다듬습니다.
+
+    주소는 문자열로 눕히고(`HttpUrl` 은 JSON 칸에 그대로 못 들어갑니다), 설명의
+    앞뒤 공백을 떼고, 비어 버린 덩이는 지웁니다. 화면에서 '블록 추가' 를 누르고
+    아무것도 안 채운 채 저장하는 일이 흔합니다.
+    """
+    out = []
+    for block in blocks:
+        caption = (block.caption or "").strip()
+        image = (block.image or "").strip() or None
+        video = str(block.video) if block.video else None
+        # **그림 칸에 붙여 넣은 유튜브 주소는 영상으로 옮깁니다.**
+        #
+        # 한 덩이 안에 주소 칸이 둘입니다 — 그림 올리기의 '또는 이미지 URL' 과
+        # 영상 칸. 나란히 있어서 잘못 넣기 쉽고, 그대로 두면 화면이 유튜브
+        # 주소를 `<img>` 로 그려 **깨진 그림**이 됩니다. 넣은 사람의 뜻은
+        # 분명하므로 거절하는 대신 제자리로 옮깁니다.
+        if looks_like_youtube(image) and not video:
+            image, video = None, image
+        if not image and not video and not caption:
+            continue
+        out.append({"image": image, "video": video, "caption": caption})
+    return out
+
+
 def shape_up_payload(payload: ShapeUpWrite) -> dict:
+    """제출한 값을 그대로 저장할 수 있는 모양으로.
+
+    예전에는 본문이 자유 편집기(`content_html`)여서 `sanitize_html` 로 태그를
+    걸러 냈습니다. 지금은 **화면이 그리는 것을 서버가 정하므로** 글 칸에 태그가
+    들어갈 자리가 없습니다. 글은 글로만 저장하고, 줄바꿈만 화면이 살립니다.
+    """
     data = payload.model_dump()
-    data["content_html"] = sanitize_html(data.get("content_html", ""))
-    data["github_url"] = str(payload.github_url) if payload.github_url else None
-    data["video_url"] = str(payload.video_url) if payload.video_url else None
+    for link in ("github_url", "video_url", "slides_url"):
+        value = getattr(payload, link)
+        data[link] = str(value) if value else None
     data["team_members"] = [name.strip() for name in payload.team_members if name.strip()]
+    for field in ("abstract", "problem", "limitations", "summary"):
+        data[field] = (data.get(field) or "").strip()
+    data["method_blocks"] = shape_up_blocks(payload.method_blocks)
+    data["result_blocks"] = shape_up_blocks(payload.result_blocks)
+    # 대표 그림 칸도 같은 함정이 있습니다. 유튜브 주소를 넣었으면 대표 영상으로
+    # 옮겨야 목록 카드의 미리보기와 맨 위 재생이 둘 다 제대로 나옵니다.
+    if looks_like_youtube(data.get("cover_image")) and not data.get("video_url"):
+        data["video_url"], data["cover_image"] = data["cover_image"], None
     return data
 
 

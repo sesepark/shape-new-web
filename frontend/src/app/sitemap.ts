@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { api } from "@/lib/api";
+import { allShapeUp, api } from "@/lib/api";
 
 const base = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.snu-shape.com";
 
@@ -34,7 +34,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [news, equipment, shapeUp] = await Promise.all([
     api.news().catch(() => []),
     api.equipment().catch(() => []),
-    api.shapeUp().catch(() => []),
+    // 60편에서 끊으면 그 뒤 기수의 결과물이 검색에서 사라집니다.
+    allShapeUp().catch(() => []),
   ]);
   return [
     ...staticRoutes.map((path) => ({

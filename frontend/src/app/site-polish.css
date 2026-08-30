@@ -5430,3 +5430,123 @@ html:has(.shape-home) { scroll-padding-top: 0; }
      넓어집니다. 정기 예약에서 겪은 것과 같은 원인이라 같은 방법으로 막습니다. */
   .reservation-find .reservation-find-span input[type="date"] { width:100%; min-width:0; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHAPE-UP 결과물 — 논문 프로젝트 페이지 형식
+   --------------------------------------------------------------------------
+   팀이 고를 수 있는 것은 내용뿐이고 차례와 서식은 여기서 정합니다. 그래서
+   여덟 팀이 올려도 여덟 쪽이 같은 모양으로 나옵니다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.paper { max-width: 860px; margin: 0 auto; }
+
+.paper-head { padding-bottom: 30px; border-bottom: 1px solid #e3e7ef; }
+.paper-authors {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin: 10px 0 0; color: #3b4250; font-size: 15px; font-weight: 700;
+}
+.paper-authors svg { flex: none; color: #8a90a0; }
+/* 한 줄 요약은 논문의 부제 자리입니다. 본문보다 크고 제목보다 작게. */
+.paper-lead {
+  margin: 16px 0 0; color: #3b4250;
+  font-size: clamp(16px, 1.7vw, 19px); line-height: 1.7; word-break: keep-all;
+}
+.paper-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.paper-links .button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+
+/* 대표 화면. 영상이든 그림이든 같은 자리·같은 모서리로 보입니다. */
+.paper-hero { width: 100%; height: auto; margin: 30px 0 0; border-radius: 16px; }
+
+/* 유튜브 상자. 16:9 를 지키면서 폭에 맞춰 줄어듭니다. */
+.paper-embed {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  overflow: hidden; border-radius: 16px; background: #10131a;
+}
+.paper-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+.paper-section { margin-top: 46px; }
+.paper-section > h2 {
+  margin: 0 0 16px; font-size: 22px; font-weight: 900; letter-spacing: -.045em;
+}
+/* 자유 편집기가 아니라 정해진 칸이라 태그가 없습니다. 줄바꿈만 살립니다. */
+.paper-prose {
+  margin: 0; color: #3b4250; font-size: 16px; line-height: 1.85;
+  white-space: pre-line; word-break: keep-all; overflow-wrap: anywhere;
+}
+
+.paper-blocks { display: grid; gap: 34px; }
+.paper-block { margin: 0; }
+.paper-block img { width: 100%; height: auto; border-radius: 14px; }
+.paper-block figcaption {
+  margin-top: 12px; color: #69717f; font-size: 14px; line-height: 1.7;
+  white-space: pre-line; word-break: keep-all;
+}
+
+@media (max-width: 680px) {
+  .paper-hero, .paper-embed, .paper-block img { border-radius: 12px; }
+  .paper-section { margin-top: 34px; }
+  .paper-section > h2 { font-size: 19px; }
+  .paper-prose { font-size: 15px; }
+  .paper-blocks { gap: 26px; }
+  /* 좁은 화면에서 단추 셋이 서로 붙으면 잘못 눌립니다. */
+  .paper-links .button { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ── 목록: 기수별로 묶고 지난 기수는 접어 둔다 ──────────────────────────── */
+
+.shape-up-cohort + .shape-up-cohort { margin-top: 18px; }
+.shape-up-cohort > details { border-top: 1px solid #e3e7ef; }
+.shape-up-cohort > details > summary {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 4px; cursor: pointer; list-style: none;
+  font-size: 18px; font-weight: 900; letter-spacing: -.035em;
+}
+.shape-up-cohort > details > summary::-webkit-details-marker { display: none; }
+/* 접힘·펼침을 삼각형으로 알립니다. 글자만으로는 누를 수 있는지 안 보입니다. */
+.shape-up-cohort > details > summary::before {
+  content: ""; flex: none; width: 8px; height: 8px;
+  border-right: 2px solid #8a90a0; border-bottom: 2px solid #8a90a0;
+  transform: rotate(-45deg); transition: transform .18s ease;
+}
+.shape-up-cohort > details[open] > summary::before { transform: rotate(45deg); }
+.shape-up-cohort > details > summary:hover .shape-up-cohort-name { color: var(--blue); }
+.shape-up-cohort-count {
+  margin-left: auto; color: #8a90a0; font-size: 13px; font-weight: 700;
+}
+.shape-up-cohort > details > .shape-up-grid { padding-bottom: 26px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shape-up-cohort > details > summary::before { transition: none; }
+}
+
+/* ── 제출 화면의 덩이 편집기 ───────────────────────────────────────────── */
+
+.paper-editor-group {
+  margin: 0; padding: 20px; border: 1px solid #dbe0ea; border-radius: 14px; background: #fbfcfe;
+}
+.paper-editor-group > legend {
+  padding: 0 8px; font-size: 14px; font-weight: 900; letter-spacing: -.02em;
+}
+.paper-editor-group > .field-hint { margin: 0 0 16px; }
+.paper-editor-block {
+  display: grid; gap: 14px;
+  padding: 16px; margin-bottom: 14px;
+  border: 1px solid #e3e7ef; border-radius: 12px; background: #fff;
+}
+.paper-editor-block-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+}
+.paper-editor-block-no {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #8a90a0; font-size: 13px; font-weight: 800;
+}
+.paper-editor-block-head .inline-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.paper-editor-block-head .text-button { min-height: 34px; }
+.paper-editor-block-head .text-button:disabled { color: #c2c7d2; cursor: default; }
+/* 잘못 넣은 영상 주소를 빨갛게. 색만으로 알리지 않도록 글도 함께 바뀝니다. */
+.field-hint.danger { color: #b62446; font-weight: 700; }
+
+@media (max-width: 680px) {
+  .paper-editor-group { padding: 14px; }
+  .paper-editor-block { padding: 13px; }
+}

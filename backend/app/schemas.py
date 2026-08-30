@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import Annotated
+from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -31,6 +32,44 @@ class InputModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+def only_safe_url(value: str | None) -> str | None:
+    """사진·파일 주소로 받아도 되는 형태인지.
+
+    이 칸들은 화면에서 `<img src>` 나 `<a href>` 로 그대로 나갑니다. 그런데 받는
+    조건이 **길이뿐**이라 `javascript:` 나 `data:` 로 시작하는 값도 그대로
+    저장됐습니다. 지금 쓰는 리액트가 `javascript:` 주소를 막아 주고는 있지만,
+    막아 주는 것이 화면 라이브러리 하나뿐인 상태를 안전하다고 부를 수는 없습니다.
+    저장하는 자리에서 걸러야 합니다.
+
+    받는 것은 `https://` 로 시작하는 주소와 `/` 로 시작하는 우리 사이트 안의
+    경로뿐입니다. 지금 저장되어 있는 값(Cloudinary 주소, 구글 계정 사진, 옛
+    사이트에서 옮겨 와 `public/figs/` 에 있는 `/figs/…`)이 모두 여기 들어갑니다.
+    `http://` 를 빼는 것은 우리 사이트가 https 라서, 넣어 봐야 브라우저가 막는
+    주소이기 때문입니다.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if trimmed.startswith("https://") or (trimmed.startswith("/") and not trimmed.startswith("//")):
+        return trimmed
+    raise ValueError("https:// 로 시작하는 주소만 넣을 수 있습니다.")
+
+
+def must_be_safe_url(value: str) -> str:
+    """비워 둘 수 없는 자리(예약 사진)에서 쓰는 같은 검사."""
+    checked = only_safe_url(value)
+    if not checked:
+        raise ValueError("주소가 비어 있습니다.")
+    return checked
+
+
+# 사진·파일 주소 칸. 길이 상한은 쓰는 자리에서 따로 겁니다.
+SafeUrl = Annotated[str | None, AfterValidator(only_safe_url)]
+RequiredSafeUrl = Annotated[str, AfterValidator(must_be_safe_url)]
+
+
 class SessionUser(ORMModel):
     id: UUID
     name: str
@@ -45,7 +84,7 @@ class SessionUser(ORMModel):
 
 class ProfileWrite(InputModel):
     name: str = Field(min_length=1, max_length=120)
-    image_url: str | None = Field(default=None, max_length=1000)
+    image_url: SafeUrl = Field(default=None, max_length=1000)
     introduction: str | None = Field(default=None, max_length=400)
 
 
@@ -105,6 +144,7 @@ class MemberCardClaim(InputModel):
 # 줄어든 사진이 나갑니다. 문자열 치환이라 값이 싸고, 공개 응답은 어차피 캐시에
 # 올라갑니다.
 DeliveredHtml = Annotated[str, AfterValidator(deliver_smaller)]
+
 
 
 class OrderWrite(InputModel):
@@ -320,7 +360,7 @@ class AdminReservationRead(ReservationRead):
 
 
 class ReservationPhotoWrite(InputModel):
-    photo_url: str = Field(min_length=1, max_length=1000)
+    photo_url: RequiredSafeUrl = Field(min_length=1, max_length=1000)
     # 사용 후 사진을 올리며 남은 시간을 돌려줄지. 지금까지는 일찍 끝내도 확정
     # 슬롯이 끝 시각까지 그대로 남아, 아무도 그 시간을 쓸 수 없었습니다.
     release_remaining: bool = False
@@ -791,7 +831,7 @@ class ResourceWrite(InputModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
     category: str = Field(default="기타", pattern=rf"^({'|'.join(RESOURCE_CATEGORIES)})$")
-    file_url: str | None = Field(default=None, max_length=1000)
+    file_url: SafeUrl = Field(default=None, max_length=1000)
     file_name: str | None = Field(default=None, max_length=255)
     file_size: int = Field(default=0, ge=0)
     link_url: HttpUrl | None = None
@@ -803,6 +843,58 @@ class ResourceWrite(InputModel):
         if not self.link_url and not self.file_url:
             raise ValueError("파일을 올리거나 링크 주소를 입력해 주세요.")
         return self
+
+
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
+
+
+def looks_like_youtube(url: str | None) -> bool:
+    """이 주소가 유튜브인가. 그림 칸에 잘못 붙여 넣은 영상을 알아보는 데 씁니다."""
+    if not url:
+        return False
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return False
+    return host.lower() in YOUTUBE_HOSTS
+
+
+def youtube_only(value: HttpUrl | None) -> HttpUrl | None:
+    """유튜브 주소만 통과시킵니다.
+
+    영상을 우리가 받아 두지 않는 이유는 `models.ShapeUpPost` 설명에 있습니다.
+    화면에서도 막지만, **화면만 믿으면 안 되므로** 여기서 한 번 더 봅니다.
+    걸러 내는 김에 무엇이 잘못됐는지도 사람 말로 알려 줍니다.
+    """
+    if value is None:
+        return None
+    if (value.host or "").lower() not in YOUTUBE_HOSTS:
+        raise ValueError("영상은 유튜브 주소만 넣을 수 있습니다.")
+    return value
+
+
+class ShapeUpBlock(InputModel):
+    """방법·결과에 하나씩 쌓는 덩이. 그림이나 영상 하나에 설명 한 토막입니다.
+
+    **셋 다 빈 덩이를 거절하지 않습니다.** 화면에서 '블록 추가' 를 누르고 채우지
+    않은 채 저장하는 일이 흔한데, 그때 422 를 돌려주면 부원은 여덟 덩이 중 어느
+    것이 비었는지 찾아 헤매게 됩니다. 받아서 `shape_up_blocks` 가 조용히
+    버립니다 — 그리는 쪽에서도 어차피 아무것도 나오지 않습니다.
+    """
+
+    image: str | None = Field(default=None, max_length=1000)
+    video: HttpUrl | None = None
+    caption: str = Field(default="", max_length=2000)
+
+    _check_video = field_validator("video")(youtube_only)
+
+
+class ShapeUpBlockRead(ORMModel):
+    """화면에 내보내는 덩이. 주소는 문자열로 나갑니다."""
+
+    image: str | None = None
+    video: str | None = None
+    caption: str = ""
 
 
 class ShapeUpRead(ORMModel):
@@ -821,24 +913,43 @@ class ShapeUpRead(ORMModel):
 
 
 class ShapeUpDetailRead(ShapeUpRead):
-    # `content_json` 은 싣지 않습니다. 편집기가 저장할 때 늘 빈 값을 보내고
-    # (본문은 `content_html` 하나로 오갑니다), 읽는 쪽도 쓰지 않습니다. 그런데도
-    # 공개 상세 응답에 딸려 나가면서 읽는 사람마다 몫을 치르고 있었습니다.
-    # 게시판(`NoticeDetailRead`)은 이미 같은 이유로 빼 두었습니다.
-    content_html: DeliveredHtml = ""
+    """상세 화면이 그리는 데 필요한 것 전부.
+
+    목록(`ShapeUpRead`)에는 담지 않습니다. 카드에 쓰이지 않는 초록·블록까지
+    목록마다 실어 보내면, 결과물이 쌓이는 만큼 목록을 여는 값이 함께 자랍니다.
+    """
+
+    slides_url: str | None = None
+    abstract: str = ""
+    problem: str = ""
+    limitations: str = ""
+    method_blocks: list[ShapeUpBlockRead] = Field(default_factory=list)
+    result_blocks: list[ShapeUpBlockRead] = Field(default_factory=list)
 
 
 class ShapeUpWrite(InputModel):
+    """제출 화면이 보내는 것.
+
+    덩이 수에 상한을 두는 이유는 한 쪽이 끝없이 무거워지지 않게 하기 위해서입니다.
+    방법·결과 각각 열두 덩이면 논문 프로젝트 페이지로도 넉넉합니다.
+    """
+
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(default="", max_length=2000)
     cohort: str = Field(default="", max_length=20)
     team_name: str = Field(default="", max_length=120)
     team_members: list[str] = Field(default_factory=list, max_length=20)
-    cover_image: str | None = Field(default=None, max_length=1000)
-    content_json: dict = Field(default_factory=dict)
-    content_html: str = ""
+    cover_image: SafeUrl = Field(default=None, max_length=1000)
     github_url: HttpUrl | None = None
     video_url: HttpUrl | None = None
+    slides_url: HttpUrl | None = None
+    abstract: str = Field(default="", max_length=4000)
+    problem: str = Field(default="", max_length=4000)
+    limitations: str = Field(default="", max_length=4000)
+    method_blocks: list[ShapeUpBlock] = Field(default_factory=list, max_length=12)
+    result_blocks: list[ShapeUpBlock] = Field(default_factory=list, max_length=12)
+
+    _check_video = field_validator("video_url")(youtube_only)
 
 
 class NotificationRead(ORMModel):

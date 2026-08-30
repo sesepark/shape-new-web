@@ -71,7 +71,11 @@ COLUMNS = [
     (Equipment.image_url,),
     (NewsPost.cover_image, NewsPost.content_html),
     (Notice.content_html,),
-    (ShapeUpPost.cover_image, ShapeUpPost.content_html),
+    # SHAPE-UP 은 본문이 자유 편집기가 아니라 **방법·결과 덩이 배열**입니다.
+    # 그림 주소가 그 JSON 안에 들어 있으므로 반드시 여기서 함께 읽어야 합니다.
+    # 빠뜨리면 **쓰이고 있는 그림이 전부 고아로 판정되어 지워집니다.**
+    # `_source_sql` 이 text 로 눕히므로 JSON 이어도 같은 규칙으로 훑힙니다.
+    (ShapeUpPost.cover_image, ShapeUpPost.method_blocks, ShapeUpPost.result_blocks),
     (ContentPage.content_html, ContentPage.content_json),
     (Reservation.before_photo_url, Reservation.after_photo_url),
     (Resource.file_url,),

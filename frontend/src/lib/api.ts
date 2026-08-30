@@ -60,7 +60,8 @@ export const api = {
   roadmap: () => getJson<RoadmapItem[]>("/roadmap"),
   links: () => getJson<RelatedLink[]>("/links"),
   memberProfiles: () => getJson<MemberProfile[]>("/member-profiles"),
-  shapeUp: () => getJson<ShapeUpItem[]>("/shape-up"),
+  shapeUp: (before?: string) =>
+    getJson<ShapeUpItem[]>(`/shape-up${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   shapeUpDetail: (id: string) => getJson<ShapeUpDetail>(`/shape-up/${id}`),
   availability: (equipmentId: string, day: string) =>
     getJson<EquipmentAvailability>(
@@ -89,3 +90,37 @@ export async function itemOrNull<T>(request: Promise<T>): Promise<T | null> {
 }
 
 export { API_URL };
+
+
+/** 서버가 한 쪽에 담아 주는 SHAPE-UP 결과물 수. 백엔드 `SHAPE_UP_PAGE` 와 같아야 합니다. */
+const SHAPE_UP_PAGE = 60;
+/**
+ * 몇 쪽까지 이어 받을지. 60 × 5 = 300편이면 학기당 열 편으로 열다섯 해입니다.
+ *
+ * 상한을 두는 이유는 창구가 이상하게 답할 때 무한히 도는 것을 막기 위해서입니다.
+ */
+const SHAPE_UP_MAX_PAGES = 5;
+
+/**
+ * SHAPE-UP 결과물 **전부**.
+ *
+ * 창구는 한 번에 60편까지만 주는데 목록 화면은 이어받기를 쓰지 않고 있었습니다.
+ * 학기당 열 편이면 **3년째에 옛 결과물이 목록에서 소리 없이 사라집니다** —
+ * "다음 기수의 자산으로 축적한다"는 목적이 정확히 그 시점에 깨집니다.
+ *
+ * 화면이 아니라 여기서 이어받는 이유는, 목록이 서버에서 그려져야 검색 엔진이
+ * 지난 기수의 결과물까지 읽어 가기 때문입니다. 한 시간에 한 번 도는 재검증
+ * 때만 부르므로 쪽이 몇 개든 값이 거의 들지 않습니다.
+ */
+export async function allShapeUp(): Promise<ShapeUpItem[]> {
+  const out: ShapeUpItem[] = [];
+  let before: string | undefined;
+  for (let page = 0; page < SHAPE_UP_MAX_PAGES; page += 1) {
+    const rows = await listOrEmpty(api.shapeUp(before));
+    out.push(...rows);
+    if (rows.length < SHAPE_UP_PAGE) break;
+    before = rows[rows.length - 1]?.createdAt;
+    if (!before) break;
+  }
+  return out;
+}

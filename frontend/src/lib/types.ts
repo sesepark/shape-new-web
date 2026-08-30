@@ -332,9 +332,32 @@ export interface ShapeUpItem {
   canEdit: boolean;
 }
 
+/**
+ * 방법·결과에 하나씩 쌓는 덩이.
+ *
+ * 그림이나 영상 하나에 설명 한 토막입니다. 셋 다 비어 있을 수 있지만 그런
+ * 덩이는 서버가 저장할 때 버리므로 여기까지 오지 않습니다.
+ */
+export interface ShapeUpBlock {
+  image?: string | null;
+  /** 유튜브 주소만 옵니다. 까닭은 백엔드 `models.ShapeUpPost` 설명에. */
+  video?: string | null;
+  caption: string;
+}
+
+/**
+ * 상세 화면이 그리는 데 필요한 것.
+ *
+ * 목록(`ShapeUpItem`)에는 없습니다. 카드에 쓰이지 않는 초록·덩이까지 목록마다
+ * 실어 보내면 결과물이 쌓이는 만큼 목록을 여는 값이 함께 자랍니다.
+ */
 export interface ShapeUpDetail extends ShapeUpItem {
-  contentHtml: string;
-  contentJson?: Record<string, unknown>;
+  slidesUrl?: string | null;
+  abstract: string;
+  problem: string;
+  limitations: string;
+  methodBlocks: ShapeUpBlock[];
+  resultBlocks: ShapeUpBlock[];
 }
 
 export interface NotificationItem {

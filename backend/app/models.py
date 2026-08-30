@@ -440,21 +440,59 @@ class Comment(Base, Timestamped):
 
 
 class ShapeUpPost(Base, Timestamped):
-    """A SHAPE-UP team's finished work, shown publicly."""
+    """SHAPE-UP 팀이 한 학기 동안 만든 결과물. 공개됩니다.
+
+    ## 왜 자유 편집기가 아니라 정해진 칸인가
+
+    예전에는 본문이 `content_html` 하나짜리 자유 편집기였습니다. 그래서 팀마다
+    글의 모양이 달랐고, 어떤 팀은 결과 그림을 맨 위에 어떤 팀은 맨 아래에
+    두었습니다. 목록에 여덟 팀이 늘어서면 여덟 가지 서식이 됩니다.
+
+    지금은 논문 프로젝트 페이지(openvla.github.io 류)와 같은 칸으로 나눠 받고,
+    **그리는 일은 서버가 합니다.** 팀은 채우기만 하면 되고 결과는 언제나 같은
+    틀로 나옵니다. 빈 칸은 화면에 아예 나타나지 않습니다.
+
+    ## 그림과 영상
+
+    그림은 Cloudinary 에 올립니다. 브라우저가 먼저 가로 1600px WebP 로 줄여
+    보내므로(`lib/upload.ts` 의 `shrink()`) 한 장이 50KB 안팎입니다.
+
+    **영상은 유튜브 주소만 받습니다.** Cloudinary 무료 티어는 1크레딧에 HD
+    250초라 영상이 크레딧을 가장 빨리 먹고, 우리가 영상 서버를 겸할 이유가
+    없습니다. Nerfies 템플릿도 10MB 넘는 영상은 유튜브를 쓰라고 적어 둡니다.
+    """
 
     __tablename__ = "shape_up_posts"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     title: Mapped[str] = mapped_column(String(200))
+    # 목록 카드와 검색 설명에 그대로 쓰이는 한 줄.
     summary: Mapped[str] = mapped_column(Text, default="")
     cohort: Mapped[str] = mapped_column(String(20), default="")
     team_name: Mapped[str] = mapped_column(String(120), default="")
     team_members: Mapped[list] = mapped_column(JSON, default=list)
     cover_image: Mapped[str | None] = mapped_column(String(1000))
-    content_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    content_html: Mapped[str] = mapped_column(Text, default="")
+
+    # ── 링크 줄 ──────────────────────────────────────────────────────────
     github_url: Mapped[str | None] = mapped_column(String(1000))
+    # 유튜브 주소만 받습니다(위 설명). 대표 화면과 링크 줄 양쪽에 쓰입니다.
     video_url: Mapped[str | None] = mapped_column(String(1000))
+    slides_url: Mapped[str | None] = mapped_column(String(1000))
+
+    # ── 논문 페이지의 글 칸 ──────────────────────────────────────────────
+    abstract: Mapped[str] = mapped_column(Text, default="")
+    problem: Mapped[str] = mapped_column(Text, default="")
+    limitations: Mapped[str] = mapped_column(Text, default="")
+
+    # ── 방법·결과 블록 ───────────────────────────────────────────────────
+    #
+    # 각각 `[{"image": str|None, "video": str|None, "caption": str}]` 입니다.
+    # 팀마다 필요한 수가 달라서 개수를 정하지 않고 배열로 둡니다. 무엇이 들어갈
+    # 수 있는지는 `schemas.ShapeUpBlock` 이 정하고, 그 검사를 지나지 않은 값은
+    # 여기까지 오지 않습니다.
+    method_blocks: Mapped[list] = mapped_column(JSON, default=list)
+    result_blocks: Mapped[list] = mapped_column(JSON, default=list)
+
     is_published: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
