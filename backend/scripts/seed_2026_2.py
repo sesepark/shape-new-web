@@ -50,14 +50,15 @@ def at(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datet
     return datetime(year, month, day, hour, minute, tzinfo=SEOUL)
 
 
-def photo(name: str) -> str:
-    """부원 사진은 우리 public 폴더에 있는 파일을 상대 경로로 가리킨다.
+def photo(name: str) -> str | None:
+    """공개 저장소에는 부원 사진을 담지 않는다.
 
-    옛 사이트의 절대 주소로 두면 이미지 최적화가 제 사이트에 HTTP 요청을 한 번
-    더 보낸다. 파일 이름은 NFC 로 맞춰 둔다. macOS 에서 만든 NFD 이름은 리눅스에서
-    다른 파일로 취급되어 404 가 난다.
+    사진은 본인 얼굴이라 공개 대상이 아니므로 이 저장소에서는 빼 두었다.
+    사진이 없으면 부원 카드가 이름만 남기는 대체 화면을 그리므로, 여기서는
+    항상 ``None`` 을 돌려준다. 실제 운영에서는 회원이 마이페이지에서 직접
+    올린 이미지 주소가 대신 들어간다.
     """
-    return f"/figs/{name}.jpeg"
+    return None
 
 
 # --------------------------------------------------------------------- 부원 카드
@@ -129,7 +130,8 @@ def member_cards() -> list[dict]:
             "membership": membership,
         }
         if has_photo:
-            card["imageUrl"] = photo(name)
+            if (url := photo(name)) is not None:
+                card["imageUrl"] = url
         cards.append(card)
     return cards
 
