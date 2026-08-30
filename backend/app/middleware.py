@@ -146,8 +146,11 @@ def client_address(request: Request) -> str:
     하나의 몫을 나눠 쓰게 되어** 정상 트래픽이 429 를 맞습니다. 새는 것보다 막히는
     것이 더 나쁘므로 알 수 없을 때는 느슨한 쪽으로 둡니다.
 
-    어느 칸을 쓰고 있는지는 프로세스가 뜬 뒤 한 번만 남깁니다. 배포 로그에서
-    확인해 두면 나중에 이 판단을 좁힐 수 있습니다.
+    어느 칸을 쓰고 있는지는 **프로세스가 뜬 뒤 한 번만** 남깁니다. 배포 환경이
+    바뀌면(앞단이 다른 것으로 바뀌거나 헤더를 더 이상 안 붙이면) 이 한도가 조용히
+    무력해지므로, 로그에서 눈으로 확인할 수 있어야 합니다. `warning` 인 것은
+    이 앱의 로거가 그 아래 단계를 내보내지 않기 때문입니다 — 알림이 아니라
+    운영 기록입니다.
     """
     global _ip_source_logged
     for name in TRUSTED_IP_HEADERS:
@@ -155,11 +158,11 @@ def client_address(request: Request) -> str:
         if value:
             if not _ip_source_logged:
                 _ip_source_logged = True
-                logger.info("방문자 주소를 %s 칸에서 읽습니다.", name)
+                logger.warning("요청 한도: 방문자 주소를 %s 칸에서 읽습니다.", name)
             return value
     if not _ip_source_logged:
         _ip_source_logged = True
-        logger.info("믿을 수 있는 주소 칸이 없어 X-Forwarded-For 의 맨 앞 값을 씁니다.")
+        logger.warning("요청 한도: 믿을 수 있는 주소 칸이 없어 X-Forwarded-For 의 맨 앞 값을 씁니다. 지어낸 값으로 한도를 비켜 갈 수 있습니다.")
     forwarded = request.headers.get("x-forwarded-for", "")
     return forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
 
