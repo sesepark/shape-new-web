@@ -231,7 +231,9 @@ async def main() -> None:
             db.add(ShapeUpPost(
                 author_id=people[post["author"]].id, title=post["title"], summary=post["summary"],
                 cohort=post["cohort"], team_name=post["team"], team_members=post["members"],
-                content_html=post["html"], github_url=post["github"], video_url=post["video"],
+                github_url=post["github"], video_url=post["video"], slides_url=post["slides"],
+                abstract=post["abstract"], problem=post["problem"], limitations=post["limitations"],
+                method_blocks=post["method_blocks"], result_blocks=post["result_blocks"],
                 is_published=True, created_at=NOW - timedelta(days=post["days_ago"]),
             ))
 
