@@ -18,6 +18,7 @@ import { HomeHero, HomeIntro, HomeNext, HomeNumbers, HomePillars } from "@/compo
 import { mergeHome, type HomeContent } from "@/lib/home-content";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { ASK_ALT, useAsk } from "@/components/ask-dialog";
+import { AutoTextarea, LONG_FORM_ROWS } from "@/components/auto-textarea";
 import { useNotice } from "@/components/use-notice";
 import { AdminContact, CONTACT_UNREAD_EVENT } from "@/components/admin-contact";
 import { AdminEquipmentReservation } from "@/components/admin-equipment-reservation";
@@ -1404,7 +1405,12 @@ function HomeText({ label, value, hint, onChange, rows = 0 }: {
     <label>
       {label}
       {rows > 0 ? (
-        <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} />
+        <AutoTextarea
+          minRows={rows}
+          maxRows={LONG_FORM_ROWS}
+          value={value}
+          onChange={onChange}
+        />
       ) : (
         <input value={value} onChange={(event) => onChange(event.target.value)} />
       )}
@@ -2077,11 +2083,13 @@ function TeamEditor({
           </div>
           <label>
             담당 업무 (줄바꿈으로 여러 업무 입력)
-            <textarea
+            <AutoTextarea
+              minRows={3}
+              maxRows={LONG_FORM_ROWS}
               value={team.work.join("\n")}
-              onChange={(event) =>
+              onChange={(value) =>
                 update(index, {
-                  work: event.target.value
+                  work: value
                     .split("\n")
                     .map((item) => item.trim())
                     .filter(Boolean),
@@ -2448,9 +2456,11 @@ function EquipmentForm() {
       <ImageUploadField value={imageUrl} onChange={setImageUrl} />
       <label>
         장비 상세 설명
-        <textarea
+        <AutoTextarea
+          minRows={4}
+          maxRows={LONG_FORM_ROWS}
           value={description}
-          onChange={(event) => setDescription(event.target.value)}
+          onChange={setDescription}
           placeholder="용도, 주요 사양, 사용 전 확인 사항을 입력해 주세요. 공개 상세 페이지에 그대로 표시됩니다."
         />
       </label>
@@ -2705,9 +2715,11 @@ function RoadmapForm({ fixedCategory }: { fixedCategory?: string }) {
       </div>
       <label>
         설명
-        <textarea
+        <AutoTextarea
+          minRows={3}
+          maxRows={LONG_FORM_ROWS}
           value={description}
-          onChange={(event) => setDescription(event.target.value)}
+          onChange={setDescription}
         />
       </label>
       <fieldset className="license-picker">
@@ -2862,7 +2874,7 @@ function LinkForm() {
       <div className="admin-form-row">
         <label>
           설명
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="이 링크에 무엇이 있는지 한 줄로 적어 주세요." />
+          <AutoTextarea minRows={2} value={description} onChange={setDescription} placeholder="이 링크에 무엇이 있는지 한 줄로 적어 주세요." />
         </label>
         <label>
           노출 순서
@@ -2967,7 +2979,7 @@ function LicenseManager() {
       </label>
       <label>
         설명
-        <textarea value={description} maxLength={2000} placeholder="이수 조건과 교육 방식을 적어 주세요." onChange={(event) => setDescription(event.target.value)} />
+        <AutoTextarea minRows={3} maxRows={LONG_FORM_ROWS} value={description} maxLength={2000} placeholder="이수 조건과 교육 방식을 적어 주세요." onChange={setDescription} />
       </label>
       <div className="admin-actions">
         <button className="button" type="button" onClick={() => void submit()}>

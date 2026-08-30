@@ -49,8 +49,14 @@ type EquipmentPermission = {
   licensed: boolean;
   eligible: boolean;
 };
-/** 예약 화면에서 지금 무엇을 할 수 있는지. `viewer` 는 보고만 갑니다. */
-type Access = "checking" | "guest" | "viewer" | "member";
+/**
+ * 예약 화면에서 지금 무엇을 할 수 있는지.
+ *
+ * `pending` 을 `guest` 와 나누는 이유: 두 사람에게 해 줄 말이 다릅니다. 로그인
+ * 안 한 사람에게는 "로그인하세요" 가 맞지만, 이미 로그인하고 승인을 기다리는
+ * 사람에게 같은 말을 하면 이미 한 일을 또 하라는 뜻이 됩니다.
+ */
+type Access = "checking" | "guest" | "pending" | "viewer" | "member";
 
 export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[] }) {
   const { session } = useSession();
@@ -94,8 +100,10 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
   // 로그인 여부는 머리글이 이미 읽어 둔 세션에서 그대로 읽습니다.
   const access: Access =
     session === undefined ? "checking"
-    : session?.status === "APPROVED" ? "member"
-    : session?.status === "VIEWER" ? "viewer"
+    : !session ? "guest"
+    : session.status === "APPROVED" ? "member"
+    : session.status === "VIEWER" ? "viewer"
+    : session.status === "PENDING" ? "pending"
     : "guest";
   // 기본 선택이 하필 교육 미이수 장비이면 신청 정보 요약이 처음부터 막힌 장비를
   // 가리킨다. 링크로 직접 지정해 온 경우가 아니면 신청 가능한 장비를 보여 준다.
@@ -260,11 +268,15 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
    * 하이드레이션이 어긋난다.
    */
   const outlook = useMemo(() => {
+    // 신청할 수 없는 사람에게 "지금 신청하면 곧바로 확정됩니다" 를 보여 주면
+    // 바로 아래의 "승인된 회원만 신청할 수 있습니다" 와 정면으로 어긋납니다.
+    // 실제로 한 화면에 두 문장이 함께 떠 있었습니다.
+    if (access !== "member") return null;
     if (!now || !startHour || !endHour) return null;
     const startsAt = at(day, startHour);
     if (Number.isNaN(startsAt)) return null;
     return confirmOutlook(startsAt, contested, policy?.autoApproveMinutes ?? 60, now);
-  }, [now, day, startHour, endHour, contested, policy]);
+  }, [access, now, day, startHour, endHour, contested, policy]);
 
   // 단계 표시는 상태를 따로 들지 않고 지금 고른 것에서 끌어낸다. 예전에는 여섯
   // 군데서 `setStage` 를 불렀는데, 한 군데만 빠뜨려도 화면과 실제가 어긋났다.
@@ -332,6 +344,7 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
 
   async function submit() {
     if (access === "viewer") { setMessage("보기 전용 계정이라 예약을 신청할 수 없습니다. 예약 현황은 그대로 보실 수 있습니다."); return; }
+    if (access === "pending") { setMessage("가입 승인을 기다리는 중입니다. 승인되면 바로 신청할 수 있습니다."); return; }
     if (access === "guest") { setMessage("로그인 후 승인된 회원만 예약을 신청할 수 있습니다."); return; }
     if (selected) {
       const { ok, reason } = eligibility(selected);
@@ -449,17 +462,47 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         </li>
       ))}
     </ol>
+    {/* **막히는 지점을 맨 위에서 말합니다.** 예전에는 이 줄이 안내 아래에
+        묻혀 있어서, 신청할 수 없는 사람이 5,000px 을 스크롤하며 장비와 시간을
+        고른 뒤에야 벽을 만났습니다. */}
+    {access === "guest" && (
+      <p className="booking-signin" role="status">
+        <Lock size={15} aria-hidden="true" />
+        <span><b>예약 신청은 로그인한 승인 회원만</b> 할 수 있습니다. 어느 시간이 비어 있는지는 지금도 보실 수 있습니다.</span>
+        <Link className="button small" href="/login">로그인하기</Link>
+      </p>
+    )}
+    {access === "pending" && (
+      <p className="booking-signin" role="status">
+        <Lock size={15} aria-hidden="true" />
+        <span><b>가입 승인을 기다리는 중</b>이라 아직 신청할 수 없습니다. 승인되면 바로 이 화면에서 신청할 수 있습니다.</span>
+        <Link className="button small" href="/mypage">가입 상태 보기</Link>
+      </p>
+    )}
+    {access === "viewer" && (
+      <p className="booking-signin" role="status">
+        <Lock size={15} aria-hidden="true" />
+        <span>보기 전용 계정입니다. 예약 현황은 확인하실 수 있지만 신청은 활동 중인 회원만 할 수 있습니다.</span>
+      </p>
+    )}
+
     <div className="booking-guidance">
       <strong>장비사용 예약 신청 순서</strong>
       <p>장비와 사용 날짜·시간을 고른 뒤, 사용 목적과 시급도를 골라 신청합니다.</p>
       {/* '한 시간' 을 화면에 박아 두면 운영진이 정책을 바꾼 뒤에도 안내가 옛말을
           한다. 서버가 알려 준 값(`policy`)을 그대로 적는다. */}
       <small><CircleAlert size={15} aria-hidden="true" />시작까지 {leadLabel} 안으로 남았고 같은 시간에 다른 신청이 없으면 <b>운영진을 기다리지 않고 바로 확정</b>됩니다.</small>
-      <BookingGuide policy={policy} sharedCalendar={equipment.some((item) => item.sharedCalendar)} />
+      {/* 예약할 수 있는 사람에게만 자동으로 띄웁니다. 예전에는 정책 값이
+          왔는지만 보고 띄워서, **비로그인 방문자와 가입 대기자**가 자동
+          확정·사진 두 장·조기 반납까지 여섯 장을 다 읽고 닫은 뒤에야
+          "예약은 승인된 회원만" 이라는 줄을 만났습니다. 궁금한 사람은 아래
+          '예약 안내 자세히 보기' 로 직접 열 수 있습니다. */}
+      <BookingGuide
+        policy={policy}
+        sharedCalendar={equipment.some((item) => item.sharedCalendar)}
+        autoOpen={access === "member"}
+      />
     </div>
-    {access === "guest" && <p className="booking-signin" role="status"><Lock size={15} />예약 신청은 승인된 회원만 할 수 있습니다. 예약 가능 시간은 로그인 없이도 확인할 수 있습니다. <Link href="/login">로그인하기</Link></p>}
-    {access === "viewer" && <p className="booking-signin" role="status"><Lock size={15} />보기 전용 계정입니다. 예약 현황은 확인하실 수 있지만 신청은 활동 중인 회원만 할 수 있습니다.</p>}
-
     <section className="booking-equipment" ref={equipmentRef} aria-labelledby="equipment-choice-title">
       <div className="booking-section-head"><p className="meta">01. EQUIPMENT</p><h3 id="equipment-choice-title">장비 선택</h3><span>예약할 장비와 개별 호기를 먼저 선택하세요.</span></div>
       <div className="booking-equipment-grid">{equipment.map((item) => { const { ok, reason } = eligibility(item); return <button className={`booking-equipment-card${item.id === equipmentId ? " selected" : ""}${ok ? "" : " disabled"}`} type="button" disabled={!ok} onClick={() => chooseEquipment(item.id)} key={item.id}>{item.imageUrl ? <Image src={mediaSquare(item.imageUrl, 800)} sizes="(max-width: 900px) 45vw, 340px" quality={88} alt="" width={640} height={360} unoptimized={!optimizable(item.imageUrl)} /> : <span className="booking-device-icon"><Wrench size={34} /></span>}<span className="booking-card-category">{item.category}</span><strong>{item.name}</strong><small>{item.availableUnits}개 호기 · {ok ? "예약 가능" : reason}</small>{!ok && reason.startsWith("교육 필요") && <span className="booking-card-lock"><Lock size={13} /> 교육 이수 후 신청할 수 있습니다</span>}</button>; })}</div>
@@ -613,7 +656,25 @@ export function EquipmentReservation({ equipment }: { equipment: EquipmentItem[]
         <p>같은 시간에 여러 장비를 함께 쓸 수 있습니다. 겹치는 신청이 있으면 운영진이 직접 한 건을 확정합니다.</p>
         <div className="booking-submit-buttons">
           {submitted && <button className="button ghost" type="button" onClick={bookAnother}>같은 시간으로 다른 장비 신청</button>}
-          <button className="button" type="button" disabled={loading || submitted} onClick={submit}>{submitted ? "신청 완료" : loading ? "확인 중" : "예약 신청"}</button>
+          {/* 신청할 수 없는 사람에게는 잠급니다. 눌러야만 거절되는 단추는
+              5,000px 을 스크롤해 온 사람에게 마지막에 한 번 더 헛수고를
+              시킵니다. 왜 잠겼는지는 맨 위 줄이 이미 말하고 있습니다. */}
+          <button
+            className="button"
+            type="button"
+            disabled={loading || submitted || access !== "member"}
+            title={access === "member" ? undefined : "신청은 승인된 회원만 할 수 있습니다."}
+            onClick={submit}
+          >
+            {/* 왜 못 누르는지가 사람마다 다릅니다. 이미 로그인한 대기자에게
+                "로그인이 필요합니다" 라고 하면 이미 한 일을 또 하라는 말이 됩니다. */}
+            {submitted ? "신청 완료"
+              : loading ? "확인 중"
+              : access === "member" ? "예약 신청"
+              : access === "pending" ? "가입 승인 뒤에 신청할 수 있습니다"
+              : access === "viewer" ? "보기 전용 계정입니다"
+              : "로그인해야 신청할 수 있습니다"}
+          </button>
         </div>
       </div>
       {booked.length > 0 && <div className="booking-basket" role="status"><strong>이번에 신청한 예약 {booked.length}건</strong><ul>{booked.map((row, index) => <li key={`${row.id}-${index}`}><b>{row.unit || row.name}</b><span>{row.span}</span><i>{row.auto ? "확정" : "대기"}</i></li>)}</ul><Link href="/mypage">마이페이지에서 확인</Link></div>}

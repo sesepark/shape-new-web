@@ -37,9 +37,22 @@ function span(minutes: number): string {
 export function BookingGuide({
   policy,
   sharedCalendar,
+  autoOpen = true,
 }: {
   policy: PublicReservationPolicy | null;
   sharedCalendar?: boolean;
+  /**
+   * 처음 온 사람에게 저절로 띄울지.
+   *
+   * **예약할 수 있는 사람에게만 참으로 주세요.** 예전에는 정책 값이 왔는지만
+   * 보고 띄워서, 비로그인 방문자와 가입 대기자가 자동 확정·사진 두 장·조기
+   * 반납까지 여섯 장을 다 읽고 닫은 뒤에야 "예약은 승인된 회원만" 이라는 줄을
+   * 만났습니다. 거짓은 아니지만 지금 그 사람에게 쓸모없는 설명입니다.
+   *
+   * 거짓일 때도 아래 '예약 안내 자세히 보기' 단추는 그대로 있습니다 — 궁금한
+   * 사람이 직접 여는 길까지 막을 이유는 없습니다.
+   */
+  autoOpen?: boolean;
 }) {
   const { ask, dialogNode } = useAsk();
   // 저절로 뜨는 것은 한 번뿐입니다. 정책을 늦게 받아 다시 그려질 때마다 뜨면
@@ -144,6 +157,7 @@ export function BookingGuide({
   // 처음 온 사람에게 한 번. 자국은 열어 본 그 자리에서 남깁니다 — 닫을 때 남기면
   // 팝업을 닫지 않고 나간 사람에게 다음에도 뜹니다.
   useEffect(() => {
+    if (!autoOpen) return;
     if (opened.current) return;
     // 규칙 값을 받기 전에 띄우면 팝업이 "한 시간" 이라고 적어 놓고, 관리자가
     // 두 시간으로 바꿔 두었어도 첫 방문자만 옛말을 보게 됩니다. 값이 자리를
@@ -164,7 +178,7 @@ export function BookingGuide({
       // 저장하지 못해도 안내는 띄웁니다.
     }
     show();
-  }, [show, policy]);
+  }, [show, policy, autoOpen]);
 
   return (
     <>

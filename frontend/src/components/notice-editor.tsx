@@ -5,7 +5,9 @@ import { ArrowLeft } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RichTextEditor } from "@/components/rich-text-editor";
+import { DraftNotice, DraftSaved } from "@/components/draft-notice";
 import { board, boardError, boardSend } from "@/lib/board";
+import { useDraft } from "@/lib/draft";
 import type { NoticeCategory, NoticeDetail, SessionUser } from "@/lib/types";
 
 const openCategories: NoticeCategory[] = ["질문", "정보", "일반"];
@@ -39,6 +41,26 @@ export function NoticeEditor({ session }: { session: SessionUser }) {
     return () => { active = false; };
   }, [noticeId]);
 
+  const snapshot = { title, category, pinned, body };
+  type Snapshot = typeof snapshot;
+  /**
+   * 본문이 TipTap 이라 빈 글도 `<p></p>` 같은 껍데기가 옵니다. 글자가 실제로
+   * 있는지로 판단해야 "쓰다 만 글이 있다" 는 말이 거짓말이 되지 않습니다.
+   */
+  const written = body.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const dirty = Boolean(title.trim() || written);
+  // 고치는 글과 새 글을 따로 담습니다. 섞이면 남의 글을 고치다 만 내용이
+  // 새 글 화면에 뜹니다.
+  const draft = useDraft<Snapshot>(noticeId ? `notice:${noticeId}` : "notice:new", snapshot, dirty && ready);
+
+  function restore(saved: Snapshot) {
+    setTitle(saved.title);
+    setCategory(saved.category);
+    setPinned(saved.pinned);
+    setBody(saved.body);
+    draft.dismiss();
+  }
+
   async function submit() {
     if (!title.trim()) { setMessage("제목을 입력해 주세요."); return; }
     setBusy(true);
@@ -49,6 +71,7 @@ export function NoticeEditor({ session }: { session: SessionUser }) {
     setBusy(false);
     if (!response.ok) { setMessage(boardError(response.status)); return; }
     const saved = (await response.json()) as NoticeDetail;
+    draft.clear();
     router.push(`/notices/${saved.id}`);
     router.refresh();
   }
@@ -61,6 +84,9 @@ export function NoticeEditor({ session }: { session: SessionUser }) {
         <ArrowLeft size={16} /> {noticeId ? "글로 돌아가기" : "게시판"}
       </Link>
       <div className="admin-form">
+        {draft.found && (
+          <DraftNotice at={draft.found.at} onRestore={() => restore(draft.found!.value)} onDiscard={draft.clear} />
+        )}
         <p className="form-note">
           승인된 회원은 질문·정보·일반 글을 자유롭게 쓸 수 있습니다.
           {canManage
@@ -101,6 +127,7 @@ export function NoticeEditor({ session }: { session: SessionUser }) {
             {busy ? "저장 중" : noticeId ? "수정 내용 저장" : "글 등록"}
           </button>
           <Link className="button secondary" href={noticeId ? `/notices/${noticeId}` : "/notices"}>취소</Link>
+          <DraftSaved at={draft.savedAt} />
           {message && <p className="save-notice" role="status">{message}</p>}
         </div>
       </div>

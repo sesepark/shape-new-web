@@ -1009,20 +1009,22 @@ html:has(.shape-home) .site-footer { scroll-snap-align:end; scroll-margin-bottom
    iOS 사파리는 글자가 16px 보다 작은 입력칸에 초점이 가면 화면을 확대해
    버립니다. 확대된 화면은 되돌아오지 않아서 제목을 치고 본문으로 넘어갈 때마다
    좌우로 밀린 화면을 손으로 되돌려야 했습니다. 좁은 화면에서만 16px 로
-   올려 확대 자체가 일어나지 않게 합니다. */
+   올려 확대 자체가 일어나지 않게 합니다.
+
+   ## 왜 `!important` 인가 — 목록으로는 못 막습니다
+
+   예전에는 여기에 "자기 글자 크기를 따로 정해 둔 곳" 을 하나씩 적은 **허용
+   목록**이 있었습니다. 그런데 그런 곳은 대개 `.board-search input` 처럼
+   명시도가 (0,1,1) 이고 여기 기본 규칙은 `input` 즉 (0,0,1) 이라, **목록에
+   이름을 빠뜨리는 순간 조용히 집니다.** 실제로 게시판 제목 검색(14px),
+   예약 화면 부원 찾기(14px), 관리자 탭 선택 상자(15px) 셋이 빠져나가 있었고,
+   아무도 몰랐습니다 — 감사 스크립트는 글자 크기를 보지 않습니다.
+
+   앞으로 새 입력칸을 만들 때마다 이 목록을 기억해야 하는 구조 자체가 문제라,
+   목록을 없애고 기본 규칙이 이기게 했습니다. 좁은 화면에서 입력칸 글자를
+   16px 보다 작게 두고 싶은 경우는 없습니다. */
 @media (max-width:900px) {
-  input, select, textarea { font-size:16px; }
-  /* 아래는 각자 글자 크기를 따로 정해 둔 곳이라 다시 한 번 올려 줍니다. */
-  .press-search input,
-  .semester-pagination select,
-  .comment-form textarea,
-  .ask-dialog input, .ask-dialog textarea,
-  .booking-controls select, .booking-controls input,
-  .booking-request select, .booking-request textarea,
-  .reservation-form input, .reservation-form textarea,
-  .admin-form input, .admin-form textarea, .admin-form select { font-size:16px; }
-  /* 도구줄 안의 선택 상자도 예외가 아닙니다. select 에 초점이 가도 확대됩니다. */
-  .rich-editor .editor-select { font-size:16px; }
+  input, select, textarea { font-size:16px !important; }
 
   /* 푸터의 메일 주소와 소셜 아이콘은 17~18px 이라 손가락으로 정확히 누르기
      어렵습니다. 보이는 크기는 그대로 두고 눌리는 영역만 넓힙니다. */
@@ -5549,4 +5551,131 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 @media (max-width: 680px) {
   .paper-editor-group { padding: 14px; }
   .paper-editor-block { padding: 13px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   글쓰기 편의 — 임시 저장과 가입 대기 화면
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 쓰다 만 글 알림 ─────────────────────────────────────────────────────
+   글쓰기 화면 맨 위에 뜹니다. 자동으로 되살리지 않고 물어보는 이유는
+   `draft-notice.tsx` 에 적어 두었습니다. */
+.draft-notice {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+  padding: 14px 16px; margin-bottom: 4px;
+  border: 1px solid #cfe0f8; border-radius: 12px; background: #f2f7ff;
+}
+.draft-notice > svg { flex: none; color: var(--blue); }
+.draft-notice p { flex: 1 1 240px; min-width: 0; margin: 0; font-size: 14px; line-height: 1.65; color: #33405a; }
+.draft-notice .inline-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.draft-notice .button { min-height: 38px; }
+.draft-notice .text-button { display: inline-flex; align-items: center; gap: 4px; min-height: 38px; }
+
+/* "방금 임시 저장됨". 저장 단추 옆에 조용히 붙습니다 — 이것이 없으면 사람은
+   임시 저장이 되고 있는지 알 수 없고, 알 수 없으면 있으나 마나입니다. */
+.draft-saved { color: #8a90a0; font-size: 13px; line-height: 1.5; }
+.contact-submit { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+@media (max-width: 680px) {
+  .draft-notice { padding: 13px; }
+  .draft-notice .inline-actions { width: 100%; }
+  .draft-notice .button { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ── 가입 승인 대기 화면 ─────────────────────────────────────────────────
+   새 부원이 처음 만나는 화면입니다. 막다른 길로 두지 않습니다. */
+.approval-wait { max-width: 560px; margin-inline: auto; }
+/* `.empty-state` 는 글만 가운데로 모으므로 아이콘은 직접 가운데에 둡니다. */
+.approval-wait > svg { color: var(--blue); margin-inline: auto; }
+
+/* 어느 계정으로 들어왔는지. 잘못된 계정으로 로그인한 사람이 영문도 모르고
+   기다리는 일을 막는 자리라, 눈에 띄어야 합니다. */
+.approval-account {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 13px 15px; margin: 18px 0 12px;
+  border: 1px solid #dbe0ea; border-radius: 12px; background: #fff; text-align: left;
+}
+/* `.empty-state` 안의 span 규칙이 `.account-initial` 의 `display:grid` 를
+   덮어써서 글자가 원 왼쪽 위에 붙어 있었습니다. 이 자리에서 다시 못 박습니다. */
+.approval-account .account-initial {
+  flex: none; display: grid; place-items: center;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: #e8efff; color: #1d4eb5; font-size: 19px; font-weight: 900;
+}
+.approval-account strong { display: block; font-size: 15px; }
+.approval-account span { display: block; margin-top: 2px; color: #69717f; font-size: 13px; overflow-wrap: anywhere; }
+
+.approval-wait .field-hint { margin: 0 0 18px; text-align: left; line-height: 1.7; }
+.approval-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.approval-actions .button { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; }
+.approval-meanwhile { margin: 22px 0 0; color: #69717f; font-size: 14px; line-height: 1.8; }
+.approval-meanwhile a { color: var(--blue); font-weight: 700; }
+
+@media (max-width: 680px) {
+  .approval-actions { flex-direction: column; align-items: stretch; }
+  .approval-actions .button { justify-content: center; }
+}
+
+/* ── 예약 화면에서 막히는 지점을 맨 위에 ─────────────────────────────────
+   예전에는 이 줄이 안내 아래에 묻혀, 신청할 수 없는 사람이 5,000px 을
+   스크롤한 뒤에야 벽을 만났습니다. */
+.booking-signin {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px;
+  padding: 14px 16px;
+  border: 1px solid #f2d9c4; border-radius: 12px; background: #fdf6ee;
+  color: #7a4a1c; font-size: 14px; line-height: 1.65;
+}
+.booking-signin > svg { flex: none; }
+.booking-signin > span { flex: 1 1 240px; min-width: 0; }
+/* 이 상자 안의 `a` 는 파란 밑줄 링크로 정해져 있습니다(위 `.booking-signin a`).
+   그런데 지금은 단추도 링크라, 글자색이 배경색과 **같은 파랑**이 되어 글자가
+   통째로 사라졌습니다. 단추에는 단추의 색을 되돌려 줍니다. */
+.booking-signin .button {
+  min-height: 38px; color: #fff; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.booking-signin .button.secondary { color: var(--ink); }
+
+@media (max-width: 680px) {
+  .booking-signin .button { width: 100%; justify-content: center; }
+}
+
+/* 마지막 저장 시각. 문장과 한 줄에 두지 않는 이유는 `draft-notice.tsx` 에. */
+.draft-when { display: block; margin-top: 3px; color: #6b7688; font-size: 13px; }
+
+/* ── 잠긴 단추는 잠겨 보여야 한다 ───────────────────────────────────────
+   `.button:disabled` 규칙이 사이트에 하나도 없어서, 누를 수 없는 단추가
+   누를 수 있는 단추와 **똑같이** 보였습니다. 예약 화면에서 신청할 수 없는
+   사람에게 파란 '예약 신청' 단추가 그대로 떠 있던 것이 그 예입니다.
+   색을 죽이고 커서를 바꿔 눌러 보기 전에 알 수 있게 합니다. */
+.button:disabled,
+.button[aria-disabled="true"] {
+  opacity: .55;
+  cursor: not-allowed;
+  /* 흐리게만 하면 호버에서 다시 살아나 보입니다. 움직임도 함께 끕니다. */
+  transform: none;
+  box-shadow: none;
+}
+.button:disabled:hover,
+.button[aria-disabled="true"]:hover { transform: none; }
+
+
+/* 예약 안내 한 줄이 좁은 화면에서 세 칸으로 쪼개지던 것.
+   `display:flex; flex-wrap:nowrap` 이라 아이콘·글·굵은 글이 각자 칸을 차지하고,
+   390px 에서 "운영진을 기다리지 않 / 고 바로 확정 / 됩니다." 처럼 갈라졌습니다.
+   줄바꿈을 허용하고 아이콘만 위로 붙입니다. */
+/* **flex 를 씁니다.** 한 문장을 flex 로 늘어놓으면 글월의 조각들이 저마다
+   칸이 되어, 사이에 `gap` 이 끼고("바로 확정 됩니다") 좁은 화면에서는 세 칸으로
+   갈라집니다. 문장은 문장으로 흐르게 두고 아이콘만 글줄에 얹습니다. */
+.booking-guidance small {
+  display: block;
+  text-align: left;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+.booking-guidance small > svg {
+  display: inline; vertical-align: -3px; margin-right: 5px;
+}
+@media (min-width: 681px) {
+  .booking-guidance small { text-align: center; }
 }

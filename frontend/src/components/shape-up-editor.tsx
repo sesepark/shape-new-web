@@ -4,9 +4,11 @@ import Link from "next/link";
 import { ArrowLeft, GripVertical, Plus, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AutoTextarea } from "@/components/auto-textarea";
+import { AutoTextarea, LONG_FORM_ROWS } from "@/components/auto-textarea";
 import { ImageUploadField } from "@/components/image-upload-field";
+import { DraftNotice, DraftSaved } from "@/components/draft-notice";
 import { board, boardError, boardSend } from "@/lib/board";
+import { useDraft } from "@/lib/draft";
 import { youtubeId } from "@/lib/youtube";
 import type { ShapeUpBlock, ShapeUpDetail } from "@/lib/types";
 
@@ -103,6 +105,7 @@ function BlockEditor({
                 value={block.caption}
                 maxLength={2000}
                 minRows={2}
+                maxRows={LONG_FORM_ROWS}
                 placeholder="이 그림·영상이 무엇을 보여 주는지 적어 주세요."
                 onChange={(value) => set(block.key, { caption: value })}
               />
@@ -176,6 +179,45 @@ export function ShapeUpEditor() {
     return () => { active = false; };
   }, [postId]);
 
+  /**
+   * 임시 저장에 담고 되살릴 값.
+   *
+   * 화면의 상태를 그대로 담습니다. 덩이의 `key` 는 그릴 때만 쓰는 값이라
+   * 담지 않고, 되살릴 때 새로 붙입니다.
+   */
+  const snapshot = {
+    title, summary, cohort, teamName, members, coverImage,
+    githubUrl, videoUrl, slidesUrl, abstract, problem, limitations,
+    methodBlocks: methodBlocks.map(({ key: _key, ...rest }) => rest),
+    resultBlocks: resultBlocks.map(({ key: _key, ...rest }) => rest),
+  };
+  type Snapshot = typeof snapshot;
+  /**
+   * 무언가 적었을 때만 담아 둡니다. 화면을 열어 놓고 아무것도 안 한 사람에게
+   * "쓰다 만 글이 있다" 고 말하면 거짓말입니다. 기수는 기본값이 들어 있으므로
+   * 세지 않습니다.
+   */
+  const dirty = Boolean(
+    title.trim() || summary.trim() || teamName.trim() || abstract.trim() || problem.trim() ||
+    limitations.trim() || coverImage || githubUrl.trim() || videoUrl.trim() || slidesUrl.trim() ||
+    members.some((name) => name.trim()) ||
+    [...methodBlocks, ...resultBlocks].some((b) => (b.image ?? "").trim() || (b.video ?? "").trim() || b.caption.trim()),
+  );
+  // 고치는 글과 새 글의 임시 저장을 따로 둡니다. 섞이면 남의 글을 고치다 만
+  // 내용이 새 글 화면에 뜹니다.
+  const draft = useDraft<Snapshot>(postId ? `shape-up:${postId}` : "shape-up:new", snapshot, dirty && ready);
+
+  function restore(saved: Snapshot) {
+    setTitle(saved.title); setSummary(saved.summary); setCohort(saved.cohort);
+    setTeamName(saved.teamName); setMembers(saved.members.length ? saved.members : [""]);
+    setCoverImage(saved.coverImage); setGithubUrl(saved.githubUrl);
+    setVideoUrl(saved.videoUrl); setSlidesUrl(saved.slidesUrl);
+    setAbstract(saved.abstract); setProblem(saved.problem); setLimitations(saved.limitations);
+    setMethodBlocks(toDraft(saved.methodBlocks));
+    setResultBlocks(toDraft(saved.resultBlocks));
+    draft.dismiss();
+  }
+
   /** 저장할 모양으로. 아무것도 안 채운 덩이는 여기서 버립니다(서버도 같은 일을 합니다). */
   const packed = (blocks: Draft[]) =>
     blocks
@@ -215,6 +257,8 @@ export function ShapeUpEditor() {
     setBusy(false);
     if (!response.ok) { setMessage(boardError(response.status)); return; }
     const saved = (await response.json()) as ShapeUpDetail;
+    // 올린 뒤에도 남겨 두면 다음에 새 글을 쓸 때 이미 올린 글이 되살아납니다.
+    draft.clear();
     router.push(`/shape-up/${saved.id}`);
     router.refresh();
   }
@@ -227,6 +271,9 @@ export function ShapeUpEditor() {
         <ArrowLeft size={16} /> {postId ? "결과물로 돌아가기" : "SHAPE-UP 결과물"}
       </Link>
       <div className="admin-form paper-editor">
+        {draft.found && (
+          <DraftNotice at={draft.found.at} onRestore={() => restore(draft.found!.value)} onDiscard={draft.clear} />
+        )}
         <p className="form-note">
           한 학기 동안 만든 결과물을 남깁니다. 여기에 올린 글은 <b>로그인하지 않은 사람에게도 공개</b>되니,
           팀 밖의 사람이 읽어도 이해할 수 있게 적어 주세요. <b>칸을 채우기만 하면 형식은 알아서 맞춰집니다.</b>
@@ -239,7 +286,7 @@ export function ShapeUpEditor() {
         </label>
         <label>
           한 줄 요약
-          <AutoTextarea value={summary} maxLength={2000} minRows={2} placeholder="무엇을 만들었고 무엇을 확인했는지 두세 줄로. 목록 카드와 검색 결과에 그대로 보입니다." onChange={setSummary} />
+          <AutoTextarea value={summary} maxLength={2000} minRows={2} maxRows={LONG_FORM_ROWS} placeholder="무엇을 만들었고 무엇을 확인했는지 두세 줄로. 목록 카드와 검색 결과에 그대로 보입니다." onChange={setSummary} />
         </label>
         <div className="admin-form-row">
           <label>
@@ -305,11 +352,11 @@ export function ShapeUpEditor() {
 
         <label>
           초록
-          <AutoTextarea value={abstract} maxLength={4000} minRows={4} placeholder="이 결과물을 한 문단으로. 무엇을 목표로 했고, 어떻게 했고, 무엇을 얻었는지." onChange={setAbstract} />
+          <AutoTextarea value={abstract} maxLength={4000} minRows={4} maxRows={LONG_FORM_ROWS} placeholder="이 결과물을 한 문단으로. 무엇을 목표로 했고, 어떻게 했고, 무엇을 얻었는지." onChange={setAbstract} />
         </label>
         <label>
           문제 설정
-          <AutoTextarea value={problem} maxLength={4000} minRows={4} placeholder="왜 이 문제를 골랐고, 무엇이 어려운 점이었는지." onChange={setProblem} />
+          <AutoTextarea value={problem} maxLength={4000} minRows={4} maxRows={LONG_FORM_ROWS} placeholder="왜 이 문제를 골랐고, 무엇이 어려운 점이었는지." onChange={setProblem} />
         </label>
 
         <BlockEditor
@@ -327,7 +374,7 @@ export function ShapeUpEditor() {
 
         <label>
           한계와 다음 과제
-          <AutoTextarea value={limitations} maxLength={4000} minRows={4} placeholder="아직 안 되는 것과 다음 기수가 이어서 할 만한 것. 여기가 다음 팀에게 가장 도움이 됩니다." onChange={setLimitations} />
+          <AutoTextarea value={limitations} maxLength={4000} minRows={4} maxRows={LONG_FORM_ROWS} placeholder="아직 안 되는 것과 다음 기수가 이어서 할 만한 것. 여기가 다음 팀에게 가장 도움이 됩니다." onChange={setLimitations} />
         </label>
 
         <div className="admin-actions">
@@ -335,6 +382,7 @@ export function ShapeUpEditor() {
             {busy ? "저장 중" : postId ? "수정 내용 저장" : "결과물 공개"}
           </button>
           <Link className="button secondary" href={postId ? `/shape-up/${postId}` : "/shape-up"}>취소</Link>
+          <DraftSaved at={draft.savedAt} />
           {message && <p className="save-notice danger" role="status">{message}</p>}
         </div>
       </div>

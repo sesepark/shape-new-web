@@ -2,6 +2,9 @@
 
 import { Check, Copy, Mail, Send } from "lucide-react";
 import { FormEvent, useState } from "react";
+import { AutoTextarea, LONG_FORM_ROWS } from "@/components/auto-textarea";
+import { DraftNotice, DraftSaved } from "@/components/draft-notice";
+import { useDraft } from "@/lib/draft";
 import { API_URL } from "@/lib/api";
 import { ShapeSymbol } from "@/components/shape-symbol";
 
@@ -30,6 +33,21 @@ export function ContactForm() {
   const [state, setState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
   const [copied, setCopied] = useState(false);
 
+  const snapshot = { name, replyTo, subject, message };
+  type Snapshot = typeof snapshot;
+  const dirty = Boolean(name.trim() || replyTo.trim() || subject.trim() || message.trim());
+  /**
+   * 문의는 **로그인 없이** 쓰는 글입니다. 계정에 매인 것이 없어 서버에 남길
+   * 방법도 없으므로, 잃으면 정말로 사라집니다. 여기야말로 임시 저장이 필요합니다.
+   */
+  const draft = useDraft<Snapshot>("contact", snapshot, dirty && state !== "sent");
+
+  function restore(saved: Snapshot) {
+    setName(saved.name); setReplyTo(saved.replyTo);
+    setSubject(saved.subject); setMessage(saved.message);
+    draft.dismiss();
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (state === "sending") return;
@@ -41,6 +59,7 @@ export function ContactForm() {
     }).catch(() => null);
     if (!response?.ok) { setState("failed"); return; }
     setState("sent");
+    draft.clear();
     setName(""); setReplyTo(""); setSubject(""); setMessage("");
   }
 
@@ -90,6 +109,9 @@ export function ContactForm() {
         </div>
       ) : (
         <form className="contact-form" onSubmit={submit}>
+          {draft.found && (
+            <DraftNotice at={draft.found.at} onRestore={() => restore(draft.found!.value)} onDiscard={draft.clear} />
+          )}
           <div className="contact-form-row">
             <label>
               이름
@@ -127,12 +149,16 @@ export function ContactForm() {
           </label>
           <label>
             내용
-            <textarea
-              required
+            {/* 3,000자까지 받는 칸입니다. 자라지 않는 상자로 두면 170px 창에
+                대고 그만큼을 적게 됩니다(실제로 그랬습니다). */}
+            <AutoTextarea
               value={message}
-              onChange={(event) => setMessage(event.target.value)}
+              onChange={setMessage}
+              minRows={5}
+              maxRows={LONG_FORM_ROWS}
               placeholder="문의 내용을 입력해 주세요."
               maxLength={3000}
+              required
             />
           </label>
           {/* 사람에게는 보이지 않는 칸입니다. 읽어 주는 기계도 건너뛰도록
@@ -150,9 +176,12 @@ export function ContactForm() {
               />
             </label>
           </div>
-          <button className="button" type="submit" disabled={state === "sending"}>
-            {state === "sending" ? "보내는 중…" : "보내기"} <Send size={16} />
-          </button>
+          <div className="inline-actions contact-submit">
+            <button className="button" type="submit" disabled={state === "sending"}>
+              {state === "sending" ? "보내는 중…" : "보내기"} <Send size={16} />
+            </button>
+            <DraftSaved at={draft.savedAt} />
+          </div>
           {state === "failed" && (
             <div className="save-notice danger contact-failed">
               <p>
