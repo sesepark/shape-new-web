@@ -112,6 +112,58 @@ def maybe_sweep_alerts(signed_in: bool) -> None:
     task.add_done_callback(_sweeps.discard)
 
 
+def harden(response: Response) -> None:
+    """어느 응답에나 붙어야 하는 최소한의 안전 머리말.
+
+    브라우저가 응답의 내용을 보고 형식을 **추측하지 못하게** 막습니다. 자료실은
+    회원이 올린 파일의 주소를 그대로 담아 돌려주고, 오류 본문에는 사용자가 보낸
+    값이 섞여 나갑니다. 추측을 허용하면 JSON 으로 내보낸 것이 어떤 상황에서
+    문서로 해석될 수 있습니다.
+    """
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+
+
+# 브라우저가 스스로 채워 보낼 수 없는, 앞단이 직접 써 넣는 주소 칸.
+#
+# `X-Forwarded-For` 의 **맨 앞 값은 요청을 보내는 쪽이 그냥 지어낼 수 있습니다.**
+# 앞단은 그 뒤에 진짜 주소를 덧붙일 뿐이라, 맨 앞을 그대로 믿으면 요청마다 다른
+# 가짜 주소를 적어 보내는 것만으로 아래 한도를 통째로 비켜 갈 수 있습니다. 무료
+# 요금제에서 이 한도가 하는 일이 값을 막는 것이므로 그냥 둘 수 없습니다.
+#
+# 아래 두 칸은 사정이 다릅니다. Cloudflare 는 이 칸을 **덮어씁니다** — 보내는
+# 쪽이 무엇을 적어 넣든 앞단이 진짜 주소로 갈아 끼우므로 지어낼 수 없습니다.
+# 우리 API 는 Cloudflare 뒤의 Render 에 있으므로 운영에서는 이 칸이 옵니다.
+TRUSTED_IP_HEADERS = ("cf-connecting-ip", "true-client-ip")
+_ip_source_logged = False
+
+
+def client_address(request: Request) -> str:
+    """쿠키가 없는 방문자를 셀 때 쓸 주소.
+
+    믿을 수 있는 칸이 있으면 그것을 쓰고, 없으면 예전처럼 `X-Forwarded-For` 의 맨
+    앞 값으로 돌아갑니다. 지어낼 수 있는 값이지만, 앞단이 무엇을 붙여 주는지 모르는
+    곳(로컬 개발, 다른 곳으로 옮긴 경우)에서 맨 뒤 값을 쓰면 **모든 방문자가 앞단
+    하나의 몫을 나눠 쓰게 되어** 정상 트래픽이 429 를 맞습니다. 새는 것보다 막히는
+    것이 더 나쁘므로 알 수 없을 때는 느슨한 쪽으로 둡니다.
+
+    어느 칸을 쓰고 있는지는 프로세스가 뜬 뒤 한 번만 남깁니다. 배포 로그에서
+    확인해 두면 나중에 이 판단을 좁힐 수 있습니다.
+    """
+    global _ip_source_logged
+    for name in TRUSTED_IP_HEADERS:
+        value = (request.headers.get(name) or "").strip()
+        if value:
+            if not _ip_source_logged:
+                _ip_source_logged = True
+                logger.info("방문자 주소를 %s 칸에서 읽습니다.", name)
+            return value
+    if not _ip_source_logged:
+        _ip_source_logged = True
+        logger.info("믿을 수 있는 주소 칸이 없어 X-Forwarded-For 의 맨 앞 값을 씁니다.")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+
+
 def public_read(path: str) -> bool:
     if not path.startswith(API_PREFIX):
         return False
@@ -138,19 +190,20 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > self.settings.max_request_bytes:
-            return JSONResponse({"detail": "요청 크기가 너무 큽니다."}, status_code=413)
+        if content_length:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                return JSONResponse({"detail": "요청 크기를 읽을 수 없습니다."}, status_code=400)
+            if declared > self.settings.max_request_bytes:
+                return JSONResponse({"detail": "요청 크기가 너무 큽니다."}, status_code=413)
 
         # 학교 Wi-Fi 처럼 여러 회원이 한 IP 를 나눠 쓰는 곳에서는 IP 만으로 세면
         # 정상 사용이 서로의 한도를 깎아먹는다. 로그인한 사람은 세션으로 센다.
         # 세션 쿠키는 서명되어 있어 남의 몫을 쓰려면 위조가 필요하고, 쿠키가 없는
         # 방문자는 그대로 IP 로 센다.
         owner = session_owner(request.cookies.get(COOKIE_NAME))
-        if owner:
-            client = f"member:{owner}"
-        else:
-            forwarded = request.headers.get("x-forwarded-for", "")
-            client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        client = f"member:{owner}" if owner else client_address(request)
         write = request.method not in {"GET", "HEAD"}
         limit = self.settings.rate_limit_write_per_minute if write else self.settings.rate_limit_read_per_minute
         key = f"{client}:{'write' if write else 'read'}"
@@ -196,6 +249,7 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             if path.startswith(API_PREFIX):
                 response.headers.setdefault("Cache-Control", "private, no-store")
+            harden(response)
             return response
 
         stored = cache.get(cache_key)
@@ -218,6 +272,7 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         status, body, headers = stored
         return Response(content=body, status_code=status, headers=dict(headers))
 
+
     async def _fill(self, request: Request, call_next, path: str, cache_key: str) -> Response:
         """실제로 내려가서 받아 오고, 200 이면 담아 둔다."""
         response = await call_next(request)
@@ -227,6 +282,7 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         # 그 401 이 한 시간 동안 모두에게 나간다.
         if response.status_code != 200:
             response.headers.setdefault("Cache-Control", "private, no-store")
+            harden(response)
             return response
         if any(part in path for part in VOLATILE_READS):
             window = self.settings.volatile_cache_seconds
@@ -234,6 +290,7 @@ class CostGuardMiddleware(BaseHTTPMiddleware):
         else:
             window = self.settings.public_cache_seconds
             response.headers.setdefault("Cache-Control", f"public, max-age=60, s-maxage={window}, stale-while-revalidate=600")
+        harden(response)
         body = b"".join([chunk async for chunk in response.body_iterator])
         headers = [(key, value) for key, value in response.headers.items() if key.lower() != "content-length"]
         cache.set(cache_key, (200, body, headers), window, self.settings.cache_spread_seconds)

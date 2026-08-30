@@ -40,7 +40,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || "/notices", self.location.origin).href;
+  // 알림이 데려갈 곳은 **우리 사이트 안**뿐입니다. 지금 알림을 보낼 수 있는 것은
+  // VAPID 열쇠를 쥔 우리 서버뿐이지만, 눌렀을 때 어디로 가는지를 알림 내용에
+  // 그대로 맡겨 둘 이유는 없습니다. 다른 곳을 가리키면 게시판으로 보냅니다.
+  const asked = new URL(event.notification.data?.url || "/notices", self.location.origin);
+  const target = asked.origin === self.location.origin ? asked.href : new URL("/notices", self.location.origin).href;
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
     const open = windows.find((client) => client.url.startsWith(self.location.origin));
     if (open) return open.focus().then(() => open.navigate(target));

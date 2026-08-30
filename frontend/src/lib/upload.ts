@@ -134,6 +134,10 @@ export async function uploadDocument(file: File): Promise<{ url?: string; name?:
     form.append("timestamp", String(data.timestamp));
     form.append("signature", data.signature);
     form.append("folder", data.folder);
+    // 받아도 되는 형식은 **서명 안에** 들어 있습니다. 여기서 빼거나 바꾸면 서명이
+    // 어긋나 Cloudinary 가 거절합니다. 화면의 확인은 큰 파일이 헛되이 나가지 않게
+    // 하는 편의일 뿐이고, 실제로 막는 것은 이 값입니다.
+    if (data.allowedFormats) form.append("allowed_formats", data.allowedFormats);
     const response = await fetch(`https://api.cloudinary.com/v1_1/${data.cloudName}/raw/upload`, { method: "POST", body: form });
     if (!response.ok) return { error: "파일 업로드에 실패했습니다." };
     const uploaded = await response.json();

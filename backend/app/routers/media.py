@@ -51,18 +51,32 @@ RAW_EXTENSIONS = (
 
 @router.post("/file-signature")
 async def file_upload_signature(user: User = Depends(approved_user), db: AsyncSession = Depends(get_db)):
-    """Sign a Cloudinary *raw* upload so 자료실 can hold documents, not just images."""
+    """Sign a Cloudinary *raw* upload so 자료실 can hold documents, not just images.
+
+    **형식과 크기 제한은 서명 안에 들어가야 뜻이 있습니다.** 예전에는 받아도 되는
+    확장자와 10MB 라는 값을 화면에 알려 주기만 했습니다. 화면은 그 값을 지켰지만,
+    서명이 담고 있는 것은 폴더와 시각뿐이라 **같은 서명으로 무엇이든 올릴 수
+    있었습니다** — 브라우저 개발자 도구로 요청을 한 번 바꾸면 끝입니다. 저장 용량은
+    무료 25 크레딧에서 1GB 마다 매달 값을 치르므로, 막지 않으면 계정 하나가 요금제를
+    통째로 태울 수 있습니다.
+
+    Cloudinary 는 요청에 실린 인자 **전부**로 서명을 다시 계산해 견주므로, 여기
+    넣은 값은 보내는 쪽이 뺄 수도 바꿀 수도 없습니다.
+    """
     settings = get_settings()
     if not all([settings.cloudinary_cloud_name, settings.cloudinary_api_key, settings.cloudinary_api_secret]):
         raise HTTPException(503, "Cloudinary 설정이 아직 완료되지 않았습니다.")
     assert db is not None
     timestamp = int(time.time())
     folder = f"shape/resources/{user.id}"
-    params = f"folder={folder}&timestamp={timestamp}"
+    allowed_formats = ",".join(RAW_EXTENSIONS)
+    # Cloudinary 는 정렬한 인자 문자열 뒤에 시크릿을 붙여 SHA-1 을 냅니다.
+    params = f"allowed_formats={allowed_formats}&folder={folder}&timestamp={timestamp}"
     signature = hashlib.sha1(f"{params}{settings.cloudinary_api_secret}".encode()).hexdigest()
     return {
         "timestamp": timestamp, "folder": folder, "signature": signature,
         "apiKey": settings.cloudinary_api_key, "cloudName": settings.cloudinary_cloud_name,
+        "allowedFormats": allowed_formats,
         "maxFileSize": RAW_MAX_BYTES, "allowedExtensions": list(RAW_EXTENSIONS),
     }
 

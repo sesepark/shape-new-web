@@ -17,6 +17,7 @@ import httpx
 
 TIMEOUT = 5.0
 MAX_BYTES = 512_000
+MAX_REDIRECTS = 4
 USER_AGENT = "Mozilla/5.0 (compatible; SHAPEBot/1.0; +https://www.snu-shape.com)"
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
@@ -58,6 +59,52 @@ def routable(host: str) -> bool:
         if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast:
             return False
     return bool(infos)
+
+
+def reachable(url: str) -> bool:
+    """바깥 주소인지. 형식과 주소를 함께 봅니다."""
+    parsed = urlparse(url)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and routable(parsed.hostname or "")
+
+
+async def read_page(client: httpx.AsyncClient, url: str) -> tuple[str, str] | None:
+    """리다이렉트를 **한 칸씩 따라가며** 매번 주소를 다시 보고, 본문 앞머리만 읽습니다.
+
+    `follow_redirects=True` 로 맡기면 위의 `routable` 검사가 **첫 주소에만** 걸립니다.
+    바깥 서버가 `http://169.254.169.254/`(클라우드 메타데이터)나 `http://127.0.0.1`
+    로 돌려보내면 우리 서버가 그 주소를 대신 열어 주고, 읽어 온 내용이 미리보기
+    카드에 그대로 실립니다. 이 창구는 소식 관리 권한이 있어야 부를 수 있지만,
+    "누가 부르는가" 와 "무엇을 열어 주는가" 는 다른 문제입니다.
+
+    그래서 자동 따라가기를 끄고 한 칸씩 갑니다. 옮겨 간 주소가 사설·loopback 이면
+    거기서 멈춥니다.
+
+    본문은 여전히 흘려 받으며 `MAX_BYTES` 에서 끊습니다. 우리가 찾는 것은 `<head>`
+    안의 몇 줄뿐인데, 통째로 받으면 상대가 보내는 만큼 우리 메모리가 늘어납니다.
+
+    돌려주는 값은 (본문, 내용 형식) 이고, 열 수 없으면 None 입니다.
+    """
+    for _ in range(MAX_REDIRECTS + 1):
+        async with client.stream("GET", url) as response:
+            if response.is_redirect:
+                location = response.headers.get("location", "")
+                if not location:
+                    return None
+                url = str(httpx.URL(url).join(location))
+                if not reachable(url):
+                    return None
+                continue
+            response.raise_for_status()
+            kind = response.headers.get("content-type", "")
+            if "html" not in kind:
+                return "", kind
+            body = b""
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) >= MAX_BYTES:
+                    break
+            return body.decode(response.encoding or "utf-8", errors="replace"), kind
+    return None
 
 
 class MetaReader(HTMLParser):
@@ -160,17 +207,13 @@ async def build(url: str | None) -> dict:
     if not routable(parsed.hostname or ""):
         return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unreachable", "url": url}
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, max_redirects=4, headers={"User-Agent": USER_AGENT, "Accept-Language": "ko,en;q=0.8"}) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                if "html" not in response.headers.get("content-type", ""):
-                    return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unsupported", "url": url}
-                body = b""
-                async for chunk in response.aiter_bytes():
-                    body += chunk
-                    if len(body) >= MAX_BYTES:
-                        break
-                html = body.decode(response.encoding or "utf-8", errors="replace")
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT, "Accept-Language": "ko,en;q=0.8"}) as client:
+            page = await read_page(client, url)
+            if not page:
+                return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unreachable", "url": url}
+            html, kind = page
+            if "html" not in kind:
+                return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unsupported", "url": url}
     except (httpx.HTTPError, UnicodeDecodeError):
         # 영상·인스타그램은 페이지를 못 읽어도 화면 안에서 재생할 수 있다.
         return {"status": "embed", "url": url, "embed": embed} if embed else {"status": "unreachable", "url": url}

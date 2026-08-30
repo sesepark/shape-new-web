@@ -334,6 +334,76 @@ async def test_flood_guard_rejects_bursts(client, session):
     assert codes[3:] == [429, 429]
 
 
+async def test_flood_guard_counts_the_address_the_proxy_vouches_for(client):
+    """스스로 지어낸 `X-Forwarded-For` 로는 한도를 비켜 갈 수 없습니다.
+
+    `X-Forwarded-For` 의 맨 앞 값은 보내는 쪽이 그냥 적어 넣을 수 있습니다. 그것만
+    보고 세면, 요청마다 다른 가짜 주소를 적는 것만으로 한도가 통째로 무의미해집니다.
+    앞단(Cloudflare)이 덮어써 주는 칸이 있으면 그것을 먼저 봅니다.
+    """
+    for guard in CostGuardMiddleware.instances:
+        guard.buckets.clear()
+        guard.settings.rate_limit_read_per_minute = 3
+    try:
+        codes = [
+            (await client.get("/api/v1/equipment", headers={
+                "cf-connecting-ip": "203.0.113.7",
+                "x-forwarded-for": f"198.51.100.{index}",
+            })).status_code
+            for index in range(5)
+        ]
+    finally:
+        for guard in CostGuardMiddleware.instances:
+            guard.settings.rate_limit_read_per_minute = 5000
+            guard.buckets.clear()
+    assert codes[:3] == [200, 200, 200]
+    assert codes[3:] == [429, 429]
+
+
+async def test_a_redirect_into_the_private_network_is_refused(monkeypatch):
+    """바깥 주소가 사설 주소로 돌려보내면 거기서 멈춥니다.
+
+    첫 주소만 보고 나머지를 httpx 의 자동 따라가기에 맡기면, 상대가 302 로
+    `http://127.0.0.1` 을 가리키는 것만으로 우리 서버 안쪽을 대신 열어 주게 됩니다.
+    """
+    import httpx as web
+
+    from app.services import link_preview
+
+    def resolve(host, port, *args, **kwargs):
+        # 바깥 주소는 공개 IP 로, 그 밖에는 적힌 그대로 본다.
+        return [(2, 1, 6, "", ("93.184.216.34" if host == "news.example.com" else host, 0))]
+
+    def answer(request: web.Request) -> web.Response:
+        if request.url.host == "news.example.com":
+            return web.Response(302, headers={"location": "http://127.0.0.1:8000/secret"})
+        return web.Response(200, headers={"content-type": "text/html"}, text="<html><head><title>안쪽</title></head></html>")
+
+    real = web.AsyncClient
+    monkeypatch.setattr(link_preview.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(link_preview.httpx, "AsyncClient", lambda **options: real(**options, transport=web.MockTransport(answer)))
+    assert (await link_preview.build("https://news.example.com/a"))["status"] == "unreachable"
+
+
+async def test_profile_and_resource_urls_must_be_ordinary_links(client, session):
+    """사진·파일 주소 칸에 `javascript:` 같은 것이 저장되지 않습니다.
+
+    이 값들은 화면에서 `<img src>` 와 `<a href>` 로 그대로 나갑니다. 막아 주는 것이
+    화면 라이브러리 하나뿐인 상태를 안전하다고 부를 수 없어 저장하는 자리에서
+    거릅니다. 평범한 https 주소와 우리 사이트 안의 경로는 그대로 통과합니다.
+    """
+    member = await make_user(session, "member@example.com")
+    http = login(client, member)
+    for bad in ("javascript:alert(1)", "data:text/html,<script>x</script>", "//evil.example/x.png"):
+        assert (await http.patch("/api/v1/auth/me", json={"name": "부원", "imageUrl": bad})).status_code == 422, bad
+    fine = await http.patch("/api/v1/auth/me", json={"name": "부원", "imageUrl": "/figs/member.jpg"})
+    assert fine.status_code == 200 and fine.json()["imageUrl"] == "/figs/member.jpg"
+    refused = await http.post("/api/v1/resources", json={
+        "title": "자료", "category": "기타", "fileUrl": "javascript:alert(1)", "isPublic": True,
+    })
+    assert refused.status_code == 422
+
+
 async def test_oversized_body_is_rejected(client, session):
     editor = await make_user(session, "editor@example.com", permissions=["content:manage"])
     http = login(client, editor)
@@ -604,8 +674,12 @@ async def test_document_upload_signature(client, session):
     response = await http.post("/api/v1/media/file-signature")
     assert response.status_code == 200, response.text
     data = response.json()
-    params = f"folder={data['folder']}&timestamp={data['timestamp']}"
+    # 받아도 되는 형식이 **서명 안에** 들어 있어야 합니다. 서명이 폴더와 시각만
+    # 담고 있으면 같은 서명으로 무엇이든 올릴 수 있어서, 화면의 확인은 개발자
+    # 도구로 요청을 한 번 고치는 것으로 지나갑니다.
+    params = f"allowed_formats={data['allowedFormats']}&folder={data['folder']}&timestamp={data['timestamp']}"
     assert data["signature"] == hashlib.sha1(f"{params}secret".encode()).hexdigest()
+    assert "pdf" in data["allowedFormats"].split(",") and "html" not in data["allowedFormats"].split(",")
     assert "pdf" in data["allowedExtensions"] and data["maxFileSize"] == 10 * 1024 * 1024
 
 
