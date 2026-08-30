@@ -7,6 +7,7 @@ import { ShapeUpOwnerActions } from "@/components/shape-up-owner-actions";
 import { allShapeUp, api, itemOrNull } from "@/lib/api";
 import { date } from "@/lib/format";
 import { media, optimizable } from "@/lib/media";
+import { MathContent } from "@/components/math-content";
 import { youtubeEmbed } from "@/lib/youtube";
 import type { ShapeUpBlock } from "@/lib/types";
 
@@ -32,17 +33,27 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 /**
  * 글 한 토막.
  *
- * 자유 편집기가 아니라 **정해진 칸**이라 태그가 들어올 자리가 없습니다. 줄바꿈만
- * 살리면 되므로 `white-space: pre-line` 을 쓰고, HTML 을 그대로 심지 않습니다.
- * 비어 있으면 제목까지 통째로 사라집니다 — 채우지 않은 칸이 빈 제목만 남기고
- * 서 있으면 미완성으로 보입니다.
+ * 게시판·소식과 **같은 편집기**로 쓴 글이라 값이 HTML 입니다. 서버가
+ * `sanitize_html` 로 걸러 담고, 내보낼 때 `DeliveredHtml` 이 본문에 박힌 사진
+ * 주소에 축소 규칙을 한 번 더 붙입니다. 그리는 방식도 소식 상세와 같게
+ * `rich-content` 를 씁니다 — 같은 도구로 쓴 글이 화면마다 다르게 보이면 안
+ * 됩니다.
+ *
+ * 비어 있으면 제목까지 통째로 사라집니다. 편집기는 빈 글에도 `<p></p>` 를
+ * 돌려주므로 **글자가 실제로 있는지**를 봐야 합니다 — 그러지 않으면 채우지
+ * 않은 칸이 빈 제목만 남기고 서서 미완성으로 보입니다.
  */
+function written(html: string): boolean {
+  if (/<img\b/i.test(html)) return true;
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0;
+}
+
 function Section({ id, title, body }: { id: string; title: string; body: string }) {
-  if (!body.trim()) return null;
+  if (!written(body)) return null;
   return (
     <section className="paper-section" id={id}>
       <h2>{title}</h2>
-      <p className="paper-prose">{body}</p>
+      <div className="rich-content paper-prose" dangerouslySetInnerHTML={{ __html: body }} />
     </section>
   );
 }
@@ -55,8 +66,11 @@ function Section({ id, title, body }: { id: string; title: string; body: string 
  */
 function Block({ block, index }: { block: ShapeUpBlock; index: number }) {
   const embed = youtubeEmbed(block.video);
+  // 그림도 영상도 없으면 캡션이 아니라 그냥 글입니다. 작은 회색 글씨로 두면
+  // 본문과 위계가 어긋나 보입니다 — 무엇 아래 붙은 설명인지가 없으니까요.
+  const alone = !embed && !block.image;
   return (
-    <figure className="paper-block">
+    <figure className={`paper-block${alone ? " text-only" : ""}`}>
       {embed ? (
         <div className="paper-embed">
           <iframe
@@ -176,6 +190,9 @@ export default async function ShapeUpDetailPage({ params }: { params: Promise<{ 
         <Blocks id="method" title="방법" blocks={item.methodBlocks} />
         <Blocks id="results" title="결과" blocks={item.resultBlocks} />
         <Section id="limitations" title="한계와 다음 과제" body={item.limitations} />
+        {/* 편집기가 담은 수식은 LaTeX 원문입니다. 소식 상세와 같이 화면에서
+            KaTeX 로 그립니다. 세 칸을 한 번에 넘겨 한 번만 훑습니다. */}
+        <MathContent html={`${item.abstract}${item.problem}${item.limitations}`} />
       </article>
     </PageShell>
   );

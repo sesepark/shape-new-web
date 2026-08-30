@@ -920,9 +920,12 @@ class ShapeUpDetailRead(ShapeUpRead):
     """
 
     slides_url: str | None = None
-    abstract: str = ""
-    problem: str = ""
-    limitations: str = ""
+    # 글쓰기 도구가 게시판·소식과 같은 편집기라 값이 HTML 입니다. `DeliveredHtml`
+    # 은 본문에 박힌 Cloudinary 주소에 줄이는 규칙을 한 번 더 붙입니다 — 규칙이
+    # 생기기 전에 저장된 글까지 덮기 위한 자리입니다(`NewsDetailRead` 와 같음).
+    abstract: DeliveredHtml = ""
+    problem: DeliveredHtml = ""
+    limitations: DeliveredHtml = ""
     method_blocks: list[ShapeUpBlockRead] = Field(default_factory=list)
     result_blocks: list[ShapeUpBlockRead] = Field(default_factory=list)
 
@@ -943,9 +946,14 @@ class ShapeUpWrite(InputModel):
     github_url: HttpUrl | None = None
     video_url: HttpUrl | None = None
     slides_url: HttpUrl | None = None
-    abstract: str = Field(default="", max_length=4000)
-    problem: str = Field(default="", max_length=4000)
-    limitations: str = Field(default="", max_length=4000)
+    # 게시판·소식과 같은 편집기를 쓰므로 값이 HTML 입니다. 태그가 붙는 만큼
+    # 같은 분량의 글이 서너 배로 불어나므로 상한을 글자 수가 아니라 **본문 크기**로
+    # 봅니다. 게시판(`MemberNoticeWrite`)은 상한이 없지만, 여기는 한 글에 칸이
+    # 셋이라 어느 정도 울타리를 둡니다. 미들웨어의 요청 크기 한도(2MB)가 그
+    # 바깥 울타리입니다.
+    abstract: str = Field(default="", max_length=60_000)
+    problem: str = Field(default="", max_length=60_000)
+    limitations: str = Field(default="", max_length=60_000)
     method_blocks: list[ShapeUpBlock] = Field(default_factory=list, max_length=12)
     result_blocks: list[ShapeUpBlock] = Field(default_factory=list, max_length=12)
 

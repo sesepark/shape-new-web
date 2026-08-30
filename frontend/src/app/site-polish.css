@@ -5470,11 +5470,29 @@ html:has(.shape-home) { scroll-padding-top: 0; }
 .paper-section > h2 {
   margin: 0 0 16px; font-size: 22px; font-weight: 900; letter-spacing: -.045em;
 }
-/* 자유 편집기가 아니라 정해진 칸이라 태그가 없습니다. 줄바꿈만 살립니다. */
+/* 게시판·소식과 같은 편집기로 쓴 글이라 값이 HTML 입니다. 서식은 `.rich-content`
+   가 그리고, 여기서는 논문 페이지의 폭·색만 맞춥니다. `white-space: pre-line`
+   을 쓰지 않습니다 — HTML 에서는 태그 사이의 줄바꿈까지 빈 줄로 보입니다. */
 .paper-prose {
-  margin: 0; color: #3b4250; font-size: 16px; line-height: 1.85;
-  white-space: pre-line; word-break: keep-all; overflow-wrap: anywhere;
+  margin: 0; color: #3b4250; word-break: keep-all; overflow-wrap: anywhere;
 }
+/* 소식 상세와 같은 글 크기로. 첫 문단의 위 여백만 덜어 제목에 붙입니다. */
+.paper-prose > :first-child { margin-top: 0; }
+.paper-prose > :last-child { margin-bottom: 0; }
+
+/* 팀이 본문 안에 넣은 제목은 **논문 페이지의 칸 제목보다 작아야** 합니다.
+   `.rich-content` 의 기본은 h2 가 32px 인데 이 화면의 칸 제목(초록·방법 …)이
+   22px 이라, 그대로 두면 팀이 h2 를 하나 넣는 순간 위계가 뒤집힙니다.
+   한 단계씩 낮춰 칸 제목 아래로 들어가게 합니다. */
+.paper-prose h1 { margin: 30px 0 14px; font-size: 20px; }
+.paper-prose h2 { margin: 28px 0 12px; font-size: 18px; }
+.paper-prose h3 { margin: 24px 0 10px; font-size: 16px; }
+.paper-prose > h1:first-child,
+.paper-prose > h2:first-child,
+.paper-prose > h3:first-child { margin-top: 0; }
+/* 폭은 바깥 상자(`.paper`)가 정합니다. 안에서 또 가운데로 모으면 글이 칸
+   제목과 어긋난 자리에서 시작합니다. */
+.paper-prose { max-width: none; margin-inline: 0; }
 
 .paper-blocks { display: grid; gap: 34px; }
 .paper-block { margin: 0; }
@@ -5483,12 +5501,18 @@ html:has(.shape-home) { scroll-padding-top: 0; }
   margin-top: 12px; color: #69717f; font-size: 14px; line-height: 1.7;
   white-space: pre-line; word-break: keep-all;
 }
+/* 그림도 영상도 없는 덩이. 캡션이 아니라 본문이므로 본문처럼 그립니다.
+   작은 회색 글씨로 두면 무엇 아래 붙은 설명인지 없이 떠 있게 됩니다. */
+.paper-block.text-only figcaption {
+  margin-top: 0; color: #3b4250; font-size: 16px; line-height: 1.85;
+}
 
 @media (max-width: 680px) {
   .paper-hero, .paper-embed, .paper-block img { border-radius: 12px; }
   .paper-section { margin-top: 34px; }
   .paper-section > h2 { font-size: 19px; }
-  .paper-prose { font-size: 15px; }
+  /* 글 크기는 `.rich-content` 가 정합니다. 여기서 덮으면 같은 편집기로
+     쓴 글이 화면마다 다른 크기로 보입니다. */
   .paper-blocks { gap: 26px; }
   /* 좁은 화면에서 단추 셋이 서로 붙으면 잘못 눌립니다. */
   .paper-links .button { flex: 1 1 auto; justify-content: center; }

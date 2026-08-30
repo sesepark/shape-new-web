@@ -75,7 +75,12 @@ COLUMNS = [
     # 그림 주소가 그 JSON 안에 들어 있으므로 반드시 여기서 함께 읽어야 합니다.
     # 빠뜨리면 **쓰이고 있는 그림이 전부 고아로 판정되어 지워집니다.**
     # `_source_sql` 이 text 로 눕히므로 JSON 이어도 같은 규칙으로 훑힙니다.
-    (ShapeUpPost.cover_image, ShapeUpPost.method_blocks, ShapeUpPost.result_blocks),
+    # SHAPE-UP 은 그림 주소가 네 곳에 흩어져 있습니다 — 표지, 방법·결과 덩이의
+    # JSON, 그리고 **초록·문제 설정·한계 본문 안에 박힌 것**. 본문은 게시판과
+    # 같은 편집기로 쓰므로 사진을 끼워 넣을 수 있습니다.
+    # 하나라도 빠뜨리면 **쓰이고 있는 그림이 고아로 판정되어 지워집니다.**
+    (ShapeUpPost.cover_image, ShapeUpPost.method_blocks, ShapeUpPost.result_blocks,
+     ShapeUpPost.abstract, ShapeUpPost.problem, ShapeUpPost.limitations),
     (ContentPage.content_html, ContentPage.content_json),
     (Reservation.before_photo_url, Reservation.after_photo_url),
     (Resource.file_url,),

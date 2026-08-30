@@ -771,9 +771,10 @@ async def test_shape_up_results_are_public_but_member_written(client, session):
         "githubUrl": "https://github.com/snu-shape/walk-on",
         "videoUrl": "https://youtu.be/dQw4w9WgXcQ",
         "slidesUrl": "https://drive.google.com/file/d/abc/view",
-        "abstract": "  시뮬레이터에서 학습한 정책을 실물 로봇으로 옮겼습니다.  ",
-        "problem": "sim-to-real 격차 때문에 실물에서 넘어졌습니다.",
-        "limitations": "거친 바닥은 아직 못 걷습니다.",
+        # 초록·문제 설정·한계는 게시판·소식과 같은 편집기로 쓰므로 HTML 이다.
+        "abstract": "<p>시뮬레이터에서 학습한 <strong>정책</strong>을 옮겼습니다.</p><script>alert(1)</script>",
+        "problem": "<p>sim-to-real 격차 때문에 실물에서 넘어졌습니다.</p>",
+        "limitations": "<ul><li>거친 바닥은 아직 못 걷습니다.</li></ul>",
         "methodBlocks": [
             {"image": "https://res.cloudinary.com/demo/image/upload/v1/m1.webp", "caption": "  구조도  "},
             {"image": None, "video": None, "caption": "   "},
@@ -792,7 +793,10 @@ async def test_shape_up_results_are_public_but_member_written(client, session):
     assert post["authorName"] == "member" and post["canEdit"] is True
     # 앞뒤 공백은 떼고, 아무것도 안 채운 덩이는 버린다. 화면에서 '블록 추가' 를
     # 누르고 그냥 저장하는 일이 흔하다.
-    assert post["abstract"] == "시뮬레이터에서 학습한 정책을 실물 로봇으로 옮겼습니다."
+    # 편집기가 보낸 것을 그대로 믿지 않는다. 서식은 살리고 스크립트는 걷어낸다.
+    assert "<strong>정책</strong>" in post["abstract"]
+    assert "script" not in post["abstract"]
+    assert "<li>" in post["limitations"]
     assert len(post["methodBlocks"]) == 1
     assert post["methodBlocks"][0]["caption"] == "구조도"
     assert post["resultBlocks"][0]["video"] == "https://youtu.be/abcdefghijk"
@@ -1725,6 +1729,34 @@ async def test_shape_up_그림_주소는_고아_정리에서_살아남는다(cli
     row = await session.scalar(select(ShapeUpPost))
     # 고아 정리기가 읽는 칸들을 그대로 훑어 본다(SQLite 에서도 도는 파이썬 쪽 규칙).
     assert used in _urls(row.cover_image, row.method_blocks, row.result_blocks)
+
+
+async def test_shape_up_본문에_박은_사진도_고아_정리에서_살아남는다(client, session):
+    """초록·문제 설정·한계는 편집기로 쓰므로 사진을 끼워 넣을 수 있다.
+
+    그 주소를 `media_sweep` 이 읽는 칸에 넣지 않으면 **쓰이고 있는 그림이
+    고아로 판정되어 지워진다.** 덩이만 챙기고 본문을 빠뜨리기 쉬운 자리다.
+    """
+    from app.services.media_sweep import COLUMNS, referenced
+
+    member = await make_user(session, "inline@example.com")
+    # 저장할 때 `sanitize_html` 이 주소에 축소 규칙(`f_auto,q_auto,…`)을 붙이므로
+    # 담기는 주소는 이것과 다르다. 정리기는 `public_id_of` 로 변환 조각을 떼어
+    # 이름만 견주므로 그래도 맞는다 — 그 사실까지 함께 확인한다.
+    shot = "https://res.cloudinary.com/demo/image/upload/v1/shape/news/inline.webp"
+    made = await login(client, member).post("/api/v1/shape-up", json={
+        "title": "결과물", "summary": "요약",
+        "abstract": f'<p>구조도입니다.</p><img src="{shot}" alt="">',
+    })
+    assert made.status_code == 201, made.text
+
+    assert "shape/news/inline" in await referenced(session)
+
+    # 정리기가 **실제로 그 칸을 읽도록** 등록돼 있는지까지 본다. 위 확인만으로는
+    # 지금 통과할 뿐, 다음에 칸이 늘었을 때 빠뜨린 것을 잡지 못한다.
+    watched = {column.property.columns[0].name for group in COLUMNS for column in group
+               if column.property.columns[0].table.name == "shape_up_posts"}
+    assert {"abstract", "problem", "limitations"} <= watched, watched
 
 
 async def test_a_name_changed_on_shape_survives_the_next_login(client, session):

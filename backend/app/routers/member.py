@@ -852,17 +852,26 @@ def shape_up_blocks(blocks) -> list[dict]:
 def shape_up_payload(payload: ShapeUpWrite) -> dict:
     """제출한 값을 그대로 저장할 수 있는 모양으로.
 
-    예전에는 본문이 자유 편집기(`content_html`)여서 `sanitize_html` 로 태그를
-    걸러 냈습니다. 지금은 **화면이 그리는 것을 서버가 정하므로** 글 칸에 태그가
-    들어갈 자리가 없습니다. 글은 글로만 저장하고, 줄바꿈만 화면이 살립니다.
+    초록·문제 설정·한계는 게시판·소식과 **같은 편집기**로 씁니다. 사이트 안에서
+    글쓰기 도구가 화면마다 다르면 배우는 것이 두 벌이 되기 때문입니다. 값이
+    HTML 이므로 `sanitize_html` 로 걸러 냅니다.
+
+    나머지(제목·요약·기수·팀·덩이 설명)는 글자 그대로 둡니다. 요약은 검색
+    설명으로 나가고, 덩이 설명은 그림 아래 한 줄이라 제목이나 표가 들어가면
+    논문 페이지의 짜임이 깨집니다.
     """
     data = payload.model_dump()
     for link in ("github_url", "video_url", "slides_url"):
         value = getattr(payload, link)
         data[link] = str(value) if value else None
     data["team_members"] = [name.strip() for name in payload.team_members if name.strip()]
-    for field in ("abstract", "problem", "limitations", "summary"):
-        data[field] = (data.get(field) or "").strip()
+    # 한 줄 요약은 목록 카드와 검색 설명(`<meta description>`)에 그대로 실리므로
+    # 글자 그대로 둡니다. 태그가 섞이면 검색 결과에 태그가 보입니다.
+    data["summary"] = (data.get("summary") or "").strip()
+    # 나머지 셋은 게시판·소식과 같은 편집기로 쓰므로 HTML 입니다. 편집기가 보낸
+    # 것을 그대로 믿지 않고 걸러 냅니다 — 회원이 쓰는 공개 글입니다.
+    for field in ("abstract", "problem", "limitations"):
+        data[field] = sanitize_html(data.get(field) or "")
     data["method_blocks"] = shape_up_blocks(payload.method_blocks)
     data["result_blocks"] = shape_up_blocks(payload.result_blocks)
     # 대표 그림 칸도 같은 함정이 있습니다. 유튜브 주소를 넣었으면 대표 영상으로

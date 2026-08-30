@@ -5,12 +5,24 @@ import { ArrowLeft, GripVertical, Plus, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AutoTextarea, LONG_FORM_ROWS } from "@/components/auto-textarea";
+import { RichTextEditor } from "@/components/rich-text-editor";
 import { ImageUploadField } from "@/components/image-upload-field";
 import { DraftNotice, DraftSaved } from "@/components/draft-notice";
 import { board, boardError, boardSend } from "@/lib/board";
 import { useDraft } from "@/lib/draft";
 import { youtubeId } from "@/lib/youtube";
 import type { ShapeUpBlock, ShapeUpDetail } from "@/lib/types";
+
+/**
+ * 편집기가 돌려준 HTML 에 **글자가 실제로 있는지**.
+ *
+ * 빈 편집기도 `<p></p>` 를 돌려주므로 문자열이 비었는지로는 알 수 없습니다.
+ * 사진만 넣고 글을 안 쓴 경우도 내용이 있는 것으로 봅니다.
+ */
+function written(html: string): boolean {
+  if (/<img\b/i.test(html)) return true;
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0;
+}
 
 /** 방법·결과 각각 담을 수 있는 덩이 수. 백엔드 `ShapeUpWrite` 와 같아야 합니다. */
 const MAX_BLOCKS = 12;
@@ -198,8 +210,11 @@ export function ShapeUpEditor() {
    * 세지 않습니다.
    */
   const dirty = Boolean(
-    title.trim() || summary.trim() || teamName.trim() || abstract.trim() || problem.trim() ||
-    limitations.trim() || coverImage || githubUrl.trim() || videoUrl.trim() || slidesUrl.trim() ||
+    title.trim() || summary.trim() || teamName.trim() ||
+    // 편집기는 빈 글에도 `<p></p>` 같은 껍데기를 돌려줍니다. 글자가 실제로
+    // 있는지로 봐야 "쓰다 만 글이 있다" 가 거짓말이 되지 않습니다.
+    [abstract, problem, limitations].some(written) ||
+    coverImage || githubUrl.trim() || videoUrl.trim() || slidesUrl.trim() ||
     members.some((name) => name.trim()) ||
     [...methodBlocks, ...resultBlocks].some((b) => (b.image ?? "").trim() || (b.video ?? "").trim() || b.caption.trim()),
   );
@@ -245,9 +260,11 @@ export function ShapeUpEditor() {
       githubUrl: githubUrl.trim() || null,
       videoUrl: videoUrl.trim() || null,
       slidesUrl: slidesUrl.trim() || null,
-      abstract: abstract.trim(),
-      problem: problem.trim(),
-      limitations: limitations.trim(),
+      // 껍데기만 남은 칸은 빈 값으로 보냅니다. 그러지 않으면 화면이 `<p></p>`
+      // 하나를 받고 "내용이 있다" 고 여겨 빈 제목을 그립니다.
+      abstract: written(abstract) ? abstract : "",
+      problem: written(problem) ? problem : "",
+      limitations: written(limitations) ? limitations : "",
       methodBlocks: packed(methodBlocks),
       resultBlocks: packed(resultBlocks),
     };
@@ -350,14 +367,18 @@ export function ShapeUpEditor() {
           <p className="field-hint">유튜브 주소네요 — <b>저장하면 위의 대표 영상으로 옮겨집니다.</b></p>
         )}
 
-        <label>
-          초록
-          <AutoTextarea value={abstract} maxLength={4000} minRows={4} maxRows={LONG_FORM_ROWS} placeholder="이 결과물을 한 문단으로. 무엇을 목표로 했고, 어떻게 했고, 무엇을 얻었는지." onChange={setAbstract} />
-        </label>
-        <label>
-          문제 설정
-          <AutoTextarea value={problem} maxLength={4000} minRows={4} maxRows={LONG_FORM_ROWS} placeholder="왜 이 문제를 골랐고, 무엇이 어려운 점이었는지." onChange={setProblem} />
-        </label>
+        {/* 게시판·소식과 **같은 편집기**입니다. 사이트 안에서 글쓰기 도구가
+            화면마다 다르면 배우는 것이 두 벌이 됩니다. 편집기를 <label> 로
+            감싸지 않는 이유는 `notice-editor.tsx` 에 적어 두었습니다 — label 을
+            누르면 브라우저가 도구 막대의 첫 단추로 초점을 끌어갑니다. */}
+        <div className="field-block">
+          <span className="field-label">초록</span>
+          <RichTextEditor value={abstract} onChange={setAbstract} purpose="news" placeholder="이 결과물을 한 문단으로. 무엇을 목표로 했고, 어떻게 했고, 무엇을 얻었는지." />
+        </div>
+        <div className="field-block">
+          <span className="field-label">문제 설정</span>
+          <RichTextEditor value={problem} onChange={setProblem} purpose="news" placeholder="왜 이 문제를 골랐고, 무엇이 어려운 점이었는지. 그림·표·수식을 함께 넣을 수 있습니다." />
+        </div>
 
         <BlockEditor
           label="방법"
@@ -372,10 +393,10 @@ export function ShapeUpEditor() {
           onChange={setResultBlocks}
         />
 
-        <label>
-          한계와 다음 과제
-          <AutoTextarea value={limitations} maxLength={4000} minRows={4} maxRows={LONG_FORM_ROWS} placeholder="아직 안 되는 것과 다음 기수가 이어서 할 만한 것. 여기가 다음 팀에게 가장 도움이 됩니다." onChange={setLimitations} />
-        </label>
+        <div className="field-block">
+          <span className="field-label">한계와 다음 과제</span>
+          <RichTextEditor value={limitations} onChange={setLimitations} purpose="news" placeholder="아직 안 되는 것과 다음 기수가 이어서 할 만한 것. 여기가 다음 팀에게 가장 도움이 됩니다." />
+        </div>
 
         <div className="admin-actions">
           <button type="button" className="button" disabled={busy} onClick={submit}>
